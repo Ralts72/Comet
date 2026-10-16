@@ -25,7 +25,7 @@ namespace Comet {
         Json::Node node, const Json::Context& context, std::string_view location) {
         using Read = Result<QualitySettings>;
         if(auto valid = context.validate_keys(
-               node, {"msaa_samples", "max_anisotropy", "render_scale"}, location);
+               node, {"msaa_samples", "max_anisotropy", "render_scale", "temporal_aa"}, location);
             !valid)
             return Read::failure(valid.error());
         auto samples =
@@ -39,6 +39,11 @@ namespace Comet {
         if(!scale)
             return Read::failure(scale.error());
         QualitySettings settings{samples.value(), anisotropy.value(), scale.value()};
+        auto temporal =
+            context.read_optional_field<bool>(node, "temporal_aa", "a boolean", location);
+        if(!temporal)
+            return Read::failure(temporal.error());
+        settings.temporal_aa = temporal.value().value_or(false);
         if(auto valid = settings.validate(); !valid)
             return Read::failure(context.error(location, valid.error()));
         return Read::success(settings);
@@ -49,6 +54,7 @@ namespace Comet {
         writer.field("msaa_samples", uint64_t(msaa_samples));
         writer.field("max_anisotropy", max_anisotropy);
         writer.field("render_scale", render_scale);
+        writer.field("temporal_aa", temporal_aa);
         writer.end_object();
     }
 }

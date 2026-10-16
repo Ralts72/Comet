@@ -202,6 +202,8 @@ namespace Comet {
         for(auto& volume : world.irradiance_volumes)
             volume.resource =
                 m_asset_registry.resolve<Irradiance>(volume.volume.irradiance, &volume.revision);
+        for(auto& decal : world.decals)
+            decal.texture = m_asset_registry.resolve<Texture>(decal.decal.texture);
         if(world.environment_resource) {
             const auto environment_revision =
                 m_asset_registry.get_revision(world.environment.asset);
@@ -296,6 +298,14 @@ namespace Comet {
             resolved.probe = probe;
         }
         world.post_process = render_scene.post_process;
+        world.decals.resize(render_scene.decals.size());
+        for(std::size_t index = 0; index < render_scene.decals.size(); ++index) {
+            const auto& decal = render_scene.decals[index];
+            auto& resolved = world.decals[index];
+            if(resolved.decal.texture != decal.texture || !resolved.texture)
+                resolved.texture = m_asset_registry.resolve<Texture>(decal.texture);
+            resolved.decal = decal;
+        }
         resolve_particles(render_scene, world);
         resolve_environment(render_scene, world);
         const auto& items = render_scene.render_items;

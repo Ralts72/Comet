@@ -1,3 +1,8 @@
+#ifndef COMET_FORWARD_LIGHTING_GLSL
+#define COMET_FORWARD_LIGHTING_GLSL
+#ifndef COMET_SHADOW_PCF_RADIUS
+#define COMET_SHADOW_PCF_RADIUS 1
+#endif
 const int LIGHT_DIRECTIONAL = 0;
 const int LIGHT_POINT = 1;
 const int LIGHT_SPOT = 2;
@@ -44,7 +49,7 @@ layout(set = 0, binding = 1, std140) uniform LightingData {
     float point_shadow_count;
     float excess_point_shadows;
     vec2 shadow_reserved;
-    mat4 ao_inverse_view_projection;
+    mat4 inverse_view_projection;
     vec4 ao_parameters;
     vec4 environment; // intensity, max LOD, sin(rotation), cos(rotation)
     ReflectionProbe reflection_probes[4];
@@ -52,6 +57,7 @@ layout(set = 0, binding = 1, std140) uniform LightingData {
     vec4 irradiance_origin; // first cell center, intensity (zero disables GI)
     vec4 irradiance_spacing_bias;
     vec4 irradiance_dimensions;
+    vec4 fog_parameters;
 } lighting;
 layout(set = 0, binding = 2) uniform sampler2D shadow_map;
 
@@ -83,8 +89,8 @@ float sample_shadow_view(int shadow_view, vec3 position, vec3 position_dx, vec3 
     // Compensate nearest-texel quantization on the receiver plane.
     bias += 0.5 * shadow.texel_size * dot(abs(depth_gradient), vec2(1.0));
     float visible = 0.0;
-    for(int y = -1; y <= 1; ++y) {
-        for(int x = -1; x <= 1; ++x) {
+    for(int y = -COMET_SHADOW_PCF_RADIUS; y <= COMET_SHADOW_PCF_RADIUS; ++y) {
+        for(int x = -COMET_SHADOW_PCF_RADIUS; x <= COMET_SHADOW_PCF_RADIUS; ++x) {
             vec2 offset = vec2(x, y) * shadow.texel_size;
             vec2 sample_uv = uv + offset;
             if(any(lessThan(sample_uv, vec2(0.0))) || any(greaterThan(sample_uv, vec2(1.0))))
@@ -100,7 +106,7 @@ float sample_shadow_view(int shadow_view, vec3 position, vec3 position_dx, vec3 
             }
         }
     }
-    return visible / 9.0;
+    return visible / float((2 * COMET_SHADOW_PCF_RADIUS + 1) * (2 * COMET_SHADOW_PCF_RADIUS + 1));
 }
 
 // Same +X, -X, +Y, -Y, +Z, -Z order as LightingData; guard texels cover PCF across seams.
@@ -182,3 +188,4 @@ bool sample_light(int index, vec3 position, out vec3 direction, out vec3 radianc
     radiance = light.color * light.intensity * attenuation;
     return true;
 }
+#endif

@@ -107,6 +107,18 @@ namespace Comet {
         float repath_interval = 0.4f;
         bool operator==(const NavigationAgentComponent&) const = default;
     };
+    struct COMET_API NavigationObstacleComponent {
+        bool enabled = true;
+        Math::Vec3 half_extents{0.5f, 1, 0.5f};
+        bool operator==(const NavigationObstacleComponent&) const = default;
+    };
+    struct COMET_API NavigationLinkComponent {
+        // 起点为实体原点，终点使用实体本地坐标；连接参与离线导航产品的输入身份。
+        Math::Vec3 end{0, 0, 2};
+        float radius = 0.5f;
+        bool bidirectional = true;
+        bool operator==(const NavigationLinkComponent&) const = default;
+    };
 
     struct COMET_API CharacterAnimationComponent {
         EntityUuid character;
@@ -163,6 +175,19 @@ namespace Comet {
         bool operator==(const ReflectionProbeComponent&) const = default;
     };
 
+    // 沿实体本地 -Y 投影；尺寸随实体世界变换，颜色／粗糙度作为覆盖表面。
+    struct COMET_API DecalComponent {
+        bool enabled = true;
+        AssetHandle texture;
+        Math::Vec3 half_extents{.5f, .25f, .5f};
+        Math::Vec4 color{1};
+        float roughness = .8f;
+        float normal_threshold = .2f;
+        float edge_fade = .05f;
+        uint32_t draw_order = 0;
+        bool operator==(const DecalComponent&) const = default;
+    };
+
     // 轴对齐烘焙区域以实体世界位置为中心；产物保存固定世界坐标。
     struct COMET_API IrradianceVolumeComponent {
         bool enabled = true;
@@ -200,8 +225,10 @@ namespace Comet {
         || std::is_same_v<std::remove_cvref_t<T>, MeshLodComponent>
         || std::is_same_v<std::remove_cvref_t<T>, CameraComponent>
         || std::is_same_v<std::remove_cvref_t<T>, ParticleEmitterComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, TrailComponent>
         || std::is_same_v<std::remove_cvref_t<T>, LightComponent>
         || std::is_same_v<std::remove_cvref_t<T>, ReflectionProbeComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, DecalComponent>
         || std::is_same_v<std::remove_cvref_t<T>, IrradianceVolumeComponent>;
 
     struct COMET_API CameraControllerComponent {

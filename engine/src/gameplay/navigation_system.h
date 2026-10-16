@@ -7,6 +7,9 @@
 #include <unordered_map>
 
 namespace Comet::Gameplay {
+    [[nodiscard]] COMET_API Result<std::vector<NavigationMesh::Link>> capture_navigation_links(
+        Scene& scene);
+
     class COMET_API NavigationSystem final: public System {
     public:
         struct Statistics {
@@ -19,6 +22,8 @@ namespace Comet::Gameplay {
             uint64_t surface_queries = 0;
             uint64_t obstacle_queries = 0;
             unsigned step_path_queries = 0;
+            uint64_t obstacle_rebuilds = 0;
+            double obstacle_rebuild_milliseconds = 0;
         };
         using GeometrySource =
             std::function<Result<std::vector<Math::Vec3>, Error>(Math::Vec3, Math::Vec3)>;
@@ -48,11 +53,23 @@ namespace Comet::Gameplay {
             double next_query = 0;
             uint64_t last_step = 0;
             Status status = Status::NoPath;
+            uint64_t mesh_generation = 0;
+            struct Jump {
+                Math::Vec3 end, velocity;
+                double deadline;
+            };
+            std::optional<Jump> jump;
         };
         GeometrySource m_geometry;
         ProductSource m_products;
         NavigationMesh m_mesh;
         NavigationRegionComponent m_settings;
+        Math::Vec3 m_center{0};
+        std::vector<Math::Vec3> m_geometry_snapshot;
+        std::vector<NavigationMesh::Link> m_links;
+        std::vector<NavigationMesh::Obstacle> m_obstacles;
+        std::shared_ptr<const NavigationData> m_base_product;
+        uint64_t m_mesh_generation = 0;
         std::unordered_map<EntityUuid, Agent> m_agents;
         Scene* m_scene = nullptr;
         double m_time = 0;
@@ -61,5 +78,6 @@ namespace Comet::Gameplay {
         Statistics m_statistics;
         bool m_prepared = false;
         Result<void> prepare(Scene&);
+        Result<void> synchronize_obstacles(Scene&);
     };
 }

@@ -14,6 +14,7 @@
 #include <unordered_map>
 
 namespace Comet {
+    struct FogVolume;
     class CPUBuffer;
     class Device;
     class FrameScheduler;
@@ -34,7 +35,7 @@ namespace Comet {
             SampleCount samples);
         Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> prepare(FrameScheduler& frames,
             const ViewProjectMatrix& camera, const RenderWorld& world, bool sort_for_meshes,
-            std::shared_ptr<ImageView> scene_depth = {});
+            std::shared_ptr<ImageView> scene_depth = {}, const FogVolume* fog = nullptr);
         [[nodiscard]] std::span<const float> depths() const { return m_depths; }
         [[nodiscard]] uint32_t instance_count() const { return m_instance_count; }
         void record(FrameScheduler& frames, uint32_t first, uint32_t count);

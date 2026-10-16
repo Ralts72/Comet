@@ -284,7 +284,8 @@ Runtime 统一控制系统启停、部分启动失败、暂停和单步；System
 全部 System 的 on_start 与启动结构提交结束后，SceneRuntime 调用 on_runtime_ready。NavigationSystem 此时读取已准备物理世界的静态碰撞三角形；有离线产品时验证几何／参数指纹并初始化 Detour，否则临时执行 Recast。指定产品无效时明确失败，沿既有逆序停止路径处理，尚未推进模拟。
 NavigationData 属于资产数据层，封装有界 tile、版本与校验和；NavigationMesh 在交给 Detour 前核对 native 布局、数组范围与索引，并独立拥有查询数据。Registry、资产准备与导出共用现有 CPU 资源链路。
 离线准备在 `tools/asset/navigation_bake`：Main 克隆内容、准备独立物理世界并捕获静态几何，后台只持有 CPU 三角形与设置。Editor 接纳前复核场景寿命与输入；按区域及指纹复用产物，引用通过既有属性事务提交，撤销保留独立资产。
-固定步只重置查询预算和回收角色路径；Recast 构建、产品加载、整个准备和查询分别计数。NavigationMesh 的公开头不暴露第三方类型；NavigationSystem 持有路径缓存，Lua 只提交目标，Demo 决定巡逻／追逐规则。几何与产品都由 Engine 通过回调提供，Gameplay 不依赖资产数据库、Jolt 或 PhysicsService 实现。Stop 清理网格与缓存，路径不进入场景序列化。
+NavigationLink 随静态几何参与烘焙指纹；Detour 路径保留连接方向和终点，NavigationSystem 在起点提交一次弹道初速度，后续仅控制水平速度，Jolt 继续处理重力、碰撞与落地。NavigationObstacle 将世界包围盒对齐 Recast 栅格，仅遮挡单元变化时从缓存静态几何重建并推进网格代次；稳定帧只检查有界障碍集。路径失效后仍服从每步查询预算。
+固定步重置查询预算、同步动态障碍并回收角色路径；Recast 构建、产品加载、动态重建、整个准备和查询分别计数。NavigationMesh 的公开头不暴露第三方类型；NavigationSystem 持有路径缓存，Lua 只提交目标，Demo 决定巡逻／追逐规则。几何与产品都由 Engine 通过回调提供，Gameplay 不依赖资产数据库、Jolt 或 PhysicsService 实现。Stop 清理网格与缓存，路径不进入场景序列化。
 
 默认固定步依次执行脚本意图、角色动画参数、根运动动画提取与 Gameplay 消费、PhysicsSystem 同步／求解／回写，再更新粒子；接触在该步的后置阶段交付脚本，阶段结束即清空。根运动或脚部 IK 的实例使用固定步，其他动画仍在帧更新中推进，不同时使用两套时钟。
 固定更新中删除的实体不再收到接触；接触回调的结构请求在下一固定步前生效。后置阶段复用本步时间和输入，不再次消费边沿。
@@ -354,6 +355,9 @@ Collider 保存摩擦和弹性系数（0～1），默认 0.2／0；PropertyDescr
 ParticleEmitterComponent 保存内容配置；ParticleSystem 在固定步维护连续存储的有限粒子池，不为每个粒子创建 Entity。
 Lua 爆发请求在 Scene 内保存触发配置和世界姿态，脚本／动画事件完成后交付；已出生粒子可在源实体销毁后自然消退。
 图集动画由 ParticleSystem 按粒子年龄计算每实例 UV 区域，共用固定步和预览时钟；不同图集布局可以复用同一纹理批次。
+碰撞通过 PhysicsAccess 扫掠已有物理世界，在固定步更新速度或结束寿命，不为粒子创建后端刚体。
+TrailComponent 保存独立轨迹配置；ParticleSystem 采样实体的世界位置，限制采样点并在瞬移／重新启用时断开。
+拖尾发布为带端点的粒子实例，ParticlePass 按当前相机展开带状片并复用混合、深度与在途资源寿命。
 Scene 只发布不可变 ParticleSnapshot，按混合方式、纹理与软交界距离分组；提取与资产解析沿现有 RenderScene／RenderWorld 传递，不借用模拟容器。
 纹理引用归 Emitter 配置，源实体销毁后的存活粒子仍参与运行时资产需求；SceneResolver 在 Main 解析纹理，RenderWorld 保留该帧资源。
 ParticlePass 在 Render 线程上传当前帧槽的实例缓冲，支持加法／Alpha billboard，随后进入后处理；管线、缓冲和不可变纹理绑定沿 FrameSlot 保活。
@@ -363,7 +367,7 @@ MaterialRenderer 与 ParticlePass 分开准备资源和录制命令；SceneRende
 网格使用包围盒中心，粒子使用中心深度；同深度先网格后粒子。对象级排序不能精确解决相交几何或同一网格内部的透明层叠，OIT 另行扩展。
 纹理上传完成信号参与提交等待，替换资源不改写在途描述符。未指定纹理使用柔边圆形，显式引用缺失时诊断并跳过对应批次。
 暂停／单步与 Stop／切关复用 Runtime 协议；场景保存、克隆和 Prefab 不携带存活粒子。素材与触发规则继续归项目。
-Editor 的 ParticlePreview 只持有单发射器代理 Scene 和 ParticleSystem，以现有 Runtime 推进并发布到 Edit 视口；不启动游戏脚本、物理或音频，不写撤销历史。
+Editor 的 ParticlePreview 持有单个特效代理 Scene，按需复制编辑场景的碰撞形状；独立 PhysicsService 将复制体保持静止，ParticleSystem 以现有 Runtime 推进粒子与拖尾并发布到 Edit 视口。预览不启动游戏脚本或音频，不修改原场景物理状态或撤销历史。
 
 ## 音频与运行域
 
@@ -494,8 +498,13 @@ Alpha Mask／随机覆盖的 Alpha Blend 在射线命中、阴影可见性与发
 聚光灯使用范围与外角构造透视投影。保守光锥界限通过相机裁剪、且覆盖场景界限的有效候选按实体 ID 分配四个槽位；超预算只取消投影，计数进入诊断。LightingData 统一保存各阴影视图的投影、图集区域、光源索引与偏移，ShadowPass 将几何绘制交给 DepthPass，共用深度管线、裁切绑定和实例缓冲；Shader 在透视除法后计算接收面偏移，不把方向光的仿射深度假设用于聚光灯。
 点光源按范围包围盒通过视锥筛选，再检查球形范围是否覆盖场景界限；每盏保留 ±X／±Y／±Z 六面，Shader 按接收点相对光源的主轴选面。每面在 90° 范围外保留两圈保护纹素，供 3×3 PCF 在交界处采样；与聚光灯共用透视投影、深度偏移和图集区域计算。
 图集为 2048×4096 D32（每帧槽 32 MiB），上方四块 1024×1024 用于方向光，下方四块 512×512 用于聚光灯，其余十二块用于两盏点光源。有阴影需求时完整清理并录制；无需求时释放图集 owner，使用安全帧槽仅初始化一次的 1×1 深度 fallback 并跳过阴影 pass，旧图集仍由在途帧保活。固定深度程序使用源几何界限先保守视锥裁剪再计算 LOD；Main 的自定义顶点可见性仍由实际管线判断；不增加动态图集分配器或跨帧阴影缓存。
-基础 AO 复用 DepthPass 绘制相机深度，各帧槽独立；RenderGraph 在深度写入与 PBR 采样之间管理屏障。DepthPass 只负责给定投影视图的几何深度，ShadowPass 继续负责光源选择与阴影统计。AO 不复制裁切、实例化或 LOD 逻辑；主视图开启 MSAA 时，相机预深度仍保持单采样。
-LightingData 保存 AO 的逆视投影矩阵、世界半径和强度。PBR 从深度重建世界位置，固定 16 次采样计算几何法线半球的遮挡，仅衰减环境光项；直接光、自发光与 Alpha Blend 保持原链路。首次开启时分配深度目标，关闭后跳过预深度，帧资源保留直至 GPU 完成。没有额外 AO 合成图、跨帧历史或独立后处理框架。
+基础 AO、软粒子与 TAA 复用 DepthPass 绘制相机深度，各帧槽独立；RenderGraph 管理深度写入与采样屏障。TAA 开启时，相机 DepthPass 同时输出 RGBA16F 运动向量、前帧距离与有效位，复用裁切、实例化和 LOD；阴影视图不分配运动资源。按实体身份保留前帧模型变换，蒙皮输出另保留前帧顶点，避免单帧槽覆盖历史。ShadowPass 继续负责光源选择与阴影统计；主视图开启 MSAA 时，相机预深度仍保持单采样。
+
+TemporalPass 归每个 SceneRenderer，消费 RenderThread 实际提交的视图与场景身份。8 相位抖动用于几何采样，重投影移除抖动差，再做保守深度拒绝、YCoCg 邻域裁切与覆盖积累。内部 HDR alpha 记录透明覆盖：不透明表面／天空只写 RGB，透明网格和粒子按最大覆盖写 alpha；TAA 用它降低透明历史权重，最终输出 alpha 仍为 1。
+两张 RGBA16F 历史图交替读写，alpha 保存近邻线性距离；图计划同步跨帧读写，FrameSlot 保留使用中的图像、绑定与骨骼缓冲。resize 发布新目标，场景／投影切换、相机跳变、未连续提交和隐藏恢复失效历史。TAA 在 Bloom／色调映射之前执行，游戏 UI 在其后合成；当前不承担时域升采样。
+
+DecalComponent 提取成有世界包围盒和逆投影变换的只读数据，Main 固定贴图版本。DecalPass 按覆盖顺序绘制屏幕矩形，重建相机深度中的位置／几何法线；颜色与粗糙度通过共用 surface_lighting Shader 计算 PBR 覆盖层。SceneRenderer 在不透明绘制后、透明合成前调用，复用现有视图 GPU 绑定，不新建光照权威。ViewRequirements 汇总阴影、软粒子、贴花、体积雾与相机深度需求；无贴花时不创建对应管线和绑定。
+LightingData 的逆视投影矩阵供 AO、贴花和体积雾共用；AO 另保存世界半径和强度。PBR 从深度重建世界位置，固定 16 次采样计算几何法线半球的遮挡，仅衰减环境光项；直接光、自发光与 Alpha Blend 保持原链路。首次开启时分配深度目标，关闭后跳过预深度，帧资源保留直至 GPU 完成。没有额外 AO 合成图、跨帧历史或独立后处理框架。
 网格顶点保存位置、UV、法线与四分量切线（遵循 [glTF 约定](https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html)）；切线 w 保存副切线方向，零值表示没有源切线。glTF 导入保留切线，Mesh Artifact 版本随顶点格式更新。
 材质输入 location 0～2 保持位置／UV／法线，3～6 保留实例矩阵，7 为切线；普通与实例化 PBR 共用顶点逻辑。
 GPU 蒙皮同时变换位置、法线和切线，骨骼与对象镜像分别更新切线方向符号；有 UV 的 glTF 缺少源切线时由导入层使用 MikkTSpace 生成；缺少法线时生成逐面法线。按源顶点和面角属性排序合并，仅在硬边／切线接缝拆分顶点并同步复制蒙皮权重，导入预算包括拆分与临时数组。PBR 在顶点阶段构建切线基并整体插值，片元阶段只归一化贴图变换后的法线；程序网格仍可使用片元 UV 导数补足。
@@ -522,7 +531,9 @@ GPU 候选只用于一次帧边界提交，不跨帧保存回退候选。Editor 
 
 ### 场景环境与 IBL
 
-SceneEnvironment 保存环境资产引用、背景／照明参数与距离雾设置；Environment 资产产品包含背景、辐照、预过滤和 BRDF 数据。
+VolumetricFogPass 归每个 SceneRenderer：CPU 准备统一相机／光照绑定，图中在阴影后执行 compute，再由场景 Shader 共享积分图集。64 层深度打包为 8×8 个二维 tile，采样函数手动三线性插值，避免跨 tile 串色。RenderGraph 声明 StorageWrite → Fragment SampledRead；按帧槽分配，关闭时不保留图集，resize 候选成功后发布，在途帧继续保活旧绑定。背景在天空后合成，透明表面在混合前雾化；加法特效只乘透射率。该阶段不拥有场景或模拟状态，也不为每种材质另算一遍散射。
+
+SceneEnvironment 保存环境资产引用、背景／照明参数、距离雾与体积雾设置；Environment 资产产品包含背景、辐照、预过滤和 BRDF 数据。
 Skybox 与材质 IBL 消费同一已发布版本；缺失／关闭使用有效回退绑定，背景和照明分别控制。
 距离雾随 RenderWorld 快照进入 MaterialRenderer，由帧 UBO 上传雾色与距离区间。内置 PBR／Unlit 片段程序共用 `common/fog.glsl`，从片元深度和投影恢复相机前向距离，在透明混合前应用线性雾；不引入全屏 pass、雾纹理或独立管理器。天空盒与粒子暂不消费该设置。
 

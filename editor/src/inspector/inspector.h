@@ -50,7 +50,8 @@ namespace CometEditor {
             const Comet::AssetDatabase& asset_database, const Comet::AssetRegistry& runtime_assets,
             const Comet::MaterialProgramValidator& programs,
             const Comet::SceneRuntime* runtime = nullptr, ReflectionBake* reflection_bake = nullptr,
-            IrradianceBake* irradiance_bake = nullptr, NavigationBake* navigation_bake = nullptr);
+            IrradianceBake* irradiance_bake = nullptr, NavigationBake* navigation_bake = nullptr,
+            Comet::PhysicsService::MeshSource preview_meshes = {});
         ~InspectorPanel() override;
 
         void render() override;

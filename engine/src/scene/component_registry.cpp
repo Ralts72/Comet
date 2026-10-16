@@ -199,6 +199,9 @@ namespace Comet {
                 if(scope == ReferenceScope::Runtime && component.id == "irradiance_volume"
                     && !entity.get_component<IrradianceVolumeComponent>().enabled)
                     continue;
+                if(scope == ReferenceScope::Runtime && component.id == "decal"
+                    && !entity.get_component<DecalComponent>().enabled)
+                    continue;
                 for(const auto& property : component.properties) {
                     if(property.type != PropertyType::AssetHandle || !property.asset_type)
                         continue;
@@ -371,6 +374,31 @@ namespace Comet {
                             .minimum = 0,
                             .maximum = 89,
                             .enforce_bounds = true}})}));
+
+        register_component(make_component_descriptor<NavigationObstacleComponent>(
+            "navigation_obstacle", "动态导航障碍",
+            {make_property_descriptor(
+                 "enabled", "启用阻塞", &NavigationObstacleComponent::enabled, {.required = false}),
+                make_property_descriptor("half_extents", "半尺寸（本地米）",
+                    &NavigationObstacleComponent::half_extents,
+                    {.required = false,
+                        .numeric = {.speed = .05f,
+                            .minimum = .01f,
+                            .maximum = 1000,
+                            .enforce_bounds = true}})}));
+        register_component(make_component_descriptor<NavigationLinkComponent>("navigation_link",
+            "导航连接（跳跃）",
+            {make_property_descriptor(
+                 "end", "终点（本地坐标）", &NavigationLinkComponent::end, {.required = false}),
+                make_property_descriptor("radius", "起降半径（米）",
+                    &NavigationLinkComponent::radius,
+                    {.required = false,
+                        .numeric = {.speed = .05f,
+                            .minimum = .05f,
+                            .maximum = 10,
+                            .enforce_bounds = true}}),
+                make_property_descriptor("bidirectional", "允许往返",
+                    &NavigationLinkComponent::bidirectional, {.required = false})}));
 
         register_component(
             make_component_descriptor<NavigationAgentComponent>("navigation_agent", "导航角色",
@@ -589,6 +617,30 @@ namespace Comet {
                             {.speed = 0.1f, .minimum = 0, .maximum = 240, .enforce_bounds = true}}),
                 make_property_descriptor("loop_animation", "循环序列帧",
                     &ParticleEmitterComponent::loop_animation, {.required = false}),
+                make_enum_property_descriptor<ParticleEmitterComponent, ParticleCollision>(
+                    "collision", "粒子碰撞", &ParticleEmitterComponent::collision,
+                    {{ParticleCollision::None, {"none", "关闭"}},
+                        {ParticleCollision::Bounce, {"bounce", "反弹"}},
+                        {ParticleCollision::Kill, {"kill", "碰撞后消失"}}},
+                    {.required = false}),
+                make_property_descriptor("collision_radius", "碰撞半径（米，0 使用射线）",
+                    &ParticleEmitterComponent::collision_radius,
+                    {.required = false,
+                        .numeric =
+                            {.speed = 0.01f, .minimum = 0, .maximum = 10, .enforce_bounds = true}}),
+                make_property_descriptor("restitution", "碰撞弹性",
+                    &ParticleEmitterComponent::restitution,
+                    {.required = false,
+                        .numeric =
+                            {.speed = 0.01f, .minimum = 0, .maximum = 1, .enforce_bounds = true}}),
+                make_property_descriptor("friction", "碰撞摩擦",
+                    &ParticleEmitterComponent::friction,
+                    {.required = false,
+                        .numeric =
+                            {.speed = 0.01f, .minimum = 0, .maximum = 1, .enforce_bounds = true}}),
+                make_property_descriptor("collision_layers", "碰撞层掩码",
+                    &ParticleEmitterComponent::collision_layers,
+                    {.required = false, .bitmask = true}),
                 make_property_descriptor(
                     "enabled", "Enabled", &ParticleEmitterComponent::enabled, {.required = false}),
                 make_property_descriptor("capacity", "Capacity",
@@ -643,6 +695,47 @@ namespace Comet {
                     &ParticleEmitterComponent::end_size,
                     {.required = false,
                         .numeric = {.speed = 0.1f, .minimum = 0, .enforce_bounds = true}})}));
+
+        register_component(make_component_descriptor<TrailComponent>("trail", "拖尾",
+            {make_property_descriptor(
+                 "enabled", "启用", &TrailComponent::enabled, {.required = false}),
+                make_property_descriptor("texture", "拖尾纹理", &TrailComponent::texture,
+                    {.required = false, .asset_type = AssetType::Texture}),
+                make_enum_property_descriptor<TrailComponent, ParticleBlend>("blend", "混合方式",
+                    &TrailComponent::blend,
+                    {{ParticleBlend::Additive, {"additive", "加法"}},
+                        {ParticleBlend::Alpha, {"alpha", "Alpha"}}},
+                    {.required = false}),
+                make_property_descriptor("capacity", "最多采样点", &TrailComponent::capacity,
+                    {.required = false,
+                        .numeric =
+                            {.speed = 1, .minimum = 2, .maximum = 512, .enforce_bounds = true}}),
+                make_property_descriptor("lifetime", "保留时间（秒）", &TrailComponent::lifetime,
+                    {.required = false,
+                        .numeric = {.speed = 0.01f,
+                            .minimum = 0.01f,
+                            .maximum = 60,
+                            .enforce_bounds = true}}),
+                make_property_descriptor("minimum_distance", "采样间距（米）",
+                    &TrailComponent::minimum_distance,
+                    {.required = false,
+                        .numeric = {.speed = 0.01f, .minimum = 0.001f, .enforce_bounds = true}}),
+                make_property_descriptor("break_distance", "瞬移断开距离（米）",
+                    &TrailComponent::break_distance,
+                    {.required = false,
+                        .numeric = {.speed = 0.1f, .minimum = 0.01f, .enforce_bounds = true}}),
+                make_property_descriptor("width", "宽度（米）", &TrailComponent::width,
+                    {.required = false,
+                        .numeric = {.speed = 0.01f, .minimum = 0.001f, .enforce_bounds = true}}),
+                make_property_descriptor(
+                    "color", "颜色", &TrailComponent::color, {.required = false}),
+                make_property_descriptor("soft_distance", "交界淡出距离（米）",
+                    &TrailComponent::soft_distance,
+                    {.required = false,
+                        .numeric = {.speed = 0.01f,
+                            .minimum = 0,
+                            .maximum = 1000,
+                            .enforce_bounds = true}})}));
 
         register_component(
             make_component_descriptor<AudioListenerComponent>("audio_listener", "Audio Listener",
@@ -885,6 +978,41 @@ namespace Comet {
                     {.numeric = {.speed = 0.5f, .minimum = 0.0f, .maximum = 89.0f}}),
                 make_property_descriptor("outer_angle", "Outer angle", &LightComponent::outer_angle,
                     {.numeric = {.speed = 0.5f, .minimum = 0.01f, .maximum = 89.0f}})}));
+
+        register_component(make_component_descriptor<DecalComponent>("decal", "贴花",
+            {make_property_descriptor(
+                 "enabled", "启用", &DecalComponent::enabled, {.required = false}),
+                make_property_descriptor("texture", "颜色贴图", &DecalComponent::texture,
+                    {.required = false, .asset_type = AssetType::Texture}),
+                make_property_descriptor("half_extents", "半尺寸（本地米）",
+                    &DecalComponent::half_extents,
+                    {.required = false,
+                        .numeric = {.speed = .05f,
+                            .minimum = .01f,
+                            .maximum = 1000,
+                            .enforce_bounds = true}}),
+                make_property_descriptor("color", "颜色／不透明度", &DecalComponent::color,
+                    {.required = false,
+                        .numeric = {.minimum = 0, .maximum = 1, .enforce_bounds = true}}),
+                make_property_descriptor("roughness", "粗糙度", &DecalComponent::roughness,
+                    {.required = false,
+                        .numeric = {.speed = .01f,
+                            .minimum = .045f,
+                            .maximum = 1,
+                            .enforce_bounds = true}}),
+                make_property_descriptor("normal_threshold", "表面朝向阈值",
+                    &DecalComponent::normal_threshold,
+                    {.required = false,
+                        .numeric =
+                            {.speed = .01f, .minimum = 0, .maximum = 1, .enforce_bounds = true}}),
+                make_property_descriptor("edge_fade", "边缘淡出", &DecalComponent::edge_fade,
+                    {.required = false,
+                        .numeric =
+                            {.speed = .01f, .minimum = 0, .maximum = .5f, .enforce_bounds = true}}),
+                make_property_descriptor("draw_order", "覆盖顺序", &DecalComponent::draw_order,
+                    {.required = false,
+                        .numeric = {
+                            .speed = 1, .minimum = 0, .maximum = 1000, .enforce_bounds = true}})}));
 
         register_component(make_component_descriptor<ReflectionProbeComponent>("reflection_probe",
             "局部反射探针",

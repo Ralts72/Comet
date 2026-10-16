@@ -41,6 +41,7 @@ namespace Comet {
 
     private:
         friend class SkinningPass;
+        friend class DepthPass;
         Mesh(std::shared_ptr<Buffer> vertex_buffer, std::shared_ptr<Buffer> index_buffer,
             GpuCompletionPoint ready_completion, BoundingBox local_bounds, uint32_t vertex_count,
             uint32_t index_count);
@@ -53,6 +54,7 @@ namespace Comet {
         BoundingBox m_local_bounds;
         uint32_t m_vertex_count;
         uint32_t m_index_count;
+        bool m_deformed = false;
     };
 
 }

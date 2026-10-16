@@ -1,5 +1,6 @@
 #include "asset/navigation_bake.h"
 #include "gameplay/navigation_mesh.h"
+#include "gameplay/navigation_system.h"
 #include "scene/scene_serializer.h"
 #include "scene/scene.h"
 #include "scene/scene_runtime.h"
@@ -31,19 +32,23 @@ namespace Comet::NavigationBake {
             center - settings.half_extents, center + settings.half_extents);
         if(!geometry)
             return Captured::failure(geometry.error());
-        const auto fingerprint =
-            Gameplay::NavigationMesh::input_fingerprint(geometry.value(), center, settings);
+        auto links = Gameplay::capture_navigation_links(scene);
+        if(!links)
+            return Captured::failure({links.error()});
+        const auto fingerprint = Gameplay::NavigationMesh::input_fingerprint(
+            geometry.value(), center, settings, links.value());
         if(!fingerprint)
             return Captured::failure({fingerprint.error()});
         if(auto stopped = runtime.stop(); !stopped)
             return Captured::failure(stopped.error());
-        return Captured::success(
-            {std::move(geometry).value(), center, settings, fingerprint.value()});
+        return Captured::success({std::move(geometry).value(), center, settings,
+            fingerprint.value(), std::move(links).value()});
     }
 
     Result<NavigationData> bake(const Input& input) {
         Gameplay::NavigationMesh mesh;
-        if(auto built = mesh.build(input.triangles, input.center, input.settings); !built)
+        if(auto built = mesh.build(input.triangles, input.center, input.settings, input.links);
+            !built)
             return Result<NavigationData>::failure(built.error());
         return mesh.product(input.fingerprint);
     }

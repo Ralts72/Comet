@@ -7,6 +7,60 @@
 #include <gtest/gtest.h>
 
 namespace CometEditor::Tests {
+    TEST(ParticlePreviewTest, TrailPreviewSamplesEditsWithoutRunningAProjectScript) {
+        using namespace Comet;
+        Scene scene;
+        auto entity = scene.create_entity("trail");
+        TrailComponent trail;
+        ParticleEmitterComponent emitter;
+        emitter.enabled = false;
+        ParticlePreview preview;
+        const ParticlePreview::Target target{scene.get_lifetime(), entity.get_uuid()};
+        ASSERT_TRUE(preview.bind(target, emitter, scene.get_world_matrix(entity), &scene, &trail));
+        ASSERT_TRUE(preview.play());
+        entity.edit_transform([](auto& transform) { transform.translation.x = 1; });
+        ASSERT_TRUE(preview.bind(target, emitter, scene.get_world_matrix(entity), &scene, &trail));
+        ASSERT_TRUE(preview.advance(.05));
+        ASSERT_TRUE(preview.snapshot());
+        EXPECT_GT(preview.snapshot()->instances.front().end_position_size.w, 0);
+        EXPECT_FLOAT_EQ(preview.snapshot()->instances.front().end_position_size.x, 1);
+        EXPECT_FALSE(scene.get_particles());
+        preview.stop();
+        EXPECT_FALSE(preview.snapshot());
+    }
+
+    TEST(ParticlePreviewTest, CollidesWithFrozenSceneGeometryWithoutMovingTheEditWorld) {
+        using namespace Comet;
+        Scene scene;
+        auto ground = scene.create_entity("ground");
+        ground.edit_transform([](auto& transform) { transform.translation.y = -.1f; });
+        ground.add_component<RigidBodyComponent>(RigidBodyComponent{.motion = BodyMotion::Dynamic});
+        ground.add_component<ColliderComponent>(ColliderComponent{.half_extents = {5, .1f, 5}});
+        auto entity = scene.create_entity("spark");
+        entity.edit_transform([](auto& transform) {
+            transform.translation.y = 1;
+            transform.rotation.x = 180;
+        });
+        ParticleEmitterComponent settings;
+        settings.rate = 0;
+        settings.burst = 1;
+        settings.speed = 20;
+        settings.spread = 0;
+        settings.acceleration = {};
+        settings.collision = ParticleCollision::Bounce;
+        settings.collision_radius = .05f;
+        entity.add_component<ParticleEmitterComponent>(settings);
+        ParticlePreview preview;
+        ASSERT_TRUE(preview.bind({scene.get_lifetime(), entity.get_uuid()}, settings,
+            scene.get_world_matrix(entity), &scene));
+        ASSERT_TRUE(preview.play());
+        ASSERT_TRUE(preview.advance(.1));
+        ASSERT_TRUE(preview.snapshot());
+        EXPECT_GT(preview.snapshot()->instances[0].position_size.y, .05f);
+        EXPECT_FLOAT_EQ(ground.get_component<TransformComponent>().translation.y, -.1f);
+        EXPECT_FALSE(scene.get_particles());
+    }
+
     TEST(ParticlePreviewTest, UsesOnlyAnIsolatedEmitterAndDoesNotSaveItsLiveParticles) {
         Comet::Scene scene;
         auto entity = scene.create_entity("effect");

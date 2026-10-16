@@ -8,12 +8,13 @@
 #include <cstring>
 
 namespace Comet {
-    void InstanceBuffer::describe(VertexInputDescription& input) {
+    void InstanceBuffer::describe(
+        VertexInputDescription& input, uint32_t binding, uint32_t first_location) {
         static_assert(sizeof(Math::Mat4) == 4 * sizeof(Math::Vec4));
-        input.add_binding(1, sizeof(Math::Mat4), VertexInputRate::Instance);
+        input.add_binding(binding, sizeof(Math::Mat4), VertexInputRate::Instance);
         for(uint32_t column = 0; column < 4; ++column)
-            input.add_attribute(
-                3 + column, 1, Format::R32G32B32A32_SFLOAT, column * sizeof(Math::Vec4));
+            input.add_attribute(first_location + column, binding, Format::R32G32B32A32_SFLOAT,
+                column * sizeof(Math::Vec4));
     }
 
     Result<size_t, GraphicsError> InstanceBuffer::upload(
@@ -39,7 +40,7 @@ namespace Comet {
         return Result<size_t, GraphicsError>::success(bytes);
     }
 
-    void InstanceBuffer::bind(const CommandBuffer& command) const {
-        command.bind_vertex_buffer({*m_buffer, 0}, 1);
+    void InstanceBuffer::bind(const CommandBuffer& command, uint32_t binding) const {
+        command.bind_vertex_buffer({*m_buffer, 0}, binding);
     }
 }

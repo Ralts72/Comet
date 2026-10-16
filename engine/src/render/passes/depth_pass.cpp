@@ -16,6 +16,9 @@
 #include "depth_vert.h"
 #include "depth_frag.h"
 #include "depth_mask_frag.h"
+#include "motion_vert.h"
+#include "motion_frag.h"
+#include "motion_mask_frag.h"
 #include "graphics/resource/sampler.h"
 #include "render/material/material.h"
 #include "render/resource/texture.h"
@@ -35,11 +38,13 @@ namespace Comet {
         m_pipelines[0] = std::move(pipeline);
     }
 
-    Result<std::unique_ptr<DepthPass>, GraphicsError> DepthPass::create(
-        Device& device, const uint32_t frame_slots, Math::Vec2u size, uint32_t view_count) {
+    Result<std::unique_ptr<DepthPass>, GraphicsError> DepthPass::create(Device& device,
+        const uint32_t frame_slots, Math::Vec2u size, uint32_t view_count, bool motion_vectors) {
         using Creation = Result<std::unique_ptr<DepthPass>, GraphicsError>;
         if(frame_slots == 0 || view_count == 0)
             return Creation::failure({"Depth pass requires frame slots"});
+        if(motion_vectors && view_count != 1)
+            return Creation::failure({"Motion vectors require one camera view"});
         const auto support = device.query_format_support(Format::D32_SFLOAT);
         if(!support.depth_attachment || !support.sampled)
             return Creation::failure({"D32 geometry depth sampling is unsupported"});
@@ -47,19 +52,33 @@ namespace Comet {
         depth.description.initial_layout = ImageLayout::DepthStencilAttachmentOptimal;
         depth.description.store_op = AttachmentStoreOp::Store;
         depth.usage |= ImageUsage::Sampled;
-        const RenderSubPass subpass{
-            .depth_stencil_attachments = {SubpassDepthStencilAttachment(0)}};
-        auto pass = RenderPass::create(device, {depth}, {subpass});
+        RenderSubPass subpass{.depth_stencil_attachments = {SubpassDepthStencilAttachment(0)}};
+        std::vector<Attachment> attachments{depth};
+        if(motion_vectors) {
+            auto motion = Attachment::get_color_attachment(Format::R16G16B16A16_SFLOAT);
+            motion.description.initial_layout = ImageLayout::ColorAttachmentOptimal;
+            motion.description.final_layout = ImageLayout::ColorAttachmentOptimal;
+            motion.description.store_op = AttachmentStoreOp::Store;
+            motion.usage |= ImageUsage::Sampled;
+            motion.usage |= ImageUsage::CopySrc;
+            attachments.push_back(motion);
+            subpass.color_attachments = {SubpassColorAttachment(1)};
+        }
+        auto pass = RenderPass::create(device, attachments, {subpass});
         if(!pass)
             return Creation::failure(pass.error());
         auto target =
             RenderTarget::try_create_multi_target(device, *pass.value(), size, frame_slots);
         if(!target)
             return Creation::failure(target.error());
-        auto vertex = Shader::create(device, "geometry depth vertex", DEPTH_VERT);
+        auto vertex = Shader::create(device, "geometry depth vertex",
+            motion_vectors ? std::span<const uint32_t>(MOTION_VERT)
+                           : std::span<const uint32_t>(DEPTH_VERT));
         if(!vertex)
             return Creation::failure(vertex.error());
-        auto fragment = Shader::create(device, "geometry depth fragment", DEPTH_FRAG);
+        auto fragment = Shader::create(device, "geometry depth fragment",
+            motion_vectors ? std::span<const uint32_t>(MOTION_FRAG)
+                           : std::span<const uint32_t>(DEPTH_FRAG));
         if(!fragment)
             return Creation::failure(fragment.error());
         ShaderLayout layout;
@@ -68,6 +87,13 @@ namespace Comet {
         input.add_attribute(0, 0, Format::R32G32B32_SFLOAT, offsetof(MeshVertex, position));
         input.add_attribute(1, 0, Format::R32G32_SFLOAT, offsetof(MeshVertex, texcoord));
         InstanceBuffer::describe(input);
+        if(motion_vectors) {
+            InstanceBuffer::describe(input, 2, 7);
+            input.add_binding(3, sizeof(MeshVertex), VertexInputRate::Vertex);
+            input.add_attribute(11, 3, Format::R32G32B32_SFLOAT, offsetof(MeshVertex, position));
+            layout.push_constants = {
+                std::make_shared<PushConstantRange>(ShaderStage::Fragment, 0, 32)};
+        }
         PipelineConfig config;
         config.set_vertex_input_state(input);
         config.set_dynamic_state({DynamicState::Viewport, DynamicState::Scissor});
@@ -81,6 +107,9 @@ namespace Comet {
         auto result = std::unique_ptr<DepthPass>(new DepthPass(device, frame_slots,
             std::move(pass).value(), std::move(target).value(), std::move(pipeline).value()));
         result->m_view_geometry = std::vector<RenderGeometry>(view_count);
+        result->m_motion_vectors = motion_vectors;
+        if(motion_vectors)
+            result->m_previous_instances.resize(frame_slots);
         for(unsigned orientation = 1; orientation < 4; ++orientation) {
             config.rasterization_state.cull_mode =
                 (orientation & 1) ? CullMode::None : CullMode::Back;
@@ -103,12 +132,14 @@ namespace Comet {
         if(!sampler)
             return Creation::failure(sampler.error());
         result->m_mask_sampler = std::move(sampler).value();
-        auto mask_fragment = Shader::create(device, "depth mask fragment", DEPTH_MASK_FRAG);
+        auto mask_fragment = Shader::create(device, "depth mask fragment",
+            motion_vectors ? std::span<const uint32_t>(MOTION_MASK_FRAG)
+                           : std::span<const uint32_t>(DEPTH_MASK_FRAG));
         if(!mask_fragment)
             return Creation::failure(mask_fragment.error());
         layout.descriptor_set_layouts = {result->m_mask_layout};
-        layout.push_constants = {
-            std::make_shared<PushConstantRange>(ShaderStage::Fragment, 0, sizeof(float) * 2)};
+        layout.push_constants = {std::make_shared<PushConstantRange>(
+            ShaderStage::Fragment, 0, motion_vectors ? 32 : sizeof(float) * 2)};
         for(unsigned orientation = 0; orientation < 4; ++orientation) {
             config.rasterization_state.cull_mode =
                 (orientation & 1) ? CullMode::None : CullMode::Back;
@@ -127,6 +158,10 @@ namespace Comet {
         return m_target->get_framebuffer(slot)->get_attachments().front();
     }
 
+    std::shared_ptr<ImageView> DepthPass::get_motion_view(const uint32_t slot) const {
+        return m_motion_vectors ? m_target->get_framebuffer(slot)->get_attachments()[1] : nullptr;
+    }
+
     Result<void, GraphicsError> DepthPass::resize(Math::Vec2u size) {
         if(m_target->get_size() == size)
             return Result<void, GraphicsError>::success();
@@ -135,6 +170,7 @@ namespace Comet {
         if(!target)
             return Result<void, GraphicsError>::failure(target.error());
         m_target = std::move(target).value();
+        m_motion_history.clear();
         return Result<void, GraphicsError>::success();
     }
 
@@ -225,6 +261,22 @@ namespace Comet {
         m_transforms.reserve(m_draw_queue.size());
         for(const auto& draw : m_draw_queue)
             m_transforms.push_back(views[draw.view].view_projection * draw.item->model_matrix);
+        if(m_motion_vectors) {
+            m_previous_transforms.clear();
+            for(auto& [id, history] : m_motion_history)
+                history.used = false;
+            for(const auto& draw : m_draw_queue) {
+                const auto& item = *draw.item;
+                const auto found = m_motion_history.find(item.entity_id);
+                const auto& previous = views.front().previous_view_projection;
+                const bool valid = previous && found != m_motion_history.end()
+                                   && found->second.handle == item.mesh_handle
+                                   && found->second.revision == item.mesh_revision
+                                   && (item.mesh->m_deformed || found->second.mesh == item.mesh);
+                m_previous_transforms.push_back(
+                    valid ? *previous * found->second.model : Math::Mat4(0));
+            }
+        }
         return Preparation::success();
     }
 
@@ -238,6 +290,8 @@ namespace Comet {
         m_statistics = {};
         m_draw_queue.clear();
         m_transforms.clear();
+        if(m_motion_vectors && !views.front().previous_view_projection)
+            m_motion_history.clear();
         const ScopeExit release_draws([&] {
             m_draw_queue.clear();
             for(auto& view : m_view_geometry)
@@ -252,6 +306,13 @@ namespace Comet {
             return Draw::failure(uploaded.error());
         }
         m_statistics.instance_upload_bytes = uploaded.value();
+        if(m_motion_vectors) {
+            auto& previous = m_previous_instances.at(frames.get_current_frame_slot_index());
+            auto written = previous.upload(m_device, m_previous_transforms);
+            if(!written)
+                return Draw::failure(written.error());
+            m_statistics.instance_upload_bytes += written.value();
+        }
         auto& command = frames.get_current_command_buffer();
         frames.retain_current_frame_resource(m_render_pass);
         frames.retain_current_frame_resource(m_target);
@@ -263,6 +324,11 @@ namespace Comet {
 
             instances.bind(command);
             frames.retain_current_frame_resource(instances.get_buffer());
+            if(m_motion_vectors) {
+                auto& previous = m_previous_instances.at(frames.get_current_frame_slot_index());
+                previous.bind(command, 2);
+                frames.retain_current_frame_resource(previous.get_buffer());
+            }
             for(size_t first = 0; first < m_draw_queue.size();) {
                 const auto& draw = m_draw_queue[first];
                 const auto& mesh = draw.item->mesh;
@@ -279,6 +345,22 @@ namespace Comet {
                     draw.mask ? m_mask_pipelines[draw.orientation] : m_pipelines[draw.orientation];
                 command.bind_pipeline(*pipeline);
                 frames.retain_current_frame_resource(pipeline);
+                if(m_motion_vectors) {
+                    const auto history = m_motion_history.find(draw.item->entity_id);
+                    auto vertices = mesh->m_vertex_buffer;
+                    if(mesh->m_deformed && history != m_motion_history.end()
+                        && history->second.vertices
+                        && history->second.handle == draw.item->mesh_handle
+                        && history->second.revision == draw.item->mesh_revision
+                        && history->second.vertices->get_size()
+                               == mesh->m_vertex_buffer->get_size())
+                        vertices = history->second.vertices;
+                    command.bind_vertex_buffer({*vertices, 0}, 3);
+                    frames.retain_current_frame_resource(vertices);
+                    command.push_constants(*pipeline->get_layout(),
+                        Flags<ShaderStage>(ShaderStage::Fragment), 16,
+                        &views.front().previous_projection, sizeof(Math::Vec4));
+                }
                 if(draw.mask) {
                     const std::array sets{draw.mask->descriptor};
                     command.bind_descriptor_sets(*pipeline->get_layout(), sets);
@@ -296,9 +378,10 @@ namespace Comet {
                 size_t end = first + 1;
                 while(end < m_draw_queue.size()) {
                     const auto& next = m_draw_queue[end];
-                    if(next.view != draw.view || next.item->mesh != mesh
-                        || next.orientation != draw.orientation || next.mask != draw.mask
-                        || next.alpha != draw.alpha || next.cutoff != draw.cutoff)
+                    if((m_motion_vectors && mesh->m_deformed) || next.view != draw.view
+                        || next.item->mesh != mesh || next.orientation != draw.orientation
+                        || next.mask != draw.mask || next.alpha != draw.alpha
+                        || next.cutoff != draw.cutoff)
                         break;
                     ++end;
                 }
@@ -318,6 +401,48 @@ namespace Comet {
             }
         }
         m_target->end_render_target(command);
+        if(m_motion_vectors) {
+            for(const auto& draw : m_draw_queue) {
+                const auto& item = *draw.item;
+                auto& history = m_motion_history[item.entity_id];
+                if(item.mesh->m_deformed
+                    && (!history.vertices || history.animation != item.animation
+                        || history.handle != item.mesh_handle
+                        || history.revision != item.mesh_revision
+                        || history.vertices->get_size()
+                               != item.mesh->m_vertex_buffer->get_size())) {
+                    const auto& source = item.mesh->m_vertex_buffer;
+                    if(!history.vertices || history.vertices->get_size() != source->get_size()) {
+                        auto buffer = Buffer::try_create_gpu_buffer(m_device,
+                            Flags<BufferUsage>(BufferUsage::Vertex) | BufferUsage::CopyDst,
+                            source->get_size(), false, "previous skinned vertices");
+                        if(!buffer)
+                            return Draw::failure(buffer.error());
+                        history.vertices = std::move(buffer).value();
+                    }
+                    const vk::MemoryBarrier before(
+                        vk::AccessFlagBits::eVertexAttributeRead | vk::AccessFlagBits::eShaderWrite,
+                        vk::AccessFlagBits::eTransferRead | vk::AccessFlagBits::eTransferWrite);
+                    command.get().pipelineBarrier(vk::PipelineStageFlagBits::eVertexInput
+                                                      | vk::PipelineStageFlagBits::eComputeShader,
+                        vk::PipelineStageFlagBits::eTransfer, {}, before, {}, {});
+                    command.get().copyBuffer(source->get(), history.vertices->get(),
+                        vk::BufferCopy(0, 0, source->get_size()));
+                    const vk::MemoryBarrier after(vk::AccessFlagBits::eTransferWrite,
+                        vk::AccessFlagBits::eVertexAttributeRead);
+                    command.get().pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
+                        vk::PipelineStageFlagBits::eVertexInput, {}, after, {}, {});
+                    frames.retain_current_frame_resource(history.vertices);
+                }
+                history.model = item.model_matrix;
+                history.handle = item.mesh_handle;
+                history.revision = item.mesh_revision;
+                history.mesh = item.mesh;
+                history.animation = item.animation;
+                history.used = true;
+            }
+            std::erase_if(m_motion_history, [](const auto& entry) { return !entry.second.used; });
+        }
         m_draw_queue.clear();
         return Draw::success(std::move(waits));
     }

@@ -8,6 +8,20 @@
 namespace Comet {
     enum class LightType { Directional = 0, Point = 1, Spot = 2 };
 
+    struct COMET_API VolumetricFogSettings {
+        bool enabled = false;
+        Math::Vec3 color{.6f, .7f, .8f};
+        float density = .03f;
+        float base_height = 0;
+        float height_falloff = .15f;
+        float anisotropy = .2f;
+        float max_distance = 80;
+        float ambient = .1f;
+        [[nodiscard]] bool active() const { return enabled && density > 0; }
+        [[nodiscard]] Result<void> validate() const;
+        bool operator==(const VolumetricFogSettings&) const = default;
+    };
+
     struct COMET_API SceneEnvironment {
         static constexpr float MAX_INTENSITY = 64.0f;
         static constexpr float MAX_COLOR = 65504.0f;
@@ -23,6 +37,7 @@ namespace Comet {
         Math::Vec3 fog_color{0.5f};
         float fog_start = 10.0f;
         float fog_end = 100.0f;
+        VolumetricFogSettings volumetric_fog;
 
         [[nodiscard]] Result<void> validate() const;
         bool operator==(const SceneEnvironment&) const = default;

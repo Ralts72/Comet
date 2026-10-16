@@ -23,6 +23,7 @@
 namespace Comet {
     class AssetRegistry;
     class CPUBuffer;
+    struct FogVolume;
     class Device;
     class MaterialLayout;
     class FrameScheduler;
@@ -132,13 +133,13 @@ namespace Comet {
         // 所有目标的候选准备完成后，才发布共享布局和各自的 Pipeline。
         [[nodiscard]] static Result<void, GraphicsError> prepare_programs(
             std::span<MaterialRenderer* const> renderers, const RenderWorld& world);
-        // 调用方须先等待槽位、开启场景通道并设置视口与裁剪区域。
-        // shadow_map 必须已处于片元 SampledRead；即使关闭阴影也需有效采样绑定。
+        // 等待槽位后准备 CPU 数据；实际读取图像前由 RenderGraph 完成同步。
+        // 即使关闭阴影也需有效采样绑定。
         [[nodiscard]] Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> prepare(
             FrameScheduler& frames, const RenderSubmission& submission,
             const RenderGeometry& geometry, const LightingData& lighting,
             const std::shared_ptr<ImageView>& shadow_map,
-            const std::shared_ptr<ImageView>& ao_depth = {});
+            const std::shared_ptr<ImageView>& ao_depth = {}, const FogVolume* fog = nullptr);
         // 准备一次、按透明深度分段录制；本帧结束后释放借用的世界数据。
         [[nodiscard]] std::span<const float> transparent_depths() const {
             return m_transparent_depths;
@@ -158,6 +159,8 @@ namespace Comet {
         void remove_assets(const AssetRegistry::Removals& removals);
 
     private:
+        friend class SceneRenderer;
+        [[nodiscard]] DescriptorSet frame_descriptor(uint32_t slot) const;
         MaterialRenderer(Device& device, PipelineManager& pipelines, SampleCount samples,
             MaterialPrograms* programs);
         Result<void, GraphicsError> initialize(PipelineManager& pipelines,
@@ -203,6 +206,7 @@ namespace Comet {
             std::shared_ptr<Sampler> shadow_sampler;
             std::shared_ptr<ImageView> shadow_map;
             std::shared_ptr<ImageView> ao_depth;
+            std::shared_ptr<ImageView> fog;
             std::shared_ptr<Sampler> environment_sampler;
             std::shared_ptr<Environment> environment;
             std::shared_ptr<Irradiance> irradiance;
@@ -266,7 +270,8 @@ namespace Comet {
         void sync_program_inputs();
         void update_frame_resources(FrameScheduler& frames, const RenderSubmission& submission,
             const LightingData& lighting, const std::shared_ptr<ImageView>& shadow_map,
-            const std::shared_ptr<ImageView>& ao_depth, std::vector<QueueSemaphoreSubmit>& waits);
+            const std::shared_ptr<ImageView>& ao_depth, const FogVolume* fog,
+            std::vector<QueueSemaphoreSubmit>& waits);
         Result<void, GraphicsError> prepare_draw_queue(const RenderGeometry& geometry,
             uint64_t frame_serial, const Frustum* frustum, const Math::Mat4& view);
         void collect_visible_draws(const RenderGeometry& geometry, const Frustum* frustum);

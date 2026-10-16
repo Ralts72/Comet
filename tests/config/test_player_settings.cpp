@@ -87,6 +87,6 @@ namespace Comet::Tests {
 
     TEST(PlayerQualitySettingsTest, PersistsPerProjectAndDoesNotApplyOnSaveFailure) {
         expect_persistence<PlayerQualitySettings>(
-            "quality.json", QualitySettings{4, 8, 1}, QualitySettings{1, 2, 0.75f}, {3, 8, 1});
+            "quality.json", QualitySettings{4, 8, 1}, QualitySettings{1, 2, 0.75f, true}, {3, 8, 1});
     }
 }

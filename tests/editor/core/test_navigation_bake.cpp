@@ -97,6 +97,28 @@ namespace CometEditor::Tests {
         EXPECT_GT(bake.last_report()->product_bytes, 0u);
     }
 
+    TEST_F(NavigationBakeTest, LinkEditsInvalidatePendingAndPreviouslyBakedInputs) {
+        auto link = scene.create_entity("jump");
+        link.add_component<Comet::NavigationLinkComponent>();
+        Comet::Tests::BlockedWorker blocked(scheduler);
+        ASSERT_TRUE(bake.start(scene, region, history));
+        ASSERT_TRUE(
+            edit.apply({link.get_uuid(), "navigation_link", "end"}, Comet::Math::Vec3(3, 0, 0)));
+        blocked.release();
+        finish_worker();
+        EXPECT_FALSE(bake.update(scene, history, edit));
+        EXPECT_FALSE(product());
+        ASSERT_TRUE(bake.start(scene, region, history));
+        finish_worker();
+        ASSERT_TRUE(bake.update(scene, history, edit).value());
+        const auto first = product();
+        ASSERT_TRUE(edit.apply({link.get_uuid(), "navigation_link", "bidirectional"}, false));
+        ASSERT_TRUE(bake.start(scene, region, history));
+        finish_worker();
+        ASSERT_TRUE(bake.update(scene, history, edit).value());
+        EXPECT_NE(product(), first);
+    }
+
     TEST_F(NavigationBakeTest, RejectsChangedGeometryAndDiscardsCancelledOrReboundWork) {
         Comet::Tests::BlockedWorker blocked(scheduler);
         ASSERT_TRUE(bake.start(scene, region, history));

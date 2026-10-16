@@ -1,3 +1,4 @@
+#include "render/passes/volumetric_fog_pass.h"
 #include "render/material/material_renderer.h"
 #include "render/scene/draw_order.h"
 #include "render/material/material_programs.h"
@@ -79,6 +80,10 @@ namespace Comet {
         statistics.cached_material_versions = static_cast<uint32_t>(std::ranges::count_if(
             m_materials, [](const auto& entry) { return bool(entry.second.resources); }));
         return statistics;
+    }
+
+    DescriptorSet MaterialRenderer::frame_descriptor(uint32_t slot) const {
+        return *m_frames.at(slot)->descriptor;
     }
 
     void MaterialRenderer::remove_assets(const AssetRegistry::Removals& removals) {
@@ -183,12 +188,12 @@ namespace Comet {
             return Result<void, GraphicsError>::failure(shadow_sampler.error());
         DescriptorSetLayoutBindings frame_bindings;
         frame_bindings.add_binding(0, DescriptorType::UniformBuffer,
-            Flags<ShaderStage>(ShaderStage::Vertex) | ShaderStage::Fragment);
-        frame_bindings.add_binding(
-            1, DescriptorType::UniformBuffer, Flags<ShaderStage>(ShaderStage::Fragment));
-        frame_bindings.add_binding(
-            2, DescriptorType::CombinedImageSampler, Flags<ShaderStage>(ShaderStage::Fragment));
-        for(uint32_t binding = 3; binding <= 11; ++binding)
+            Flags<ShaderStage>(ShaderStage::Vertex) | ShaderStage::Fragment | ShaderStage::Compute);
+        frame_bindings.add_binding(1, DescriptorType::UniformBuffer,
+            Flags<ShaderStage>(ShaderStage::Fragment) | ShaderStage::Compute);
+        frame_bindings.add_binding(2, DescriptorType::CombinedImageSampler,
+            Flags<ShaderStage>(ShaderStage::Fragment) | ShaderStage::Compute);
+        for(uint32_t binding = 3; binding <= 12; ++binding)
             frame_bindings.add_binding(binding, DescriptorType::CombinedImageSampler,
                 Flags<ShaderStage>(ShaderStage::Fragment));
         auto frame_layout = DescriptorSetLayout::create(device, frame_bindings);
@@ -198,7 +203,7 @@ namespace Comet {
         DescriptorPoolSizes pool_sizes;
         pool_sizes.add_pool_size(DescriptorType::UniformBuffer, frame_slot_count * 2);
         pool_sizes.add_pool_size(DescriptorType::CombinedImageSampler,
-            frame_slot_count * (6 + LightingData::MAX_REFLECTION_PROBES));
+            frame_slot_count * (7 + LightingData::MAX_REFLECTION_PROBES));
         auto pool_result = DescriptorPool::create(device, frame_slot_count, pool_sizes);
         if(!pool_result)
             return Result<void, GraphicsError>::failure(pool_result.error());
@@ -228,9 +233,12 @@ namespace Comet {
             const std::array writes{
                 DescriptorSet::UniformBufferWrite{0, *frame->buffer, sizeof(MaterialFrameData)},
                 DescriptorSet::UniformBufferWrite{1, *frame->lighting, sizeof(LightingData)}};
-            const DescriptorSet::ImageSamplerWrite gi_fallback{
-                11, *m_white_texture->get_image_view(), *frame->shadow_sampler};
-            frame->descriptor->update(device, writes, std::span(&gi_fallback, 1));
+            const std::array fallbacks{
+                DescriptorSet::ImageSamplerWrite{
+                    11, *m_white_texture->get_image_view(), *frame->shadow_sampler},
+                DescriptorSet::ImageSamplerWrite{
+                    12, *m_white_texture->get_image_view(), *frame->shadow_sampler}};
+            frame->descriptor->update(device, writes, fallbacks);
             m_frames.push_back(std::move(frame));
         }
         const auto defaults = default_material_shaders();
@@ -588,8 +596,12 @@ namespace Comet {
             surface.double_sided ? CullMode::None : CullMode::Back;
         if(surface.alpha_mode == AlphaMode::Blend) {
             config.enable_alpha_blend();
+            config.color_blend_state.alphaBlendOp = vk::BlendOp::eMax;
             config.depth_stencil_state.depth_write_enable = false;
-        }
+        } else
+            config.color_blend_state.colorWriteMask = vk::ColorComponentFlagBits::eR
+                                                      | vk::ColorComponentFlagBits::eG
+                                                      | vk::ColorComponentFlagBits::eB;
         bool has_mode = false, has_cutoff = false;
         for(const auto& constant :
             program.fragment->get_interface().get_specialization_constants()) {
@@ -782,7 +794,7 @@ namespace Comet {
     Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> MaterialRenderer::prepare(
         FrameScheduler& frames, const RenderSubmission& submission, const RenderGeometry& geometry,
         const LightingData& lighting, const std::shared_ptr<ImageView>& shadow_map,
-        const std::shared_ptr<ImageView>& ao_depth) {
+        const std::shared_ptr<ImageView>& ao_depth, const FogVolume* fog) {
         using Draw = Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>;
         clear_draws();
         if(!frames.is_recording_frame() || &frames.get_device() != &m_device
@@ -790,7 +802,7 @@ namespace Comet {
             return Draw::failure({"Invalid material render frame or shadow input"});
 
         std::vector<QueueSemaphoreSubmit> waits;
-        update_frame_resources(frames, submission, lighting, shadow_map, ao_depth, waits);
+        update_frame_resources(frames, submission, lighting, shadow_map, ao_depth, fog, waits);
         if(submission.view_project_matrix) {
             const auto& matrices = *submission.view_project_matrix;
             const auto frustum = Frustum::from_view_projection(matrices.projection * matrices.view);
@@ -828,7 +840,7 @@ namespace Comet {
     void MaterialRenderer::update_frame_resources(FrameScheduler& frames,
         const RenderSubmission& submission, const LightingData& lighting,
         const std::shared_ptr<ImageView>& shadow_map, const std::shared_ptr<ImageView>& ao_depth,
-        std::vector<QueueSemaphoreSubmit>& waits) {
+        const FogVolume* fog, std::vector<QueueSemaphoreSubmit>& waits) {
         const auto previous_excess_probes = m_statistics.excess_reflection_probes;
         const auto previous_excess_gi = m_statistics.excess_irradiance_volumes;
         const auto previous_omissions =
@@ -849,7 +861,14 @@ namespace Comet {
             camera.fog_color = {settings.fog_color, 1.0f / (settings.fog_end - settings.fog_start)};
         }
         frame->buffer->write(&camera);
-        const auto selected = ViewLightingData::prepare(submission, lighting);
+        auto selected = ViewLightingData::prepare(submission, lighting);
+        selected.lighting.fog_parameters = fog ? fog->parameters : Math::Vec4(0);
+        const auto fog_image = fog ? fog->image : m_white_texture->get_image_view();
+        if(frame->fog != fog_image) {
+            const DescriptorSet::ImageSamplerWrite write{12, *fog_image, *frame->shadow_sampler};
+            frame->descriptor->update(m_device, {}, std::span(&write, 1));
+            frame->fog = fog_image;
+        }
         const auto& environment = selected.environment ? selected.environment : m_empty_environment;
         const auto& frame_lighting = selected.lighting;
         for(unsigned index = 0; index < LightingData::MAX_REFLECTION_PROBES; ++index) {
@@ -933,7 +952,6 @@ namespace Comet {
         m_statistics.instance_upload_bytes = uploaded.value();
         if(!m_instance_transforms.empty()) {
             frames.retain_current_frame_resource(instances.get_buffer());
-            instances.bind(frames.get_current_command_buffer());
         }
         return Result<void, GraphicsError>::success();
     }
@@ -942,6 +960,8 @@ namespace Comet {
         const std::span<const DrawItem> queue, std::vector<QueueSemaphoreSubmit>& waits) {
         const auto& frame = m_frames.at(frames.get_current_frame_slot_index());
         auto& command = frames.get_current_command_buffer();
+        if(!m_instance_transforms.empty())
+            frame->instances.bind(command);
         const Pipeline* active_pipeline = nullptr;
         const MaterialResources* active_material = nullptr;
         const Mesh* active_mesh = nullptr;

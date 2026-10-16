@@ -3,7 +3,22 @@
 #include <cmath>
 
 namespace Comet {
+    Result<void> VolumetricFogSettings::validate() const {
+        for(int channel = 0; channel < 3; ++channel)
+            if(!std::isfinite(color[channel]) || color[channel] < 0 || color[channel] > 1)
+                return Result<void>::failure("volumetric fog color must be between 0 and 1");
+        if(!std::isfinite(density) || density < 0 || density > 2 || !std::isfinite(base_height)
+            || std::abs(base_height) > 100000 || !std::isfinite(height_falloff)
+            || height_falloff < 0 || height_falloff > 10 || !std::isfinite(anisotropy)
+            || std::abs(anisotropy) > .9f || !std::isfinite(max_distance) || max_distance < 1
+            || max_distance > 1000 || !std::isfinite(ambient) || ambient < 0 || ambient > 16)
+            return Result<void>::failure("Invalid volumetric fog density, height, phase or range");
+        return Result<void>::success();
+    }
+
     Result<void> SceneEnvironment::validate() const {
+        if(auto valid = volumetric_fog.validate(); !valid)
+            return valid;
         for(int channel = 0; channel < 3; ++channel) {
             const auto value = background_color[channel];
             if(!std::isfinite(value) || value < 0.0f || value > MAX_COLOR)

@@ -19,6 +19,25 @@ namespace Comet::Tests {
             graph.add_pass({std::move(name), {{id, usage, stages}}});
         }
     };
+    TEST_F(RenderGraphTest, StorageProducerInitializesTransientImageBeforeSampling) {
+        const auto atlas = graph.create_image("fog", {Format::R16G16B16A16_SFLOAT, 64, 64});
+        pass("integrate", atlas, ResourceUsage::StorageWrite,
+            Flags<PipelineStage>(PipelineStage::ComputeShader));
+        pass("sample", atlas, ResourceUsage::SampledRead, fragment);
+        auto plan = graph.compile();
+        ASSERT_TRUE(plan) << plan.error();
+        const auto& barrier = plan.value().get_passes()[1].barriers.front();
+        EXPECT_EQ(std::get<ImageState>(barrier.before).layout, ImageLayout::General);
+        EXPECT_EQ(std::get<ImageState>(barrier.after).layout, ImageLayout::ShaderReadOnlyOptimal);
+        RenderGraph invalid;
+        const auto uninitialized =
+            invalid.create_image("history", {Format::R16G16B16A16_SFLOAT, 64, 64});
+        invalid.add_pass(
+            {"read before write", {{uninitialized, ResourceUsage::StorageReadWrite,
+                                      Flags<PipelineStage>(PipelineStage::ComputeShader)}}});
+        EXPECT_FALSE(invalid.compile());
+    }
+
     TEST_F(RenderGraphTest, CompilesWriteReadReadWriteAndRetainsAllReaderScopes) {
         const auto id = buffer();
         pass("produce", id, ResourceUsage::TransferDestination);

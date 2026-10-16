@@ -2,42 +2,94 @@
 
 #include "particles/particle_system.h"
 #include "scene/scene.h"
+#include "scene/systems/physics_system.h"
 
 #include <algorithm>
 #include <glm/gtc/quaternion.hpp>
 
 namespace CometEditor {
-    ParticlePreview::ParticlePreview() = default;
+    ParticlePreview::ParticlePreview(Comet::PhysicsService::MeshSource meshes)
+        : m_physics(std::make_unique<Comet::PhysicsService>(std::move(meshes))) {}
     ParticlePreview::~ParticlePreview() = default;
 
     Comet::Result<void, Comet::Error> ParticlePreview::bind(Target target,
-        const Comet::ParticleEmitterComponent& settings, const Comet::Math::Mat4& pose) {
+        const Comet::ParticleEmitterComponent& settings, const Comet::Math::Mat4& pose,
+        Comet::Scene* collision_scene, const Comet::TrailComponent* trail) {
         using Result = Comet::Result<void, Comet::Error>;
         if(target.scene_lifetime == 0 || !target.entity)
             return Result::failure({"Particle preview requires a valid scene and entity"});
         if(auto valid = settings.validate(); !valid)
             return Result::failure({valid.error()});
+        if(trail)
+            if(auto valid = trail->validate(); !valid)
+                return Result::failure({valid.error()});
         if(m_target != target) {
             reset();
             m_world = std::make_unique<Comet::Scene>();
             auto entity = m_world->create_entity_with_uuid(target.entity, "Particle Preview");
             entity.add_component<Comet::ParticleEmitterComponent>(settings);
+            if(auto services = m_runtime.set_services({.physics = m_physics.get()}); !services)
+                return services;
+            if(auto added =
+                    m_runtime.add_system(std::make_unique<Comet::PhysicsSystem>(*m_physics));
+                !added)
+                return added;
             if(auto added = m_runtime.add_system(std::make_unique<Comet::ParticleSystem>()); !added)
                 return added;
             m_target = target;
         }
+        if(collision_scene && settings.collision != Comet::ParticleCollision::None)
+            synchronize_colliders(*collision_scene);
         auto entity = m_world->find_entity(target.entity);
+        bool trail_changed = trail != nullptr && !entity.has_component<Comet::TrailComponent>();
+        if(trail) {
+            if(!entity.has_component<Comet::TrailComponent>())
+                entity.add_component<Comet::TrailComponent>(*trail);
+            else {
+                trail_changed = entity.get_component<Comet::TrailComponent>() != *trail;
+                if(!entity.try_set_component(*trail))
+                    return Result::failure({"Invalid trail preview settings"});
+            }
+        } else if(entity.has_component<Comet::TrailComponent>()) {
+            entity.remove_component<Comet::TrailComponent>();
+            trail_changed = true;
+        }
         const Comet::TransformComponent transform{.translation = Comet::Math::Vec3(pose[3]),
             .rotation = glm::degrees(glm::eulerAngles(glm::quat_cast(Comet::Math::Mat3(pose))))};
         const auto& before = entity.get_component<Comet::TransformComponent>();
-        const bool changed = settings != entity.get_component<Comet::ParticleEmitterComponent>()
-                             || before.translation != transform.translation
-                             || before.rotation != transform.rotation;
+        const bool changed =
+            trail_changed || settings != entity.get_component<Comet::ParticleEmitterComponent>()
+            || before.translation != transform.translation || before.rotation != transform.rotation;
         if(!entity.try_set_component(settings) || !entity.try_set_transform(transform))
             return Result::failure({"Invalid particle preview transform"});
         if(changed && m_runtime.is_active())
             return flush();
         return Result::success();
+    }
+
+    void ParticlePreview::synchronize_colliders(Comet::Scene& source) {
+        std::vector<Comet::EntityUuid> current;
+        source.each<const Comet::ColliderComponent, const Comet::RigidBodyComponent>(
+            [&](Comet::Entity entity, const auto& collider, const auto&) {
+                const auto uuid = entity.get_uuid();
+                if(uuid == m_target.entity)
+                    return;
+                current.push_back(uuid);
+                auto copy = m_world->find_entity(uuid);
+                if(!copy) {
+                    copy = m_world->create_entity_with_uuid(uuid, "Preview Collider");
+                    copy.add_component<Comet::RigidBodyComponent>(
+                        Comet::RigidBodyComponent{.motion = Comet::BodyMotion::Static});
+                    copy.add_component<Comet::ColliderComponent>(collider);
+                } else
+                    static_cast<void>(copy.try_set_component(collider));
+                copy.set_transform(entity.get_component<Comet::TransformComponent>());
+            });
+        std::ranges::sort(current);
+        for(const auto uuid : m_collision_entities)
+            if(!std::ranges::binary_search(current, uuid))
+                m_world->destroy_entity(m_world->find_entity(uuid));
+        m_collision_entities = std::move(current);
     }
 
     Comet::Result<void, Comet::Error> ParticlePreview::play() {
@@ -113,6 +165,7 @@ namespace CometEditor {
         stop();
         static_cast<void>(m_runtime.clear_systems());
         m_world.reset();
+        m_collision_entities.clear();
         m_target = {};
     }
 

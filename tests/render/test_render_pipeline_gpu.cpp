@@ -589,10 +589,11 @@ namespace Comet::Tests {
                 header.value().replace(
                     binding, std::string_view("binding = 1").size(), "binding = 7");
                 auto incompatible_source = source.value();
-                const std::string include = "#include \"../lighting/forward.glsl\"";
+                const std::string include = "#include \"../lighting/surface_lighting.glsl\"";
                 const auto offset = incompatible_source.find(include);
                 ASSERT_NE(offset, std::string::npos);
-                incompatible_source.replace(offset, include.size(), header.value());
+                incompatible_source.replace(
+                    offset, include.size(), header.value() + "\n" + include);
                 const auto incompatible_path = temporary.path() / "incompatible.frag";
                 ASSERT_TRUE(write_text_file_atomic(incompatible_path, incompatible_source));
                 const auto incompatible = ShaderCompiler::compile({.source = incompatible_path,

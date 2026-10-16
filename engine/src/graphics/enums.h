@@ -79,7 +79,9 @@ namespace Comet {
         DepthStencilAttachmentRead,
         Present,
         HostRead,
-        HostWrite
+        HostWrite,
+        // 完整覆盖声明范围；需要旧内容的部分更新使用 StorageReadWrite。
+        StorageWrite
     };
 
     enum class ImageAspect {

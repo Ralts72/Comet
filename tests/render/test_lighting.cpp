@@ -190,14 +190,15 @@ namespace Comet::Tests {
             std::pair{"excess_point_shadows", offsetof(LightingData, excess_point_shadows)},
             std::pair{"shadow_reserved", offsetof(LightingData, shadow_reserved)},
             std::pair{
-                "ao_inverse_view_projection", offsetof(LightingData, ao_inverse_view_projection)},
+                "inverse_view_projection", offsetof(LightingData, inverse_view_projection)},
             std::pair{"ao_parameters", offsetof(LightingData, ao_parameters)},
             std::pair{"environment", offsetof(LightingData, environment)},
             std::pair{"reflection_probes", offsetof(LightingData, reflection_probes)},
             std::pair{"reflection_metadata", offsetof(LightingData, reflection_metadata)},
             std::pair{"irradiance_origin", offsetof(LightingData, irradiance_origin)},
             std::pair{"irradiance_spacing_bias", offsetof(LightingData, irradiance_spacing_bias)},
-            std::pair{"irradiance_dimensions", offsetof(LightingData, irradiance_dimensions)}};
+            std::pair{"irradiance_dimensions", offsetof(LightingData, irradiance_dimensions)},
+            std::pair{"fog_parameters", offsetof(LightingData, fog_parameters)}};
         ASSERT_EQ(found->members.size(), fields.size());
         for(size_t index = 0; index < fields.size(); ++index) {
             SCOPED_TRACE(fields[index].first);

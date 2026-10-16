@@ -3,6 +3,7 @@
 #include "asset/data/navigation_data.h"
 #include "physics/physics_service.h"
 #include "scene/components.h"
+#include "gameplay/navigation_mesh.h"
 
 namespace Comet {
     class Scene;
@@ -14,6 +15,7 @@ namespace Comet::NavigationBake {
         Math::Vec3 center;
         NavigationRegionComponent settings;
         uint64_t fingerprint = 0;
+        std::vector<Gameplay::NavigationMesh::Link> links;
     };
     // Main 在独立内容副本中准备真实碰撞形状；不推进脚本、动画或模拟。
     [[nodiscard]] Result<Input, Error> capture(Scene& scene, const ComponentRegistry& components,

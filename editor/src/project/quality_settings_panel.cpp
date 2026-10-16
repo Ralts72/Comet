@@ -27,12 +27,20 @@ namespace CometEditor {
             ImGui::TextWrapped(
                 "%s", "修改项目默认值；已有玩家选择保持不变，可在游戏菜单恢复默认。");
             ImGui::SetNextItemWidth(160);
-            const auto samples = std::to_string(m_draft.msaa_samples) + "x";
-            if(ImGui::BeginCombo("MSAA", samples.c_str())) {
+            const auto samples =
+                m_draft.temporal_aa ? "TAA" : std::to_string(m_draft.msaa_samples) + "x";
+            if(ImGui::BeginCombo("抗锯齿###MSAA", samples.c_str())) {
                 for(const uint32_t count : {1u, 2u, 4u, 8u}) {
                     const auto label = std::to_string(count) + "x";
-                    if(ImGui::Selectable(label.c_str(), m_draft.msaa_samples == count))
+                    if(ImGui::Selectable(
+                           label.c_str(), !m_draft.temporal_aa && m_draft.msaa_samples == count)) {
                         m_draft.msaa_samples = count;
+                        m_draft.temporal_aa = false;
+                    }
+                }
+                if(ImGui::Selectable("TAA", m_draft.temporal_aa)) {
+                    m_draft.temporal_aa = true;
+                    m_draft.msaa_samples = 1;
                 }
                 ImGui::EndCombo();
             }

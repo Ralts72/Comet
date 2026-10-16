@@ -4,8 +4,7 @@
 #include "scene/components.h"
 #include "scene/scene.h"
 #include <algorithm>
-
-#include <algorithm>
+#include <cmath>
 
 namespace Comet {
     namespace {
@@ -15,6 +14,7 @@ namespace Comet {
             output.lights.clear();
             output.reflection_probes.clear();
             output.irradiance_volumes.clear();
+            output.decals.clear();
             output.environment = scene.get_environment();
             output.post_process = scene.get_post_process();
             output.cameras.reserve(scene.component_count<CameraComponent>());
@@ -61,6 +61,27 @@ namespace Comet {
                             {id.id, volume.irradiance, volume.intensity, volume.normal_bias});
                 });
             std::ranges::sort(output.irradiance_volumes, {}, &RenderIrradianceVolume::entity_id);
+            scene.each<const DecalComponent, WorldTransformComponent, IdComponent>(
+                [&](Entity entity, const DecalComponent& decal,
+                    const WorldTransformComponent& authoritative, const IdComponent& id) {
+                    if(!decal.enabled || decal.color.a <= 0 || !Math::is_finite(decal.half_extents)
+                        || glm::any(glm::lessThanEqual(decal.half_extents, Math::Vec3(0))))
+                        return;
+                    const auto& world =
+                        interpolating ? scene.get_render_transform(entity) : authoritative;
+                    const auto transform =
+                        world.world_matrix * Math::scale(Math::Mat4(1), decal.half_extents * 2.f);
+                    const auto bounds =
+                        transform_box({Math::Vec3(-.5f), Math::Vec3(.5f)}, transform);
+                    if(!bounds || std::abs(glm::determinant(transform)) < 1e-8f)
+                        return;
+                    output.decals.push_back({id.id, decal.texture, Math::inverse(transform),
+                        *bounds, decal.color, decal.roughness, decal.normal_threshold,
+                        decal.edge_fade, decal.draw_order});
+                });
+            std::ranges::sort(output.decals, [](const auto& a, const auto& b) {
+                return std::pair(a.draw_order, a.entity_id) < std::pair(b.draw_order, b.entity_id);
+            });
             output.lights.reserve(scene.component_count<LightComponent>());
             scene.each<const LightComponent, WorldTransformComponent, IdComponent>(
                 [&](Entity entity, const LightComponent& light,

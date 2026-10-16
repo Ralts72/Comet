@@ -3,9 +3,10 @@
 #include "particles/particle_data.h"
 #include "scene/entity_uuid.h"
 #include "scene/scene_runtime.h"
+#include "physics/physics_service.h"
 
 namespace CometEditor {
-    // 仅在独立场景中运行粒子 System；编辑场景只借用不可变的预览结果。
+    // 独立运行粒子与冻结的碰撞几何；编辑场景只借用不可变的预览结果。
     class ParticlePreview {
     public:
         struct Target {
@@ -14,10 +15,11 @@ namespace CometEditor {
             bool operator==(const Target&) const = default;
         };
 
-        ParticlePreview();
+        explicit ParticlePreview(Comet::PhysicsService::MeshSource meshes = {});
         ~ParticlePreview();
         Comet::Result<void, Comet::Error> bind(Target target,
-            const Comet::ParticleEmitterComponent& settings, const Comet::Math::Mat4& world_pose);
+            const Comet::ParticleEmitterComponent& settings, const Comet::Math::Mat4& world_pose,
+            Comet::Scene* collision_scene = nullptr, const Comet::TrailComponent* trail = nullptr);
         Comet::Result<void, Comet::Error> play();
         Comet::Result<void, Comet::Error> burst();
         Comet::Result<void, Comet::Error> step();
@@ -35,8 +37,11 @@ namespace CometEditor {
 
     private:
         Comet::Result<void, Comet::Error> flush();
+        void synchronize_colliders(Comet::Scene& source);
         Target m_target;
         std::unique_ptr<Comet::Scene> m_world;
+        std::unique_ptr<Comet::PhysicsService> m_physics;
+        std::vector<Comet::EntityUuid> m_collision_entities;
         Comet::SceneRuntime m_runtime;
     };
 }

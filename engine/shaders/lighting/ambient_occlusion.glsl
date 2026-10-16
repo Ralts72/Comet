@@ -26,7 +26,7 @@ float ambient_visibility(vec3 position, vec3 normal) {
             continue;
         // Reconstruct at the fetched texel center, not at the continuous kernel offset.
         vec2 uv = (vec2(pixel) + 0.5) / vec2(size);
-        vec4 world = lighting.ao_inverse_view_projection * vec4(uv * 2.0 - 1.0, depth, 1.0);
+        vec4 world = lighting.inverse_view_projection * vec4(uv * 2.0 - 1.0, depth, 1.0);
         if(abs(world.w) < 1e-8)
             continue;
         vec3 delta = world.xyz / world.w - position;

@@ -10,6 +10,118 @@
 #include <algorithm>
 
 namespace Comet::Tests {
+    TEST_F(RenderGraphGpuTest, TemporalResolveRejectsMovedSurfacesAndSurvivesSceneCutsAndResize) {
+        auto& context = engine->get_renderer().get_render_context();
+        auto& device = context.get_device();
+        MaterialPrograms programs;
+        auto scene = create_scene(programs, {65, 65}, SampleCount::Count1, true);
+        ASSERT_TRUE(scene) << scene.error();
+        FrameScheduler frames(device, 2);
+        frames.initialize_swapchain_images(2);
+        FrameWait wait{device, frames};
+        const auto mesh = lit_quad();
+        auto red = std::make_shared<Material>("temporal red", "unlit_color");
+        ASSERT_TRUE(red->set_vector_property("color", {1, 0, 0, 1}));
+        for(unsigned frame = 0; frame < 14; ++frame) {
+            SCOPED_TRACE(frame);
+            const auto size = frame >= 11 ? Math::Vec2u(79, 61) : Math::Vec2u(65);
+            if(frame == 11)
+                ASSERT_TRUE(scene.value()->resize_offscreen_target(size));
+            RenderWorld world;
+            world.scene_lifetime = frame >= 10 ? 2 : 1;
+            world.environment.background_color = {0, .2f, 0};
+            const float x = frame >= 8 ? .5f : -.5f;
+            world.render_items.push_back({.entity_id = 1,
+                .model_matrix = Math::translate(Math::Mat4(1), {x, .2f, 0})
+                                * glm::mat4_cast(glm::angleAxis(.4f, Math::Vec3(0, 0, 1)))
+                                * Math::scale(Math::Mat4(1), {.3f, .3f, 1}),
+                .mesh = mesh,
+                .material = {.resource = red}});
+            ASSERT_TRUE(scene.value()->prepare_material_programs(world));
+            RenderGeometry geometry;
+            geometry.prepare(world);
+            const auto view = Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0});
+            const auto projection = Math::ortho(-1, 1, -1, 1, .1f, 10);
+            begin_frame(frames);
+            auto drawn = scene.value()->render(
+                frames, {world, ViewProjectMatrix{view, projection}}, geometry);
+            ASSERT_TRUE(drawn) << drawn.error();
+            const auto output =
+                scene.value()->get_offscreen_color_view(frames.get_current_frame_slot_index());
+            auto pixels = std::make_shared<Readback>(
+                device, context.get_context().get_physical_device(), size.x * size.y * 4);
+            copy_output(frames, output->get_image(), pixels, size);
+            submit(device, frames, drawn.value());
+            frames.wait_for_all_slots();
+            const auto bytes = pixels->read();
+            const auto format = output->get_image()->get_info().format;
+            const auto red_channel =
+                format == Format::B8G8R8A8_UNORM || format == Format::B8G8R8A8_SRGB ? 2 : 0;
+            const auto y = uint32_t(.4f * size.y);
+            const auto current = (y * size.x + uint32_t((x * .5f + .5f) * size.x)) * 4;
+            EXPECT_NEAR(std::to_integer<int>(bytes[current + red_channel]), mapped_byte(1), 3);
+            if(frame == 7) {
+                std::size_t partial_coverage = 0;
+                for(std::size_t pixel = 0; pixel < bytes.size(); pixel += 4) {
+                    const auto value = std::to_integer<int>(bytes[pixel + red_channel]);
+                    partial_coverage += value > 4 && value < mapped_byte(1) - 4;
+                }
+                RecordProperty("taa_partial_coverage", std::to_string(partial_coverage));
+                EXPECT_GT(partial_coverage, 20u);
+            }
+            if(frame >= 8) {
+                const auto old = (y * size.x + uint32_t(.25f * size.x)) * 4;
+                EXPECT_LT(std::to_integer<int>(bytes[old + red_channel]), 3);
+                EXPECT_NEAR(std::to_integer<int>(bytes[old + 1]), mapped_byte(.2f), 3);
+            }
+        }
+    }
+
+    TEST_F(RenderGraphGpuTest, TrailSegmentsFaceEachCameraAndKeepBillboardsWorking) {
+        auto& context = engine->get_renderer().get_render_context();
+        auto& device = context.get_device();
+        MaterialPrograms programs;
+        auto scene = create_scene(programs, {33, 33});
+        ASSERT_TRUE(scene);
+        FrameScheduler frames(device, 2);
+        frames.initialize_swapchain_images(2);
+        FrameWait wait{device, frames};
+        std::array<std::shared_ptr<Readback>, 2> pixels;
+        Format format{};
+        auto particles = std::make_shared<ParticleSnapshot>();
+        particles->instances = {{{-.8f, 0, 0, .3f}, {1, 0, 0, 1}, {0, 0, 1, 1}, {.8f, 0, 0, .3f}},
+            {{0, .6f, 0, .25f}, {0, 1, 0, 1}}};
+        for(unsigned frame = 0; frame < pixels.size(); ++frame) {
+            RenderWorld world;
+            world.particles = particles;
+            RenderGeometry geometry;
+            geometry.prepare(world);
+            begin_frame(frames);
+            const auto up = frame == 0 ? Math::Vec3{0, 1, 0} : Math::Vec3{1, 0, 0};
+            auto drawn = scene.value()->render(frames,
+                {world, ViewProjectMatrix{Math::look_at({0, 0, 3}, {0, 0, 0}, up),
+                            Math::ortho(-1, 1, -1, 1, .1f, 10)}},
+                geometry);
+            ASSERT_TRUE(drawn) << drawn.error();
+            const auto output =
+                scene.value()->get_offscreen_color_view(frames.get_current_frame_slot_index());
+            format = output->get_image()->get_info().format;
+            pixels[frame] = std::make_shared<Readback>(
+                device, context.get_context().get_physical_device(), 33 * 33 * 4);
+            copy_output(frames, output->get_image(), pixels[frame], {33, 33});
+            submit(device, frames, drawn.value());
+        }
+        frames.wait_for_all_slots();
+        const bool bgra = format == Format::B8G8R8A8_SRGB || format == Format::B8G8R8A8_UNORM;
+        for(unsigned frame = 0; frame < pixels.size(); ++frame) {
+            const auto bytes = pixels[frame]->read();
+            EXPECT_NEAR(std::to_integer<int>(bytes[(16 * 33 + 16) * 4 + (bgra ? 2 : 0)]),
+                mapped_byte(1), 3);
+            const auto green = frame == 0 ? (6 * 33 + 16) : (16 * 33 + 6);
+            EXPECT_GT(std::to_integer<int>(bytes[green * 4 + 1]), 100);
+        }
+    }
+
     TEST_F(RenderGraphGpuTest, FlipbookCellsKeepTheirColorOrientationAndBaseMip) {
         auto& context = engine->get_renderer().get_render_context();
         auto& device = context.get_device();

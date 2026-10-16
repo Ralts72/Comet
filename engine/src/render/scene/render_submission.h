@@ -60,6 +60,11 @@ namespace Comet {
         uint64_t revision = 0;
     };
 
+    struct ResolvedDecal {
+        RenderDecal decal;
+        std::shared_ptr<Texture> texture;
+    };
+
     // 与视图选择和输出目标无关的持久世界数据；资源引用由世界和在途 FrameSlot 保活。
     struct RenderWorld {
         uint64_t scene_lifetime = 0;
@@ -68,6 +73,7 @@ namespace Comet {
         std::vector<RenderLight> lights;
         std::vector<ResolvedReflectionProbe> reflection_probes;
         std::vector<ResolvedIrradianceVolume> irradiance_volumes;
+        std::vector<ResolvedDecal> decals;
         SceneEnvironment environment;
         PostProcessSettings post_process;
         uint64_t environment_revision = 0;
@@ -98,6 +104,7 @@ namespace Comet {
             lights.clear();
             reflection_probes.clear();
             irradiance_volumes.clear();
+            decals.clear();
             particles.reset();
             particle_textures.clear();
             environment = {};

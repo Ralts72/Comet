@@ -95,6 +95,125 @@ namespace Comet::Tests {
             Math::Vec3 position() { return Math::Vec3(scene.get_world_matrix(actor)[3]); }
         };
     }
+    TEST_F(NavigationTest, DynamicObstacleCarvesTheRouteAndInvalidatesCachedPathsOnlyWhenChanged) {
+        auto obstacle = box({.05f, 1.5f, 0}, {.6f, 1.5f, 3}, BodyMotion::Kinematic);
+        obstacle.add_component<NavigationObstacleComponent>(
+            NavigationObstacleComponent{.half_extents = {.6f, 1.5f, 3}});
+        actor.get_component<NavigationAgentComponent>().repath_interval = 10;
+        ASSERT_TRUE(runtime.start(scene));
+        auto path = navigation->mesh().find_path({-6, 0, 0}, {6, 0, 0});
+        ASSERT_TRUE(path);
+        ASSERT_EQ(path.value().status, Gameplay::NavigationMesh::Status::Complete);
+        EXPECT_GT(path.value().points.size(), 2u);
+        EXPECT_EQ(navigation->get_statistics().obstacle_rebuilds, 1u);
+        ASSERT_TRUE(step(5));
+        EXPECT_EQ(navigation->get_statistics().obstacle_rebuilds, 1u);
+        obstacle.edit_transform([](auto& transform) { transform.translation.x += .001f; });
+        ASSERT_TRUE(step());
+        EXPECT_EQ(navigation->get_statistics().obstacle_rebuilds, 1u);
+        const auto queries = navigation->get_statistics().path_queries;
+        obstacle.get_component<NavigationObstacleComponent>().enabled = false;
+        ASSERT_TRUE(step());
+        EXPECT_EQ(navigation->get_statistics().obstacle_rebuilds, 2u);
+        EXPECT_GT(navigation->get_statistics().path_queries, queries);
+        path = navigation->mesh().find_path({-6, 0, 0}, {6, 0, 0});
+        ASSERT_TRUE(path);
+        EXPECT_EQ(path.value().points.size(), 2u);
+        RecordProperty("dynamic_rebuild_ms",
+            std::to_string(navigation->get_statistics().obstacle_rebuild_milliseconds));
+    }
+
+    TEST_F(NavigationTest, ClosingAndOpeningADoorStopsAndRestartsNavigation) {
+        auto door = box({0, 1.5f, 0}, {.5f, 1.5f, 10}, BodyMotion::Kinematic);
+        door.add_component<NavigationObstacleComponent>(
+            NavigationObstacleComponent{.half_extents = {.5f, 1.5f, 10}});
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(step());
+        EXPECT_EQ(controller->status, NavigationSystem::Status::NoPath);
+        door.edit_transform([](auto& transform) { transform.translation.z = 25; });
+        ASSERT_TRUE(step(2));
+        EXPECT_EQ(controller->status, NavigationSystem::Status::Moving);
+        EXPECT_GT(position().x, -6);
+    }
+
+    TEST_F(NavigationTest, ACompletelyBlockedRegionCanRecoverAfterRemovingItsObstacle) {
+        auto obstacle = scene.create_entity("block all navigation");
+        obstacle.add_component<NavigationObstacleComponent>(
+            NavigationObstacleComponent{.half_extents = {20, 4, 20}});
+        ASSERT_TRUE(runtime.start(scene));
+        EXPECT_TRUE(navigation->mesh().ready());
+        ASSERT_TRUE(step());
+        EXPECT_EQ(controller->status, NavigationSystem::Status::NoPath);
+        scene.destroy_entity(obstacle);
+        ASSERT_TRUE(step());
+        EXPECT_EQ(controller->status, NavigationSystem::Status::Moving);
+    }
+
+    TEST_F(NavigationTest, OffMeshJumpLinksSurviveProductsAndDrivePhysicalCrossLayerMovement) {
+        for(const auto entity : scene.get_entities())
+            if(entity.has_component<RigidBodyComponent>())
+                scene.destroy_entity(entity);
+        box({-2.5f, -.5f, 0}, {2.5f, .5f, 2});
+        box({2, .5f, 0}, {1.5f, .5f, 2});
+        actor.edit_transform([](auto& transform) { transform.translation = {-3, 0, 0}; });
+        controller->target = {2.3f, 1, 0};
+        auto link = scene.create_entity("jump up");
+        link.edit_transform([](auto& transform) { transform.translation = {-.8f, 0, 0}; });
+        link.add_component<NavigationLinkComponent>(
+            NavigationLinkComponent{.end = {1.8f, 1, 0}, .radius = .5f});
+        ASSERT_TRUE(runtime.start(scene));
+        const auto path = navigation->mesh().find_path({-3, 0, 0}, controller->target);
+        ASSERT_TRUE(path);
+        ASSERT_EQ(path.value().status, Gameplay::NavigationMesh::Status::Complete);
+        ASSERT_EQ(path.value().jumps.size(), 1u);
+        EXPECT_NEAR(path.value().jumps.front().end.x, 1, .01f);
+        const auto links = Gameplay::capture_navigation_links(scene);
+        ASSERT_TRUE(links);
+        NavigationRegionComponent settings{.half_extents = {10, 4, 10}};
+        auto geometry = physics.static_triangles(-settings.half_extents, settings.half_extents);
+        ASSERT_TRUE(geometry);
+        const auto fingerprint = Gameplay::NavigationMesh::input_fingerprint(
+            geometry.value(), {}, settings, links.value());
+        ASSERT_TRUE(fingerprint);
+        auto product = navigation->mesh().product(fingerprint.value());
+        ASSERT_TRUE(product) << product.error();
+        Gameplay::NavigationMesh restored;
+        ASSERT_TRUE(restored.load(product.value()));
+        auto restored_path = restored.find_path({-3, 0, 0}, controller->target);
+        ASSERT_TRUE(restored_path);
+        EXPECT_EQ(restored_path.value().jumps.size(), 1u);
+        float highest = 0;
+        for(int i = 0; i < 300 && controller->status != NavigationSystem::Status::Arrived; ++i) {
+            ASSERT_TRUE(step());
+            highest = std::max(highest, position().y);
+        }
+        EXPECT_GT(highest, 1.1f);
+        EXPECT_EQ(controller->status, NavigationSystem::Status::Arrived);
+        EXPECT_NEAR(position().y, 1, .05f);
+        EXPECT_NEAR(position().x, controller->target.x, .4f);
+        const auto raised_target = controller->target;
+        controller->target = {-3, 0, 0};
+        ASSERT_TRUE(step());
+        for(int i = 0; i < 300 && controller->status != NavigationSystem::Status::Arrived; ++i)
+            ASSERT_TRUE(step());
+        EXPECT_EQ(controller->status, NavigationSystem::Status::Arrived);
+        EXPECT_NEAR(position().y, 0, .05f);
+        EXPECT_NEAR(position().x, -3, .4f);
+        const auto reverse = restored.find_path(raised_target, {-3, 0, 0});
+        ASSERT_TRUE(reverse);
+        ASSERT_EQ(reverse.value().jumps.size(), 1u);
+        EXPECT_NEAR(reverse.value().jumps.front().end.x, -.8f, .01f);
+        auto one_way = links.value();
+        one_way.front().bidirectional = false;
+        ASSERT_TRUE(restored.build(geometry.value(), {}, settings, one_way));
+        EXPECT_EQ(restored.find_path(raised_target, {-3, 0, 0}).value().status,
+            Gameplay::NavigationMesh::Status::NoPath);
+        EXPECT_NE(
+            Gameplay::NavigationMesh::input_fingerprint(geometry.value(), {}, settings, one_way)
+                .value(),
+            fingerprint.value());
+    }
+
     TEST_F(NavigationTest, OfflineProductPreservesQueriesAndOwnsItsTileAfterTheSourceWorldStops) {
         box({0, 1.5f, 0}, {0.6f, 1.5f, 3});
         ASSERT_TRUE(runtime.start(scene));

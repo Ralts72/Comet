@@ -84,13 +84,14 @@ namespace Comet {
         instance->source = source;
         instance->program = m_program;
         auto output = Buffer::try_create_gpu_buffer(m_device,
-            Flags<BufferUsage>(BufferUsage::Vertex) | BufferUsage::Storage,
+            Flags<BufferUsage>(BufferUsage::Vertex) | BufferUsage::Storage | BufferUsage::CopySrc,
             source->m_vertex_buffer->get_size(), false, "skinned vertices");
         if(!output)
             return Created::failure({"Cannot allocate skinned vertices", output.result()});
         instance->output = std::shared_ptr<Mesh>(
             new Mesh(std::move(output).value(), source->m_index_buffer, source->m_ready_completion,
                 source->m_local_bounds, source->m_vertex_count, source->m_index_count));
+        instance->output->m_deformed = true;
         auto palette =
             Buffer::try_create_cpu_buffer(m_device, Flags<BufferUsage>(BufferUsage::Storage),
                 source->m_animation->joints.size() * sizeof(Math::Mat4), false, nullptr,

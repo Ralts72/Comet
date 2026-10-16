@@ -296,7 +296,7 @@
     {
       "uuid": "8bf1524b-0061-4000-8000-000000000002",
       "components": {
-        "name": "移动障碍（局部避障）",
+        "name": "移动障碍（更新路径）",
         "transform": {
           "translation": [
             -4,
@@ -336,6 +336,13 @@
             "amplitude": 1.5,
             "speed": 0.6
           }
+        },
+        "navigation_obstacle": {
+          "half_extents": [
+            0.5,
+            0.5,
+            0.5
+          ]
         }
       }
     },

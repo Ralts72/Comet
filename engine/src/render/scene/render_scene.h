@@ -112,6 +112,18 @@ namespace Comet {
         }
     };
 
+    struct RenderDecal {
+        EntityId entity_id = INVALID_ENTITY_ID;
+        AssetHandle texture;
+        Math::Mat4 world_to_local{1};
+        BoundingBox bounds;
+        Math::Vec4 color{1};
+        float roughness = .8f;
+        float normal_threshold = .2f;
+        float edge_fade = .05f;
+        uint32_t draw_order = 0;
+    };
+
     struct RenderScene {
         uint64_t scene_lifetime = 0;
         std::vector<RenderCamera> cameras;
@@ -119,6 +131,7 @@ namespace Comet {
         std::vector<RenderLight> lights;
         std::vector<RenderReflectionProbe> reflection_probes;
         std::vector<RenderIrradianceVolume> irradiance_volumes;
+        std::vector<RenderDecal> decals;
         SceneEnvironment environment;
         PostProcessSettings post_process;
         RenderItemChanges item_changes;

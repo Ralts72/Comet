@@ -10,6 +10,7 @@
 
 namespace Comet {
     enum class ParticleBlend { Additive, Alpha };
+    enum class ParticleCollision { None, Bounce, Kill };
 
     struct COMET_API ParticleEmitterComponent {
         static constexpr uint32_t MAX_CAPACITY = 4096;
@@ -34,16 +35,39 @@ namespace Comet {
         uint32_t frame_count = 1;
         float frame_rate = 0;
         bool loop_animation = false;
+        ParticleCollision collision = ParticleCollision::None;
+        float collision_radius = 0.025f;
+        float restitution = 0.5f;
+        float friction = 0.1f;
+        uint32_t collision_layers = UINT32_MAX;
 
         [[nodiscard]] Math::Vec4 texture_region(double age) const;
         [[nodiscard]] Result<void> validate() const;
         bool operator==(const ParticleEmitterComponent&) const = default;
     };
 
+    struct COMET_API TrailComponent {
+        bool enabled = true;
+        uint32_t capacity = 128;
+        float lifetime = 0.5f;
+        float minimum_distance = 0.02f;
+        float break_distance = 5;
+        float width = 0.15f;
+        Math::Vec4 color{1, 0.5f, 0.1f, 1};
+        AssetHandle texture;
+        ParticleBlend blend = ParticleBlend::Additive;
+        float soft_distance = 0;
+
+        [[nodiscard]] Result<void> validate() const;
+        bool operator==(const TrailComponent&) const = default;
+    };
+
     struct ParticleInstance {
         Math::Vec4 position_size{};
         Math::Vec4 color{};
         Math::Vec4 uv_rect{0, 0, 1, 1};
+        // w < 0 为 billboard；否则连接两个世界空间端点，w 为末端宽度。
+        Math::Vec4 end_position_size{0, 0, 0, -1};
         bool operator==(const ParticleInstance&) const = default;
     };
 

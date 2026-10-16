@@ -521,6 +521,14 @@ namespace Comet::Tests {
         click("settings");
         click("quality-scale");
         click("quality-msaa");
+        for(std::size_t i = 0; i < engine->get_renderer().supported_msaa_samples().size(); ++i) {
+            if(document().GetElementById("quality-msaa")->GetInnerRML().find("TAA")
+                != std::string::npos)
+                break;
+            click("quality-msaa");
+        }
+        ASSERT_NE(document().GetElementById("quality-msaa")->GetInnerRML().find("TAA"),
+            std::string::npos);
         fail_quality_save = true;
         click("quality-apply");
         EXPECT_EQ(quality_applications, 0u);
@@ -535,8 +543,10 @@ namespace Comet::Tests {
         click("quality-apply");
         EXPECT_EQ(quality_applications, 1u);
         EXPECT_EQ(saved_quality.render_scale, 0.5f);
+        EXPECT_TRUE(saved_quality.temporal_aa);
         ASSERT_TRUE(submit_frame());
         EXPECT_EQ(engine->get_renderer().get_quality_settings().render_scale, 0.5f);
+        EXPECT_TRUE(engine->get_renderer().get_quality_settings().temporal_aa);
         EXPECT_NE(document().GetElementById("quality-active")->GetInnerRML().find("50%"),
             std::string::npos);
         EXPECT_EQ(engine->get_window().get_size(), window_size);

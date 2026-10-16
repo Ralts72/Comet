@@ -31,6 +31,7 @@ namespace Comet {
     class ImageView;
     class Swapchain;
     class BloomPass;
+    class VolumetricFogPass;
     struct SwapchainCompatibility;
 
     class COMET_API SceneRenderer {
@@ -83,8 +84,19 @@ namespace Comet {
         void skip_frame();
         MaterialRenderer& get_material_renderer();
         void remove_assets(const AssetRegistry::Removals& removals);
+        struct ViewRequirements {
+            bool shadows = false;
+            bool soft_particles = false;
+            bool decals = false;
+            bool fog = false;
+            [[nodiscard]] bool needs_depth(
+                const PostProcessSettings& settings, bool temporal) const {
+                return settings.uses_ao() || temporal || soft_particles || decals;
+            }
+            bool operator==(const ViewRequirements&) const = default;
+        };
         Result<void, GraphicsError> configure_effects(
-            const PostProcessSettings& settings, bool soft_particles, bool shadows);
+            const PostProcessSettings& settings, const ViewRequirements& requirements);
         Result<void, GraphicsError> validate_quality_settings(
             const QualitySettings& settings) const;
         Result<void, GraphicsError> configure_output_calibration(float headroom, float white_level);
@@ -101,9 +113,13 @@ namespace Comet {
         Result<std::shared_ptr<RenderState>, GraphicsError> prepare_quality(
             RenderResources& resources, Swapchain& swapchain, const QualitySettings& settings);
         void install_quality(std::shared_ptr<RenderState> state, const QualitySettings& settings);
+        struct EffectPasses {
+            BloomPass* bloom;
+            VolumetricFogPass* fog;
+        };
         Result<void, GraphicsError> rebuild_graph(RenderState& state,
-            const PostProcessSettings& settings, bool shadows = false, bool soft_particles = false,
-            BloomPass* bloom = nullptr, Math::Vec2u source_size = {});
+            const PostProcessSettings& settings, const ViewRequirements& requirements,
+            EffectPasses effects, Math::Vec2u source_size);
         struct TargetRetry {
             Math::Vec2u size;
             RetryBackoff retry;
@@ -117,9 +133,7 @@ namespace Comet {
             const LineDrawList& lines, const LightingData& lighting,
             std::vector<QueueSemaphoreSubmit>& waits);
         Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> draw_scene(FrameScheduler& frames,
-            CommandBuffer& command, const RenderSubmission& submission,
-            const RenderGeometry& geometry, const LineDrawList& lines,
-            const LightingData& lighting);
+            CommandBuffer& command, const RenderSubmission& submission, const LineDrawList& lines);
         void record_transparent(FrameScheduler& frames, std::vector<QueueSemaphoreSubmit>& waits);
 
         Device& m_device;

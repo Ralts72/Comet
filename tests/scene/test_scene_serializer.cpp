@@ -870,6 +870,42 @@ namespace Comet::Tests {
         EXPECT_EQ(registry.collect_asset_references(scene).size(), 1u);
     }
 
+    TEST(SceneEnvironmentTest, VolumetricFogPersistsClonesAndRejectsInvalidValues) {
+        const auto components = create_scene_component_registry();
+        const SceneSerializer serializer(components);
+        Scene scene;
+        auto environment = scene.get_environment();
+        environment.volumetric_fog = {.enabled = true,
+            .color = {.2f, .4f, .7f},
+            .density = .1f,
+            .base_height = -2,
+            .height_falloff = .3f,
+            .anisotropy = -.2f,
+            .max_distance = 40,
+            .ambient = .5f};
+        ASSERT_TRUE(scene.set_environment(environment));
+        auto text = serializer.serialize(scene);
+        ASSERT_TRUE(text) << text.error();
+        auto loaded = serializer.deserialize(text.value());
+        ASSERT_TRUE(loaded) << loaded.error();
+        EXPECT_EQ(loaded.value()->get_environment(), environment);
+        auto clone = serializer.clone(scene);
+        ASSERT_TRUE(clone);
+        EXPECT_EQ(clone.value()->get_environment(), environment);
+        EXPECT_EQ(SceneExtractor::extract(scene).environment, environment);
+        for(const auto& field : {R"("density":-1)", R"("height_falloff":-1)", R"("anisotropy":1)",
+                R"("max_distance":0)", R"("ambient":-1)", R"("color":[2,1,1])", R"("enabled":1)",
+                R"("unknown":0)"}) {
+            auto invalid = serializer.deserialize(
+                std::string(R"({"version":2,"entities":[],"environment":{"volumetric_fog":{)")
+                + field + "}}}");
+            EXPECT_FALSE(invalid) << field;
+        }
+        environment.volumetric_fog.density = std::numeric_limits<float>::quiet_NaN();
+        EXPECT_FALSE(scene.set_environment(environment));
+        EXPECT_TRUE(scene.get_environment().volumetric_fog.active());
+    }
+
     TEST(SceneEnvironmentTest, FogRejectsInvalidRangesColorsAndTypesWithoutChangingScene) {
         const auto registry = create_scene_component_registry();
         const SceneSerializer serializer(registry);

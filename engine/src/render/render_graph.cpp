@@ -133,6 +133,7 @@ namespace Comet {
                 case ResourceUsage::SampledRead:
                     return Flags<ImageUsage>(ImageUsage::Sampled);
                 case ResourceUsage::StorageRead:
+                case ResourceUsage::StorageWrite:
                 case ResourceUsage::StorageReadWrite:
                     return Flags<ImageUsage>(ImageUsage::StorageBinding);
                 case ResourceUsage::ColorAttachmentWrite:
@@ -152,6 +153,7 @@ namespace Comet {
                 case ResourceUsage::TransferDestination:
                     return Flags<BufferUsage>(BufferUsage::CopyDst);
                 case ResourceUsage::StorageRead:
+                case ResourceUsage::StorageWrite:
                 case ResourceUsage::StorageReadWrite:
                     return Flags<BufferUsage>(BufferUsage::Storage);
                 case ResourceUsage::UniformRead:

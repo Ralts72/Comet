@@ -7,6 +7,8 @@
 #include "render/scene/scene_extractor.h"
 #include "scene/scene.h"
 #include "scene/scene_runtime.h"
+#include "scene/scene_serializer.h"
+#include "scene/component_registry.h"
 #include "support/math_assertions.h"
 #include "render/resource/irradiance.h"
 #include "render/scene/scene_resolver.h"
@@ -30,6 +32,48 @@ namespace Comet::Tests {
                 EXPECT_TRUE(TestUtils::Mat4Equal(found->model_matrix, item.model_matrix));
             }
         }
+    }
+
+    TEST(SceneExtractorTest, ProjectorSnapshotsOwnTransformsAndFollowEditsAndSceneContentCopies) {
+        Scene scene;
+        auto parent = scene.create_entity("scaled parent");
+        parent.edit_transform([](auto& value) {
+            value.scale = {2, 1, 3};
+            value.rotation.y = 30;
+        });
+        auto entity = scene.create_entity("decal");
+        entity.add_component<DecalComponent>(
+            DecalComponent{.texture = AssetHandle(71), .draw_order = 4});
+        ASSERT_TRUE(scene.set_parent(entity, parent));
+        SceneExtractor extractor;
+        const auto first = extractor.update(scene);
+        ASSERT_EQ(first->decals.size(), 1u);
+        const auto& decal = first->decals.front();
+        const auto center = Math::Vec3(scene.get_world_matrix(entity)[3]);
+        EXPECT_TRUE(glm::all(glm::lessThanEqual(decal.bounds.minimum, center)));
+        EXPECT_TRUE(glm::all(glm::greaterThanEqual(decal.bounds.maximum, center)));
+        EXPECT_TRUE(TestUtils::Mat4Equal(decal.world_to_local * scene.get_world_matrix(entity)
+                                             * Math::scale(Math::Mat4(1), {1, .5f, 1}),
+            Math::Mat4(1)));
+        entity.edit_component<DecalComponent>([](auto& value) { value.color = {0, 1, 0, 1}; });
+        const auto second = extractor.update(scene);
+        EXPECT_EQ(first->decals.front().color, Math::Vec4(1));
+        EXPECT_EQ(second->decals.front().color, Math::Vec4(0, 1, 0, 1));
+        const auto components = create_scene_component_registry();
+        const auto copy = SceneSerializer(components).clone(scene);
+        ASSERT_TRUE(copy) << copy.error();
+        EXPECT_EQ(copy.value()->find_entity(entity.get_uuid()).get_component<DecalComponent>(),
+            entity.get_component<DecalComponent>());
+        const auto references = components.collect_asset_references(scene);
+        EXPECT_TRUE(std::ranges::any_of(
+            references, [](const auto& value) { return value.handle == AssetHandle(71); }));
+        entity.edit_component<DecalComponent>([](auto& value) { value.enabled = false; });
+        EXPECT_TRUE(extractor.update(scene)->decals.empty());
+        EXPECT_FALSE(first->decals.empty());
+        const auto runtime =
+            components.collect_asset_references(scene, ComponentRegistry::ReferenceScope::Runtime);
+        EXPECT_FALSE(std::ranges::any_of(
+            runtime, [](const auto& value) { return value.handle == AssetHandle(71); }));
     }
 
     TEST(SceneExtractorTest, IrradianceSnapshotsFreezeAssetVersionsAndTrackComponentEdits) {

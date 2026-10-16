@@ -9,11 +9,137 @@
 #include "asset/script.h"
 #include "scene/script_component.h"
 #include "scene/systems/script_system.h"
+#include "scene/systems/physics_system.h"
 
 #include <gtest/gtest.h>
 #include <limits>
 
 namespace Comet::Tests {
+    TEST(ParticleSystemTest, SweptCollisionsBounceOrKillAndRespectLayers) {
+        for(const auto mode :
+            {ParticleCollision::None, ParticleCollision::Bounce, ParticleCollision::Kill}) {
+            for(const auto layers : {1u, 2u}) {
+                SCOPED_TRACE(static_cast<int>(mode));
+                SCOPED_TRACE(layers);
+                Scene scene;
+                auto ground = scene.create_entity("ground");
+                ground.edit_transform([](auto& transform) { transform.translation.y = -.1f; });
+                ground.add_component<RigidBodyComponent>(
+                    RigidBodyComponent{.motion = BodyMotion::Static});
+                ground.add_component<ColliderComponent>(
+                    ColliderComponent{.half_extents = {5, .1f, 5}});
+                auto entity = scene.create_entity("spark");
+                entity.edit_transform([](auto& transform) {
+                    transform.translation.y = 1;
+                    transform.rotation.x = 180;
+                });
+                ParticleEmitterComponent emitter;
+                emitter.rate = 0;
+                emitter.burst = 1;
+                emitter.spread = 0;
+                emitter.speed = 20;
+                emitter.acceleration = {};
+                emitter.collision = mode;
+                emitter.collision_radius = .05f;
+                emitter.collision_layers = layers;
+                entity.add_component<ParticleEmitterComponent>(emitter);
+                PhysicsService physics;
+                SceneRuntime runtime;
+                ASSERT_TRUE(runtime.set_services({.physics = &physics}));
+                ASSERT_TRUE(runtime.set_settings({.fixed_delta = .1, .max_frame_delta = 1}));
+                ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
+                ASSERT_TRUE(runtime.add_system(std::make_unique<ParticleSystem>()));
+                ASSERT_TRUE(runtime.start(scene));
+                const auto initial = scene.get_particles();
+                ASSERT_TRUE(runtime.advance(.1));
+                if(layers == 1 && mode == ParticleCollision::Kill)
+                    EXPECT_FALSE(scene.get_particles());
+                else {
+                    ASSERT_TRUE(scene.get_particles());
+                    const float y = scene.get_particles()->instances.front().position_size.y;
+                    if(layers == 1 && mode == ParticleCollision::Bounce) {
+                        EXPECT_GT(y, .5f);
+                        EXPECT_LT(y, .65f);
+                    } else
+                        EXPECT_NEAR(y, -1, 1e-5);
+                }
+                EXPECT_FLOAT_EQ(initial->instances.front().position_size.y, 1);
+            }
+        }
+    }
+
+    TEST(ParticleSystemTest, TrailsBreakOnTeleportAndExpireWithoutChangingPublishedSnapshots) {
+        Scene scene;
+        auto entity = scene.create_entity("trail");
+        TrailComponent settings;
+        settings.lifetime = .2f;
+        settings.capacity = 8;
+        entity.add_component<TrailComponent>(settings);
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_settings(
+            {.fixed_delta = .05, .max_frame_delta = 1, .max_fixed_steps = 16}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<ParticleSystem>()));
+        ASSERT_TRUE(runtime.start(scene));
+        EXPECT_FALSE(scene.get_particles());
+        entity.edit_transform([](auto& transform) { transform.translation.x = .5f; });
+        ASSERT_TRUE(runtime.advance(.05));
+        const auto first = scene.get_particles();
+        ASSERT_TRUE(first);
+        ASSERT_EQ(first->instances.size(), 1u);
+        EXPECT_FLOAT_EQ(first->instances[0].end_position_size.x, .5f);
+        EXPECT_GE(first->instances[0].end_position_size.w, 0);
+        ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
+        ASSERT_TRUE(runtime.advance(.5));
+        EXPECT_EQ(scene.get_particles(), first);
+        entity.edit_transform([](auto& transform) { transform.translation.x = 100; });
+        ASSERT_TRUE(runtime.request_step());
+        ASSERT_TRUE(runtime.advance(0));
+        ASSERT_TRUE(scene.get_particles());
+        EXPECT_EQ(scene.get_particles()->instances.size(), 1u);
+        entity.edit_transform([](auto& transform) { transform.translation.x = 100.5f; });
+        ASSERT_TRUE(runtime.request_step());
+        ASSERT_TRUE(runtime.advance(0));
+        ASSERT_EQ(scene.get_particles()->instances.size(), 2u);
+        for(const auto& segment : scene.get_particles()->instances)
+            EXPECT_LE(Math::length(Math::Vec3(segment.end_position_size)
+                                   - Math::Vec3(segment.position_size)),
+                settings.break_distance);
+        scene.destroy_entity(entity);
+        ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Running));
+        ASSERT_TRUE(runtime.advance(.3));
+        EXPECT_FALSE(scene.get_particles());
+        EXPECT_FLOAT_EQ(first->instances[0].end_position_size.x, .5f);
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_FALSE(scene.get_particles());
+    }
+
+    TEST(ParticleSystemTest, TrailConfigurationRoundTripsAndCollectsItsTexture) {
+        TemporaryDirectory directory;
+        Scene scene;
+        auto entity = scene.create_entity("trail");
+        TrailComponent trail;
+        trail.texture = AssetHandle{1234};
+        trail.blend = ParticleBlend::Alpha;
+        entity.add_component<TrailComponent>(trail);
+        auto components = create_scene_component_registry();
+        const auto references = components.collect_asset_references(scene);
+        ASSERT_EQ(references.size(), 1u);
+        EXPECT_EQ(references[0].handle, trail.texture);
+        SceneSerializer serializer(components);
+        const auto path = directory.path() / "trail.scene";
+        ASSERT_TRUE(serializer.save(scene, path.string()));
+        auto loaded = serializer.load(path.string());
+        ASSERT_TRUE(loaded);
+        EXPECT_EQ(
+            loaded.value()->find_entity(entity.get_uuid()).get_component<TrailComponent>(), trail);
+        auto invalid = trail;
+        invalid.capacity = 1;
+        EXPECT_FALSE(invalid.validate());
+        invalid = trail;
+        invalid.minimum_distance = invalid.break_distance;
+        EXPECT_FALSE(invalid.validate());
+    }
+
     TEST(ParticleSystemTest, AdditiveParticlesWithTheSameTextureShareOneBatch) {
         Scene scene;
         for(const auto texture : {AssetHandle{11}, AssetHandle{}, AssetHandle{11}}) {
@@ -312,6 +438,11 @@ namespace Comet::Tests {
         settings.frame_count = 13;
         settings.frame_rate = 10;
         settings.loop_animation = true;
+        settings.collision = ParticleCollision::Bounce;
+        settings.collision_radius = .04f;
+        settings.restitution = .7f;
+        settings.friction = .3f;
+        settings.collision_layers = 17;
         entity.add_component<ParticleEmitterComponent>(settings);
         auto components = create_scene_component_registry();
         SceneRuntime runtime;

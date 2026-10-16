@@ -9,6 +9,7 @@ set(SHADER_PROGRAMS
         post/bloom
         environment/skybox
         depth/depth
+        depth/motion
 )
 set(SHADER_FILES)
 foreach(PROGRAM IN LISTS SHADER_PROGRAMS)
@@ -20,6 +21,11 @@ list(APPEND SHADER_FILES
         "${CMAKE_CURRENT_SOURCE_DIR}/animation/skinning.comp"
         "${CMAKE_CURRENT_SOURCE_DIR}/path_trace.comp"
         "${CMAKE_CURRENT_SOURCE_DIR}/depth/depth_mask.frag"
+        "${CMAKE_CURRENT_SOURCE_DIR}/depth/motion_mask.frag"
+        "${CMAKE_CURRENT_SOURCE_DIR}/post/temporal.frag"
+        "${CMAKE_CURRENT_SOURCE_DIR}/post/decal.frag"
+        "${CMAKE_CURRENT_SOURCE_DIR}/post/volumetric_fog.comp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/post/fog_background.frag"
         "${CMAKE_CURRENT_SOURCE_DIR}/material/pbr_instanced.vert"
         "${CMAKE_CURRENT_SOURCE_DIR}/material/unlit_color_instanced.vert")
 

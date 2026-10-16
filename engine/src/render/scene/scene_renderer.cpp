@@ -24,6 +24,9 @@
 #include "diagnostics/logger.h"
 #include "diagnostics/profiler.h"
 #include "render/passes/particle_pass.h"
+#include "render/passes/temporal_pass.h"
+#include "render/passes/decal_pass.h"
+#include "render/passes/volumetric_fog_pass.h"
 
 #include <algorithm>
 #include <utility>
@@ -37,12 +40,19 @@ namespace Comet {
         std::unique_ptr<OutputPass> output_pass;
         std::unique_ptr<BloomPass> bloom;
         std::unique_ptr<DepthPass> view_depth;
+        std::unique_ptr<TemporalPass> temporal;
+        TemporalPass::Camera temporal_camera;
         std::unique_ptr<SkyboxPass> skybox_pass;
         std::shared_ptr<RenderTarget> hdr_target;
         std::shared_ptr<RenderTarget> output_target;
         std::unique_ptr<MaterialRenderer> materials;
         std::unique_ptr<DebugRenderer> debug;
         std::unique_ptr<ParticlePass> particles;
+        std::unique_ptr<DecalPass> decals;
+        std::unique_ptr<VolumetricFogPass> fog;
+        std::shared_ptr<VolumetricFogPass::Resources> fog_resources;
+        FogVolume fog_frame;
+        std::optional<RenderGraph::PassId> fog_pass;
         std::unique_ptr<PathTracePass> path_trace;
         RenderGraph::Plan graph;
         RenderGraph::Resources transient_resources;
@@ -50,13 +60,16 @@ namespace Comet {
         RenderGraph::ResourceId shadow_resource;
         std::vector<RenderGraph::ResourceId> scene_attachments;
         std::optional<RenderGraph::PassId> shadow_pass_id;
-        bool shadows_enabled = false;
-        bool soft_particles = false;
+        ViewRequirements requirements;
         RenderGraph::PassId scene_pass_id;
         RenderGraph::PassId output_pass_id;
         std::optional<BloomPass::Passes> bloom_passes;
         std::optional<RenderGraph::ResourceId> view_depth_resource;
         std::optional<RenderGraph::PassId> view_depth_pass;
+        std::optional<RenderGraph::ResourceId> motion_resource;
+        std::optional<RenderGraph::ResourceId> temporal_output;
+        std::optional<RenderGraph::ResourceId> temporal_history;
+        std::optional<RenderGraph::PassId> temporal_pass;
         bool offscreen = false;
         QualitySettings quality;
     };
@@ -93,7 +106,7 @@ namespace Comet {
           m_depth_format(vulkan.depth_format),
           m_quality{static_cast<uint32_t>(vulkan.msaa_samples),
               std::min(render.max_anisotropy, device.get_capability().max_sampler_anisotropy),
-              render.render_scale},
+              render.render_scale, render.temporal_aa},
           m_frame_slot_count(render.max_frames_in_flight) {}
 
     Result<std::shared_ptr<SceneRenderer::RenderState>, GraphicsError> SceneRenderer::create_state(
@@ -111,7 +124,8 @@ namespace Comet {
         const auto samples = static_cast<SampleCount>(quality.msaa_samples);
         auto next = std::make_shared<RenderState>();
         next->quality = quality;
-        next->soft_particles = m_state && m_state->soft_particles;
+        if(m_state)
+            next->requirements = m_state->requirements;
         next->offscreen = !swapchain;
         auto color = Attachment::get_color_attachment(RenderSettings::SCENE_COLOR_FORMAT, samples);
         auto depth = Attachment::get_depth_attachment(m_depth_format, samples);
@@ -148,6 +162,12 @@ namespace Comet {
         if(!output_pass)
             return Creation::failure(output_pass.error());
         next->output_pass = std::move(output_pass).value();
+        if(quality.temporal_aa) {
+            auto temporal = TemporalPass::create(m_device, m_frame_slot_count);
+            if(!temporal)
+                return Creation::failure(temporal.error());
+            next->temporal = std::move(temporal).value();
+        }
         if(!m_shadow) {
             auto shadow = ShadowPass::create(m_device, m_frame_slot_count);
             if(!shadow)
@@ -160,8 +180,6 @@ namespace Comet {
                 return Creation::failure(bloom.error());
             next->bloom = std::move(bloom).value();
         }
-        if(auto targets = replace_targets(*next, swapchain, size); !targets)
-            return Creation::failure(targets.error());
         next->pipelines = std::make_unique<PipelineManager>(m_device, *next->scene_pass);
         auto skybox = SkyboxPass::create(m_device, *next->pipelines, samples, m_frame_slot_count);
         if(!skybox)
@@ -182,41 +200,73 @@ namespace Comet {
         if(!particles)
             return Creation::failure(particles.error());
         next->particles = std::move(particles).value();
+        if(next->requirements.fog) {
+            auto fog = VolumetricFogPass::create(
+                m_device, *next->pipelines, next->materials->m_frame_layout, samples);
+            if(!fog)
+                return Creation::failure(fog.error());
+            next->fog = std::move(fog).value();
+        }
+        if(auto targets = replace_targets(*next, swapchain, size); !targets)
+            return Creation::failure(targets.error());
         return Creation::success(std::move(next));
     }
 
     Result<void, GraphicsError> SceneRenderer::rebuild_graph(RenderState& state,
-        const PostProcessSettings& settings, const bool shadows, const bool soft_particles,
-        BloomPass* bloom, Math::Vec2u source_size) {
-        if(source_size == Math::Vec2u{})
-            source_size = state.hdr_target->get_size();
-        if(!bloom)
-            bloom = state.bloom.get();
+        const PostProcessSettings& settings, const ViewRequirements& requirements,
+        EffectPasses effects, Math::Vec2u source_size) {
         RenderGraph graph;
         // 丢弃旧内容仍需等待上一轮附件写入与片段采样。
         auto shadow_access = *resolve_resource_state(ResourceUsage::DepthStencilAttachmentWrite);
         shadow_access.stages |= PipelineStage::FragmentShader;
+        shadow_access.stages |= PipelineStage::ComputeShader;
         ImageState shadow_initial{.resource = shadow_access,
             .subresources = {.aspects = Flags<ImageAspect>(ImageAspect::Depth)}};
         const auto fallback_initial = *resolve_image_state(ResourceUsage::SampledRead,
             {.aspects = Flags<ImageAspect>(ImageAspect::Depth)},
             Flags<PipelineStage>(PipelineStage::FragmentShader));
-        const auto shadow =
-            graph.import_image("shadow depth", shadows ? shadow_initial : fallback_initial);
+        const auto shadow = graph.import_image(
+            "shadow depth", requirements.shadows ? shadow_initial : fallback_initial);
         std::optional<RenderGraph::PassId> shadow_pass_id;
-        if(shadows) {
+        if(requirements.shadows) {
             RenderGraph::Pass shadow_pass{"shadow", {}};
             shadow_pass.uses.push_back({shadow, ResourceUsage::DepthStencilAttachmentWrite, {}});
             shadow_pass_id = graph.add_pass(std::move(shadow_pass));
         }
         std::optional<RenderGraph::ResourceId> view_depth_resource;
         std::optional<RenderGraph::PassId> view_depth_pass;
-        if(settings.uses_ao() || soft_particles) {
+        std::optional<RenderGraph::ResourceId> motion_resource;
+        if(requirements.needs_depth(settings, bool(state.temporal))) {
             view_depth_resource = graph.import_image("view depth", shadow_initial);
-            view_depth_pass = graph.add_pass({"view depth",
-                {{*view_depth_resource, ResourceUsage::DepthStencilAttachmentWrite, {}}}});
+            RenderGraph::Pass depth_pass{"view depth",
+                {{*view_depth_resource, ResourceUsage::DepthStencilAttachmentWrite, {}}}};
+            if(state.temporal) {
+                auto access = *resolve_resource_state(ResourceUsage::ColorAttachmentWrite);
+                access.stages |= PipelineStage::FragmentShader;
+                motion_resource = graph.import_image("motion vectors",
+                    {.resource = access,
+                        .subresources = {.aspects = Flags<ImageAspect>(ImageAspect::Color)}});
+                depth_pass.uses.push_back(
+                    {*motion_resource, ResourceUsage::ColorAttachmentWrite, {}});
+            }
+            view_depth_pass = graph.add_pass(std::move(depth_pass));
+        }
+        std::optional<RenderGraph::ResourceId> fog_resource;
+        std::optional<RenderGraph::PassId> fog_pass;
+        if(requirements.fog) {
+            const auto size = VolumetricFogPass::atlas_size(source_size);
+            fog_resource =
+                graph.create_image("volumetric fog", {Format::R16G16B16A16_SFLOAT, size.x, size.y});
+            fog_pass = graph.add_pass(
+                {"volumetric fog", {{shadow, ResourceUsage::SampledRead,
+                                        Flags<PipelineStage>(PipelineStage::ComputeShader)},
+                                       {*fog_resource, ResourceUsage::StorageWrite,
+                                           Flags<PipelineStage>(PipelineStage::ComputeShader)}}});
         }
         RenderGraph::Pass scene{"scene", {}};
+        if(fog_resource)
+            scene.uses.push_back({*fog_resource, ResourceUsage::SampledRead,
+                Flags<PipelineStage>(PipelineStage::FragmentShader)});
         if(view_depth_resource)
             scene.uses.push_back({*view_depth_resource, ResourceUsage::SampledRead,
                 Flags<PipelineStage>(PipelineStage::FragmentShader)});
@@ -243,6 +293,26 @@ namespace Comet {
         scene.uses.push_back({shadow, ResourceUsage::SampledRead,
             Flags<PipelineStage>(PipelineStage::FragmentShader)});
         const auto scene_pass_id = graph.add_pass(std::move(scene));
+        std::optional<RenderGraph::ResourceId> temporal_output, temporal_history;
+        std::optional<RenderGraph::PassId> temporal_pass;
+        if(state.temporal) {
+            const auto sampled = *resolve_image_state(ResourceUsage::SampledRead,
+                {.aspects = Flags<ImageAspect>(ImageAspect::Color)},
+                Flags<PipelineStage>(PipelineStage::FragmentShader));
+            temporal_output = graph.import_image("temporal output", sampled);
+            temporal_history = graph.import_image("temporal history", sampled);
+            temporal_pass = graph.add_pass({"temporal resolve",
+                {{output, ResourceUsage::SampledRead,
+                     Flags<PipelineStage>(PipelineStage::FragmentShader)},
+                    {*view_depth_resource, ResourceUsage::SampledRead,
+                        Flags<PipelineStage>(PipelineStage::FragmentShader)},
+                    {*motion_resource, ResourceUsage::SampledRead,
+                        Flags<PipelineStage>(PipelineStage::FragmentShader)},
+                    {*temporal_history, ResourceUsage::SampledRead,
+                        Flags<PipelineStage>(PipelineStage::FragmentShader)},
+                    {*temporal_output, ResourceUsage::ColorAttachmentWrite, {}}}});
+            output = *temporal_output;
+        }
         std::optional<BloomPass::Passes> bloom_passes;
         RenderGraph::Pass display{
             "display", {{output, ResourceUsage::SampledRead,
@@ -259,23 +329,37 @@ namespace Comet {
         auto resources = compiled.value().allocate(m_device, m_frame_slot_count);
         if(!resources)
             return Result<void, GraphicsError>::failure(resources.error());
+        std::shared_ptr<VolumetricFogPass::Resources> fog_resources;
+        if(fog_resource) {
+            auto prepared =
+                effects.fog->create_resources(resources.value(), *fog_resource, m_frame_slot_count);
+            if(!prepared)
+                return Result<void, GraphicsError>::failure(prepared.error());
+            fog_resources = std::move(prepared).value();
+        }
         if(bloom_passes) {
-            if(auto prepared = bloom->prepare(resources.value(), *bloom_passes, source_size);
+            if(auto prepared =
+                    effects.bloom->prepare(resources.value(), *bloom_passes, source_size);
                 !prepared)
                 return prepared;
         }
+        state.fog_resources = std::move(fog_resources);
+        state.fog_pass = fog_pass;
         state.graph = std::move(compiled).value();
         state.transient_resources = std::move(resources).value();
         state.shadow_resource = shadow;
         state.scene_attachments = std::move(scene_attachments);
         state.shadow_pass_id = shadow_pass_id;
-        state.shadows_enabled = shadows;
-        state.soft_particles = soft_particles;
+        state.requirements = requirements;
         state.scene_pass_id = scene_pass_id;
         state.output_pass_id = output_pass_id;
         state.bloom_passes = bloom_passes;
         state.view_depth_resource = view_depth_resource;
         state.view_depth_pass = view_depth_pass;
+        state.motion_resource = motion_resource;
+        state.temporal_output = temporal_output;
+        state.temporal_history = temporal_history;
+        state.temporal_pass = temporal_pass;
         return Result<void, GraphicsError>::success();
     }
 
@@ -296,8 +380,7 @@ namespace Comet {
             m_post_process_failure.reset();
         if(m_post_process_failure && !m_post_process_failure->retry.consume(now))
             return Result<void, GraphicsError>::success();
-        const auto prepared =
-            configure_effects(settings, m_state->soft_particles, m_state->shadows_enabled);
+        const auto prepared = configure_effects(settings, m_state->requirements);
         if(prepared) {
             m_post_process = settings;
             m_post_process_failure.reset();
@@ -330,7 +413,25 @@ namespace Comet {
     }
 
     Result<void, GraphicsError> SceneRenderer::configure_effects(
-        const PostProcessSettings& settings, const bool soft_particles, const bool shadows) {
+        const PostProcessSettings& settings, const ViewRequirements& requirements) {
+        std::unique_ptr<VolumetricFogPass> fog_candidate;
+        if(requirements.fog && !m_state->fog) {
+            auto created = VolumetricFogPass::create(m_device, *m_state->pipelines,
+                m_state->materials->m_frame_layout,
+                static_cast<SampleCount>(m_state->quality.msaa_samples));
+            if(!created)
+                return Result<void, GraphicsError>::failure(created.error());
+            fog_candidate = std::move(created).value();
+        }
+        std::unique_ptr<DecalPass> decal_candidate;
+        if(requirements.decals && !m_state->decals) {
+            auto created = DecalPass::create(m_device, *m_state->pipelines,
+                m_state->materials->m_white_texture, m_state->materials->m_frame_layout,
+                m_frame_slot_count, static_cast<SampleCount>(m_state->quality.msaa_samples));
+            if(!created)
+                return Result<void, GraphicsError>::failure(created.error());
+            decal_candidate = std::move(created).value();
+        }
         std::unique_ptr<BloomPass> candidate;
         if(settings.uses_bloom() && !m_state->bloom) {
             auto created = BloomPass::create(m_device, m_frame_slot_count);
@@ -339,11 +440,11 @@ namespace Comet {
             candidate = std::move(created).value();
         }
         std::unique_ptr<DepthPass> depth_candidate;
-        if(settings.uses_ao() || soft_particles) {
+        if(requirements.needs_depth(settings, bool(m_state->temporal))) {
             auto* depth = m_state->view_depth.get();
             if(!depth) {
-                auto created = DepthPass::create(
-                    m_device, m_frame_slot_count, m_state->hdr_target->get_size(), 1);
+                auto created = DepthPass::create(m_device, m_frame_slot_count,
+                    m_state->hdr_target->get_size(), 1, bool(m_state->temporal));
                 if(!created)
                     return Result<void, GraphicsError>::failure(created.error());
                 depth_candidate = std::move(created).value();
@@ -352,15 +453,26 @@ namespace Comet {
             if(auto resized = depth->resize(m_state->hdr_target->get_size()); !resized)
                 return resized;
         }
-        if(auto graph = rebuild_graph(*m_state, settings, shadows, soft_particles, candidate.get());
+        if(auto graph = rebuild_graph(*m_state, settings, requirements,
+               {candidate ? candidate.get() : m_state->bloom.get(),
+                   fog_candidate ? fog_candidate.get() : m_state->fog.get()},
+               m_state->hdr_target->get_size());
             !graph)
             return graph;
+        if(fog_candidate)
+            m_state->fog = std::move(fog_candidate);
+        if(!requirements.fog)
+            m_state->fog.reset();
         if(depth_candidate)
             m_state->view_depth = std::move(depth_candidate);
-        if(!settings.uses_ao() && !soft_particles)
+        if(!requirements.needs_depth(settings, bool(m_state->temporal)))
             m_state->view_depth.reset();
         if(candidate)
             m_state->bloom = std::move(candidate);
+        if(decal_candidate)
+            m_state->decals = std::move(decal_candidate);
+        if(!requirements.decals)
+            m_state->decals.reset();
         return Result<void, GraphicsError>::success();
     }
 
@@ -392,15 +504,15 @@ namespace Comet {
             output = std::move(candidate).value();
         }
         std::unique_ptr<DepthPass> view_depth;
-        if(m_post_process.uses_ao() || state.soft_particles) {
-            auto candidate =
-                DepthPass::create(m_device, m_frame_slot_count, state.quality.scene_size(size), 1);
+        if(state.requirements.needs_depth(m_post_process, bool(state.temporal))) {
+            auto candidate = DepthPass::create(m_device, m_frame_slot_count,
+                state.quality.scene_size(size), 1, bool(state.temporal));
             if(!candidate)
                 return Result<void, GraphicsError>::failure(candidate.error());
             view_depth = std::move(candidate).value();
         }
-        if(auto graph = rebuild_graph(state, m_post_process, state.shadows_enabled,
-               state.soft_particles, nullptr, state.quality.scene_size(size));
+        if(auto graph = rebuild_graph(state, m_post_process, state.requirements,
+               {state.bloom.get(), state.fog.get()}, state.quality.scene_size(size));
             !graph)
             return graph;
         // 所有候选均成功后再发布，不改变在途帧保留的旧目标。
@@ -522,6 +634,8 @@ namespace Comet {
     }
 
     void SceneRenderer::skip_frame() {
+        if(m_state->temporal)
+            m_state->temporal->reset();
         m_state->materials->reset_statistics();
         m_shadow->reset_statistics();
         m_state->particles->reset();
@@ -532,14 +646,17 @@ namespace Comet {
     }
 
     Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> SceneRenderer::render(
-        FrameScheduler& frames, const RenderSubmission& submission, const RenderGeometry& geometry,
+        FrameScheduler& frames, const RenderSubmission& source, const RenderGeometry& geometry,
         const LineDrawList& lines, RenderDiagnostics* diagnostics) {
         PROFILE_SCOPE("SceneRenderer::render");
         using RenderResult = Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>;
+        auto submission = source;
         frames.retain_current_frame_resource(m_state);
         frames.retain_current_frame_resource(m_state->output_target);
         frames.retain_current_frame_resource(m_state->hdr_target);
         if(submission.path_trace && submission.view_project_matrix) {
+            if(m_state->temporal)
+                m_state->temporal->reset();
             m_state->materials->reset_statistics();
             m_shadow->reset_statistics();
             m_state->particles->reset();
@@ -561,6 +678,19 @@ namespace Comet {
         }
         if(m_state->path_trace)
             m_state->path_trace->reset();
+        if(m_state->temporal) {
+            if(!submission.view_project_matrix)
+                m_state->temporal->reset();
+            auto camera = m_state->temporal->prepare(frames, submission.world.scene_lifetime,
+                submission.view_project_matrix.value_or(
+                    ViewProjectMatrix{Math::Mat4(1), Math::Mat4(1)}),
+                get_scene_size());
+            if(!camera)
+                return RenderResult::failure(camera.error());
+            m_state->temporal_camera = camera.value();
+            if(submission.view_project_matrix)
+                submission.view_project_matrix = camera.value().current;
+        }
         const auto image = frames.get_current_frame_slot_index();
         frames.retain_current_frame_resource(m_shadow);
         auto lighting = RenderDiagnostics::measure_preparation(diagnostics,
@@ -569,17 +699,37 @@ namespace Comet {
         const bool shadows = ShadowPass::needs_shadow(lighting);
         const bool soft_particles =
             submission.world.particles && submission.world.particles->uses_soft_depth();
-        if(shadows != m_state->shadows_enabled || soft_particles != m_state->soft_particles) {
-            if(auto rebuilt = configure_effects(m_post_process, soft_particles, shadows); !rebuilt)
+        const ViewRequirements requirements{shadows, soft_particles,
+            !submission.world.decals.empty(),
+            bool(submission.view_project_matrix)
+                && submission.world.environment.volumetric_fog.active()};
+        if(requirements != m_state->requirements || (requirements.decals && !m_state->decals)) {
+            if(auto rebuilt = configure_effects(m_post_process, requirements); !rebuilt)
                 return RenderResult::failure(rebuilt.error());
         }
         if(auto prepared = m_shadow->prepare_frame(frames, lighting); !prepared)
             return RenderResult::failure(prepared.error());
-        if(m_post_process.uses_ao() && submission.view_project_matrix) {
+        if(submission.view_project_matrix) {
             const auto& camera = *submission.view_project_matrix;
-            lighting.ao_inverse_view_projection = Math::inverse(camera.projection * camera.view);
-            lighting.ao_parameters = {m_post_process.ao_radius, m_post_process.ao_strength, 0, 0};
+            lighting.inverse_view_projection = Math::inverse(camera.projection * camera.view);
+            if(m_post_process.uses_ao())
+                lighting.ao_parameters = {
+                    m_post_process.ao_radius, m_post_process.ao_strength, 0, 0};
         }
+        const ScopeExit clear_draws([&] {
+            m_state->materials->clear_draws();
+            m_state->particles->clear_draws();
+        });
+        m_state->fog_frame = {};
+        if(m_state->requirements.fog)
+            m_state->fog_frame = m_state->fog->prepare_frame(
+                *m_state->fog_resources, image, submission, get_scene_size());
+        auto prepared = m_state->materials->prepare(frames, submission, geometry, lighting,
+            m_shadow->get_depth_view(image),
+            m_state->view_depth_resource ? m_state->view_depth->get_depth_view(image) : nullptr,
+            m_state->requirements.fog ? &m_state->fog_frame : nullptr);
+        if(!prepared)
+            return RenderResult::failure(prepared.error());
         const auto& graph = m_state->graph;
         auto& bindings = m_state->bindings;
         bindings.resize(graph.resource_count());
@@ -591,8 +741,14 @@ namespace Comet {
         if(m_state->view_depth_resource)
             bindings[m_state->view_depth_resource->index] =
                 m_state->view_depth->get_depth_view(image)->get_image();
+        if(m_state->temporal) {
+            bindings[m_state->motion_resource->index] =
+                m_state->view_depth->get_motion_view(image)->get_image();
+            bindings[m_state->temporal_output->index] = m_state->temporal->output()->get_image();
+            bindings[m_state->temporal_history->index] = m_state->temporal->history()->get_image();
+        }
         m_state->transient_resources.bind_resources(bindings, image);
-        std::vector<QueueSemaphoreSubmit> waits;
+        auto waits = std::move(prepared).value();
         const auto recorder = [this, &frames, &submission, &geometry, &lines, &lighting, &waits](
                                   RenderGraph::PassId pass, CommandBuffer&) {
             return record_pass(pass, frames, submission, geometry, lines, lighting, waits);
@@ -618,14 +774,24 @@ namespace Comet {
         const LineDrawList& lines, const LightingData& lighting,
         std::vector<QueueSemaphoreSubmit>& waits) {
         const auto slot = frames.get_current_frame_slot_index();
+        if(m_state->fog_pass && pass == *m_state->fog_pass) {
+            m_state->fog->render(
+                frames, *m_state->fog_resources, m_state->materials->frame_descriptor(slot));
+            return Result<void, GraphicsError>::success();
+        }
         if(pass == m_state->output_pass_id) {
-            const auto hdr = m_state->hdr_target->get_color_view(slot);
+            const auto hdr = m_state->temporal ? m_state->temporal->output()
+                                               : m_state->hdr_target->get_color_view(slot);
             std::shared_ptr<ImageView> bloom;
             if(m_state->bloom_passes)
                 bloom = m_state->bloom->get_output(slot);
             return m_state->output_pass->render(
                 frames, m_state->output_target, hdr, m_post_process, bloom);
         }
+        if(m_state->temporal_pass && pass == *m_state->temporal_pass)
+            return m_state->temporal->render(frames, m_state->hdr_target->get_color_view(slot),
+                m_state->view_depth->get_depth_view(slot),
+                m_state->view_depth->get_motion_view(slot));
         auto drawn = Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>::success({});
         if(m_state->view_depth_pass && pass == *m_state->view_depth_pass) {
             DepthPass::View view;
@@ -633,15 +799,20 @@ namespace Comet {
             if(view.enabled)
                 view.view_projection = submission.view_project_matrix->projection
                                        * submission.view_project_matrix->view;
+            if(m_state->temporal) {
+                view.previous_view_projection = m_state->temporal_camera.previous;
+                view.previous_projection = m_state->temporal_camera.previous_projection;
+            }
             drawn = m_state->view_depth->render(frames, std::span(&view, 1), geometry);
         } else if(m_state->shadow_pass_id && pass == *m_state->shadow_pass_id) {
             drawn = m_shadow->render(frames, lighting, geometry);
         } else if(pass == m_state->scene_pass_id)
-            drawn = draw_scene(
-                frames, frames.get_current_command_buffer(), submission, geometry, lines, lighting);
+            drawn = draw_scene(frames, frames.get_current_command_buffer(), submission, lines);
         else if(m_state->bloom_passes)
             return m_state->bloom->render(frames, pass, *m_state->bloom_passes,
-                m_state->hdr_target->get_color_view(slot), m_post_process.bloom_threshold);
+                m_state->temporal ? m_state->temporal->output()
+                                  : m_state->hdr_target->get_color_view(slot),
+                m_post_process.bloom_threshold);
         else
             return Result<void, GraphicsError>::failure({"Unknown scene render pass"});
         if(!drawn)
@@ -653,13 +824,9 @@ namespace Comet {
 
     Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> SceneRenderer::draw_scene(
         FrameScheduler& frames, CommandBuffer& command, const RenderSubmission& submission,
-        const RenderGeometry& geometry, const LineDrawList& lines, const LightingData& lighting) {
-        const ScopeExit clear_draws([&] {
-            m_state->materials->clear_draws();
-            m_state->particles->clear_draws();
-        });
+        const LineDrawList& lines) {
         m_state->hdr_target->set_clear_value(
-            ClearValue(Math::Vec4(submission.world.environment.background_color, 1.0f)));
+            ClearValue(Math::Vec4(submission.world.environment.background_color, 0.0f)));
         m_state->hdr_target->begin_render_target(command, frames.get_current_frame_slot_index());
         const auto size = m_state->hdr_target->get_size();
         command.set_viewport(
@@ -669,27 +836,34 @@ namespace Comet {
         auto skybox = m_state->skybox_pass->render(frames, submission);
         if(!skybox)
             return skybox;
-        auto waits = m_state->materials->prepare(frames, submission, geometry, lighting,
-            m_shadow->get_depth_view(frames.get_current_frame_slot_index()),
-            m_state->view_depth_resource
-                ? m_state->view_depth->get_depth_view(frames.get_current_frame_slot_index())
-                : nullptr);
-        if(!waits)
-            return waits;
-        for(const auto& wait : skybox.value())
-            merge_semaphore_wait(waits.value(), wait);
+        auto waits = std::move(skybox);
+        if(m_state->requirements.fog)
+            m_state->fog->render_background(frames,
+                m_state->materials->frame_descriptor(frames.get_current_frame_slot_index()), size);
         if(submission.view_project_matrix) {
             auto particles = m_state->particles->prepare(frames, *submission.view_project_matrix,
                 submission.world, !m_state->materials->transparent_depths().empty(),
-                m_state->soft_particles
+                m_state->requirements.soft_particles
                     ? m_state->view_depth->get_depth_view(frames.get_current_frame_slot_index())
-                    : nullptr);
+                    : nullptr,
+                m_state->requirements.fog ? &m_state->fog_frame : nullptr);
             if(!particles)
                 return Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>::failure(
                     particles.error());
             for(const auto& wait : particles.value())
                 merge_semaphore_wait(waits.value(), wait);
             m_state->materials->record_opaque(frames, waits.value());
+            if(m_state->decals) {
+                const auto slot = frames.get_current_frame_slot_index();
+                auto drawn = m_state->decals->render(frames, submission,
+                    m_state->materials->frame_descriptor(slot),
+                    m_state->view_depth->get_depth_view(slot), size);
+                if(!drawn)
+                    return Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>::failure(
+                        drawn.error());
+                for(const auto& wait : drawn.value())
+                    merge_semaphore_wait(waits.value(), wait);
+            }
             record_transparent(frames, waits.value());
             if(auto debug = m_state->debug->render(frames, *submission.view_project_matrix, lines);
                 !debug)
@@ -792,6 +966,9 @@ namespace Comet {
             LOG_FATAL("HDR frame slot {} exceeds frame slot count {}", slot, m_frame_slot_count);
         if(m_state->path_trace && m_state->path_trace->statistics().samples != 0)
             return m_state->path_trace->output();
+        if(m_state->temporal)
+            if(auto resolved = m_state->temporal->output())
+                return resolved;
         return m_state->hdr_target->get_color_view(slot);
     }
 

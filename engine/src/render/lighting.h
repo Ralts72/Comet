@@ -98,7 +98,7 @@ namespace Comet {
         float point_shadow_count = 0;
         float excess_point_shadows = 0;
         Math::Vec2 shadow_reserved{};
-        Math::Mat4 ao_inverse_view_projection{1};
+        Math::Mat4 inverse_view_projection{1};
         Math::Vec4 ao_parameters{};         // 世界半径、强度；半径为零表示关闭。
         Math::Vec4 environment{0, 0, 0, 1}; // 强度、最大 LOD、旋转角正弦、旋转角余弦。
         std::array<ReflectionProbe, MAX_REFLECTION_PROBES> reflection_probes{};
@@ -106,6 +106,7 @@ namespace Comet {
         Math::Vec4 irradiance_origin{};   // xyz 首个格心、w 强度；零表示关闭。
         Math::Vec4 irradiance_spacing_bias{1, 1, 1, .05f};
         Math::Vec4 irradiance_dimensions{};
+        Math::Vec4 fog_parameters{}; // near（零关闭）、逆对数深度范围、屏幕尺寸的倒数。
         [[nodiscard]] static LightingData prepare(std::span<const RenderLight> lights);
         void prepare_shadow(const BoundingBox& world_bounds, uint32_t resolution,
             const Math::Mat4& view, const Math::Mat4& projection);

@@ -535,6 +535,27 @@ namespace CometEditor::Tests {
         EXPECT_EQ(history.undo_size(), 2u);
     }
 
+    TEST_F(AssetEditingUiTest, VolumetricFogEditsUseHistoryAndPlayIsReadOnly) {
+        selection.select_scene();
+        frame();
+        click(widget_point("Inspector", "Volumetric fog"));
+        EXPECT_TRUE(scene.get_environment().volumetric_fog.enabled);
+        EXPECT_EQ(history.undo_size(), 1u);
+        const auto original = scene.get_environment();
+        drag_value(widget_point("Inspector", "Volume density"), 30);
+        EXPECT_GT(scene.get_environment().volumetric_fog.density, original.volumetric_fog.density);
+        EXPECT_EQ(history.undo_size(), 2u);
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(scene.get_environment(), original);
+        ASSERT_TRUE(history.undo());
+        EXPECT_FALSE(scene.get_environment().volumetric_fog.enabled);
+        state.mode = EditorMode::Play;
+        frame();
+        click(widget_point("Inspector", "Volumetric fog"));
+        EXPECT_FALSE(scene.get_environment().volumetric_fog.enabled);
+        EXPECT_EQ(history.undo_size(), 0u);
+    }
+
     TEST_F(AssetEditingUiTest, BloomTogglePreservesParametersAndPlayIsReadOnly) {
         const Comet::PostProcessSettings settings{
             .exposure = 2, .bloom_enabled = true, .bloom_strength = 0.75f, .bloom_threshold = 3};

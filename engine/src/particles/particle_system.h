@@ -2,6 +2,7 @@
 
 #include "particles/particle_data.h"
 #include "scene/entity_id.h"
+#include "scene/entity_uuid.h"
 #include "scene/systems/system.h"
 
 #include <map>
@@ -27,14 +28,31 @@ namespace Comet {
             double remainder = 0;
             uint32_t random = 1;
             bool present = false;
+            EntityUuid ignored;
+        };
+        struct TrailPoint {
+            Math::Vec3 position;
+            double time;
+            bool connected;
+        };
+        struct Trail {
+            TrailComponent settings;
+            std::vector<TrailPoint> points;
+            bool present = false;
+            bool emitting = false;
         };
         Result<void, Error> synchronize(Scene& scene);
-        void emit(Emitter& emitter, uint32_t count, double delta = 0, double previous = 0);
+        Result<void, Error> emit(
+            Emitter& emitter, uint32_t count, double delta = 0, double previous = 0);
+        void advance_trails(Scene& scene);
         void publish(Scene& scene);
         static float random_unit(Emitter& emitter);
-        static void advance(Particle& particle, const Emitter& emitter, double delta);
+        Result<void, Error> advance(Particle& particle, const Emitter& emitter, double delta);
 
         std::map<EntityId, Emitter> m_emitters;
+        std::map<EntityId, Trail> m_trails;
+        PhysicsAccess* m_physics = nullptr;
+        double m_time = 0;
         uint32_t m_count = 0;
     };
 }

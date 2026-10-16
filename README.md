@@ -3,9 +3,9 @@
 Comet 是供作者个人学习使用的 3D 游戏引擎与编辑器，使用 C++20、CMake 和 Vulkan。
 引擎对外提供一个 `engine` 动态库；ImGui 编辑器与独立 App 共用场景、资产、Gameplay 和 RmlUi 游戏界面。
 
-目前支持场景编辑与撤销、glTF 静态／骨骼模型、参数化动画状态机、1D／2D 混合、独立动画库、基础跨骨架重定向、覆盖／加法分层与骨骼遮罩、动画事件、骨骼挂点、根运动与脚部 IK、静态网格 LOD、纹理 Mipmap、PBR／方向光级联与局部光阴影／IBL／局部反射探针／静态探针 GI／AO／距离雾／Bloom、Lua 热重载、刚体、凸包／静态网格碰撞、碰撞层与角色控制、导航离线烘焙与 NPC 寻路避障、射线／形状扫掠／范围查询、游戏内关卡切换与检查点存档、空间音效／监听者、流式 WAV 音乐、CPU billboard 粒子／图集序列帧／软交界和游戏设置。
+目前支持场景编辑与撤销、glTF 静态／骨骼模型、参数化动画状态机、1D／2D 混合、独立动画库、基础跨骨架重定向、覆盖／加法分层与骨骼遮罩、动画事件、骨骼挂点、根运动与脚部 IK、静态网格 LOD、纹理 Mipmap、PBR／方向光级联与局部光阴影／IBL／局部反射探针／静态探针 GI／AO／距离雾／体积高度雾／Bloom／TAA／投影贴花、Lua 热重载、刚体、凸包／静态网格碰撞、碰撞层与角色控制、导航离线烘焙／动态障碍／跨层跳跃与 NPC 寻路避障、射线／形状扫掠／范围查询、游戏内关卡切换与检查点存档、空间音效／监听者、流式 WAV 音乐、CPU billboard 粒子／图集序列帧／软交界／碰撞与运动拖尾和游戏设置。
 独立渲染线程与场景更新重叠执行。Prefab 子树与嵌套复用、基础覆盖和 Lua 生成已接入；高级动画／粒子、实时 GI 等继续按路线图推进；支持 PBR 贴图、裁切／半透明覆盖、粗糙介质折射与 HDR 环境的静态软件 BVH／compute 渐进路径追踪预览已接入，可导出 PNG／线性 HDR 图像。macOS 已支持独立 App 导出。
-单队列 RenderGraph 管理同步、逻辑资源寿命与瞬态目标复用，Bloom 已使用同一套资源计划。
+单队列 RenderGraph 管理同步、逻辑资源寿命与瞬态目标复用，Bloom 与体积雾已使用同一套资源计划。
 
 ## 快速开始
 
@@ -61,7 +61,8 @@ Windows 可使用相同 CMake preset，随后启动构建目录中的可执行�
 两个关卡的起点附近共用一个多材质货车模型；在层级中选中“牛奶货车”可查看来源关联和实例覆盖。
 点击“设置”或按 F1 可修改显示、画质、音量和按键。两关带流式背景音乐；脚步和“空间音效示例”声源可随相机位置、朝向试听方向与距离衰减；收集目标会爆发粒子并自然消退。
 第一关起点旁的烟雾与透明面板用于观察粒子和玻璃的前后遮挡，也可在 Edit 中选中烟雾发射器预览。
-`scenes/particle_effects.scene` 对比烟雾的硬／软交界，并演示 4×4 图集序列帧能量环，见[粒子说明](docs/usage.md#粒子反馈)。
+`scenes/realtime_quality.scene` 演示投影贴花、带阴影的体积高度雾与光束，可在画质设置中切换 TAA／MSAA。
+`scenes/particle_effects.scene` 对比烟雾的硬／软交界，并演示图集序列帧、火花反弹／碰撞消失与运动拖尾，见[粒子说明](docs/usage.md#粒子反馈)。
 起点旁的“动画分层示例”引用 `animations/layered.ani`：二维混合控制步态与蹲伏，上半身由独立层覆盖，并叠加可调权重的呼吸动作；动作来自共享 `.anilib`。双击控制器可调整试播参数；具体入口见[动画使用说明](docs/usage.md#2d-混合动画库与分层)。
 `scenes/root_motion.scene` 演示动作驱动的行走与碰撞；在模型实体添加“根运动”可配置目标与运动轴，详见[根运动说明](docs/usage.md#根运动)。
 `scenes/foot_placement.scene` 对比关闭 IK、单脚台阶与斜面落脚；在模型上添加“脚部 IK”并选择踝骨骼，详见[脚部 IK](docs/usage.md#脚部-ik)。
@@ -69,7 +70,7 @@ Windows 可使用相同 CMake preset，随后启动构建目录中的可执行�
 收集反馈读取 `demo/assets/data/` 中的 CSV／JSON 数值资产；脚本属性选择数据表，Inspector 可查看记录，字段与 Lua 用法见[游戏数值资产](docs/usage.md#游戏数值资产)。
 
 编辑器恢复上次打开的场景。通过“文件 → 切换场景”可选择角色场景，或打开 `scenes/default.scene` 查看材质、灯光与关节演示；`scenes/pbr_surfaces.scene` 展示 PBR 贴图、树叶裁切阴影与透明层叠。
-`scenes/navigation.scene` 是独立导航示例：NPC 绕墙巡逻，靠近后追逐玩家，远离后返回巡逻点；移动障碍用于观察局部避障。配置与使用见[导航说明](docs/usage.md#npc-导航)。
+`scenes/navigation.scene` 是独立导航示例：NPC 绕墙巡逻，靠近后追逐玩家，远离后返回巡逻点；移动障碍会更新路径。`scenes/navigation_links.scene` 演示 NPC 在两座高低平台间往返跳跃。配置与使用见[导航说明](docs/usage.md#npc-导航)。
 `scenes/path_tracing.scene` 用于多次反弹与有色间接光参考，`scenes/path_tracing_materials.scene` 用于 PBR 贴图与 HDR 环境参考；Edit 视口 → 视图 → 路径追踪，可调整采样与反弹，见[使用说明](docs/usage.md#渐进路径追踪)。
 `scenes/gi_closed_room.scene` 与 `scenes/gi_open_room.scene` 展示已烘焙的有色间接光；Play 中白色方块左右移动并采样光照，比较方式见[静态探针 GI](docs/usage.md#静态探针-gi)。
 `scenes/mesh_lod.scene` 展示三档静态网格；在 Inspector 添加“静态网格 LOD”可设置简化网格、切换比例与强制层级，详见[LOD 用法](docs/usage.md#静态网格-lod)。

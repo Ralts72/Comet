@@ -17,6 +17,7 @@ namespace Comet {
     class RenderTarget;
     class Texture;
     class Sampler;
+    class Buffer;
 
     // 阴影与相机预深度共用的几何绘制；拥有目标、裁切绑定与在途帧资源。
     class COMET_API DepthPass {
@@ -33,13 +34,17 @@ namespace Comet {
             Math::Mat4 view_projection{1};
             Math::Vec4 atlas_rect{1, 1, 0, 0};
             bool enabled = true;
+            std::optional<Math::Mat4> previous_view_projection;
+            Math::Vec4 previous_projection{};
         };
-        static Result<std::unique_ptr<DepthPass>, GraphicsError> create(
-            Device& device, uint32_t frame_slots, Math::Vec2u size, uint32_t view_count);
+        static Result<std::unique_ptr<DepthPass>, GraphicsError> create(Device& device,
+            uint32_t frame_slots, Math::Vec2u size, uint32_t view_count,
+            bool motion_vectors = false);
         DepthPass(const DepthPass&) = delete;
         DepthPass& operator=(const DepthPass&) = delete;
         Result<void, GraphicsError> resize(Math::Vec2u size);
         [[nodiscard]] std::shared_ptr<ImageView> get_depth_view(uint32_t slot) const;
+        [[nodiscard]] std::shared_ptr<ImageView> get_motion_view(uint32_t slot) const;
         [[nodiscard]] Statistics get_statistics() const { return m_statistics; }
         void reset_statistics() { m_statistics = {}; }
         [[nodiscard]] Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> render(
@@ -81,6 +86,19 @@ namespace Comet {
         std::shared_ptr<Sampler> m_mask_sampler;
         std::map<const Texture*, CachedMask> m_masks;
         std::vector<InstanceBuffer> m_instances;
+        std::vector<InstanceBuffer> m_previous_instances;
+        std::vector<Math::Mat4> m_previous_transforms;
+        struct MotionHistory {
+            Math::Mat4 model{1};
+            AssetHandle handle;
+            uint64_t revision = 0;
+            std::shared_ptr<Mesh> mesh;
+            std::shared_ptr<Buffer> vertices;
+            std::shared_ptr<const AnimationPlayback> animation;
+            bool used = false;
+        };
+        std::unordered_map<EntityId, MotionHistory> m_motion_history;
+        bool m_motion_vectors = false;
         std::vector<DrawItem> m_draw_queue;
         std::vector<Math::Mat4> m_transforms;
         std::vector<RenderGeometry> m_view_geometry;

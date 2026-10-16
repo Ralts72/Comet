@@ -6,6 +6,8 @@
 #include "render/resource/mesh.h"
 #include "asset/data/animation_library.h"
 #include "render/passes/skinning_pass.h"
+#include "render/passes/depth_pass.h"
+#include <glm/gtc/packing.hpp>
 #include "render/scene/render_geometry.h"
 namespace Comet::Tests {
     class SkinningGpuTest: public RenderGpuTest {
@@ -250,6 +252,98 @@ namespace Comet::Tests {
             engine->get_asset_registry().replace_asset(AssetHandle(10), replacement.value()));
         EXPECT_NEAR(centroid(0), start, 1);
         EXPECT_EQ(renderer.get_skinning_statistics().dispatches, 1u);
+    }
+
+    TEST_F(SkinningGpuTest, MotionVectorsIncludeBoneDeformationWithOneOrTwoFrameSlots) {
+        auto& context = engine->get_renderer().get_render_context();
+        auto& device = context.get_device();
+        const auto source = engine->get_render_resources().try_create_mesh(m_source);
+        ASSERT_TRUE(source);
+        const Math::Vec2u resolution{33, 33};
+        const auto projection = Math::ortho(-1, 1, -1, 1, .1f, 10);
+        const auto vp = projection * Math::translate(Math::Mat4(1), {0, 0, -3});
+        for(const auto slots : {1u, 2u}) {
+            SCOPED_TRACE(slots);
+            FrameScheduler frames(device, slots);
+            frames.initialize_swapchain_images(1);
+            FrameWait wait{device, frames};
+            SkinningPass skinning(device, slots);
+            auto depth = DepthPass::create(device, slots, resolution, 1, true);
+            ASSERT_TRUE(depth) << depth.error();
+            auto previous_vp = vp;
+            for(unsigned frame = 0; frame < 5; ++frame) {
+                SCOPED_TRACE(frame);
+                RenderWorld world{.render_items = {{.entity_id = 1,
+                                      .animation = std::make_shared<AnimationPlayback>(
+                                          AnimationPlayback{.current = {.clip = "move",
+                                                                .time = frame == 0 ? .25 : .5,
+                                                                .loop = false}}),
+                                      .model_matrix = Math::translate(
+                                          Math::Mat4(1), {frame >= 3 ? .25f : 0, 0, 0}),
+                                      .mesh = source.value()}}};
+                RenderGeometry geometry;
+                geometry.prepare(world);
+                begin_frame(frames);
+                std::vector<QueueSemaphoreSubmit> waits;
+                ASSERT_TRUE(skinning.prepare(world, frames, geometry, waits));
+                const auto slot = frames.get_current_frame_slot_index();
+                RenderGraph graph;
+                const auto z = graph.import_image("depth",
+                    {.resource =
+                            *resolve_resource_state(ResourceUsage::DepthStencilAttachmentWrite),
+                        .subresources = {.aspects = Flags<ImageAspect>(ImageAspect::Depth)}});
+                const auto motion = graph.import_image("motion",
+                    {.resource = *resolve_resource_state(ResourceUsage::ColorAttachmentWrite),
+                        .subresources = {.aspects = Flags<ImageAspect>(ImageAspect::Color)}});
+                graph.add_pass(
+                    {"geometry", {{z, ResourceUsage::DepthStencilAttachmentWrite, {}},
+                                     {motion, ResourceUsage::ColorAttachmentWrite, {}}}});
+                graph.export_resource({motion, ResourceUsage::SampledRead,
+                    Flags<PipelineStage>(PipelineStage::FragmentShader)});
+                const auto plan = graph.compile();
+                ASSERT_TRUE(plan);
+                const std::vector<RenderGraph::Binding> bindings{
+                    depth.value()->get_depth_view(slot)->get_image(),
+                    depth.value()->get_motion_view(slot)->get_image()};
+                const auto current_vp =
+                    vp * Math::translate(Math::Mat4(1), {frame >= 2 ? -.25f : 0, 0, 0});
+                DepthPass::View view{.view_projection = current_vp,
+                    .previous_projection = {
+                        projection[2][2], projection[3][2], projection[2][3], projection[3][3]}};
+                if(frame)
+                    view.previous_view_projection = previous_vp;
+                ASSERT_TRUE(plan.value().record(frames, bindings, [&](auto, auto&) {
+                    const auto drawn = depth.value()->render(frames, std::span(&view, 1), geometry);
+                    if(!drawn)
+                        return Result<void, GraphicsError>::failure(drawn.error());
+                    for(const auto& wait : drawn.value())
+                        merge_semaphore_wait(waits, wait);
+                    return Result<void, GraphicsError>::success();
+                }));
+                const auto pixels = std::make_shared<Readback>(
+                    device, context.get_context().get_physical_device(), 33 * 33 * 8);
+                copy_output(
+                    frames, depth.value()->get_motion_view(slot)->get_image(), pixels, resolution);
+                submit(device, frames, waits);
+                frames.wait_for_all_slots();
+                const auto bytes = pixels->read();
+                const auto x = frame == 0 || frame == 2 ? 12 : 16;
+                uint16_t values[4];
+                std::memcpy(values, bytes.data() + (16 * 33 + x) * 8, sizeof(values));
+                EXPECT_NEAR(glm::unpackHalf1x16(values[3]), frame == 0 ? 0 : 1, .001f);
+                if(frame) {
+                    float expected = 0;
+                    if(frame == 1 || frame == 3)
+                        expected = .125f;
+                    else if(frame == 2)
+                        expected = -.125f;
+                    EXPECT_NEAR(glm::unpackHalf1x16(values[0]), expected, .002f);
+                    EXPECT_NEAR(glm::unpackHalf1x16(values[1]), 0, .002f);
+                    EXPECT_NEAR(glm::unpackHalf1x16(values[2]), 3, .01f);
+                }
+                previous_vp = current_vp;
+            }
+        }
     }
 
     TEST_F(SkinningGpuTest, ReusedOutputRecomputesConcreteWorldBounds) {

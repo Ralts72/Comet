@@ -7,6 +7,7 @@ namespace Comet {
         bool is_shader_usage(const ResourceUsage usage) noexcept {
             return usage == ResourceUsage::UniformRead || usage == ResourceUsage::SampledRead
                    || usage == ResourceUsage::StorageRead
+                   || usage == ResourceUsage::StorageWrite
                    || usage == ResourceUsage::StorageReadWrite;
         }
 
@@ -94,6 +95,9 @@ namespace Comet {
                 return ResourceState{.stages = shader_stages,
                     .access = Flags<Access>(Access::ShaderRead) | Access::ShaderWrite,
                     .queue_family = queue_family};
+            case ResourceUsage::StorageWrite:
+                return ResourceState{.stages = shader_stages,
+                    .access = Flags<Access>(Access::ShaderWrite), .queue_family = queue_family};
             case ResourceUsage::ColorAttachmentWrite:
                 return ResourceState{
                     .stages = Flags<PipelineStage>(PipelineStage::ColorAttachmentOutput),
@@ -155,6 +159,7 @@ namespace Comet {
                 layout = ImageLayout::ShaderReadOnlyOptimal;
                 break;
             case ResourceUsage::StorageRead:
+            case ResourceUsage::StorageWrite:
             case ResourceUsage::StorageReadWrite:
                 layout = ImageLayout::General;
                 break;

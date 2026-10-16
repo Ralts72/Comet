@@ -73,6 +73,7 @@ namespace Comet::Tests {
             vk::UniqueDeviceMemory memory;
             vk::UniqueBuffer native;
         };
+
     protected:
         std::unique_ptr<Engine> engine;
         std::unique_ptr<RenderTestFrontend> render_frontend;
@@ -115,10 +116,11 @@ namespace Comet::Tests {
             }
         }
         Result<std::unique_ptr<SceneRenderer>, GraphicsError> create_scene(
-            MaterialPrograms& programs, Math::Vec2u size,
-            SampleCount samples = SampleCount::Count1) {
+            MaterialPrograms& programs, Math::Vec2u size, SampleCount samples = SampleCount::Count1,
+            bool temporal_aa = false) {
             Config config;
             config.vulkan.msaa_samples = samples;
+            config.render.temporal_aa = temporal_aa;
             return SceneRenderer::create(engine->get_renderer().get_render_context().get_device(),
                 programs, engine->get_render_resources(), config.vulkan, config.render, size);
         }
@@ -160,6 +162,7 @@ namespace Comet::Tests {
             ASSERT_TRUE(submitted) << submitted.error().message;
             frames.end_frame();
         }
+
     public:
         struct FrameWait {
             Device& device;
@@ -170,6 +173,7 @@ namespace Comet::Tests {
                 frames.wait_for_all_slots();
             }
         };
+
     protected:
         static void copy_output(FrameScheduler& frames, const std::shared_ptr<Image>& image,
             const std::shared_ptr<Readback>& readback, Math::Vec2u size) {

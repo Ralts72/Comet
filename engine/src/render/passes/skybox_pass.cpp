@@ -52,6 +52,9 @@ namespace Comet {
         shader_layout.push_constants.push_back(
             std::make_shared<PushConstantRange>(ShaderStage::Fragment, 0, 68));
         PipelineConfig config;
+        config.color_blend_state.colorWriteMask = vk::ColorComponentFlagBits::eR
+                                                  | vk::ColorComponentFlagBits::eG
+                                                  | vk::ColorComponentFlagBits::eB;
         config.set_multisample_state(samples, false);
         config.set_dynamic_state({DynamicState::Viewport, DynamicState::Scissor});
         auto pipeline = pipelines.create_pipeline(

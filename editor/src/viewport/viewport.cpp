@@ -17,7 +17,7 @@
 namespace CometEditor {
     namespace {
         template<typename Function>
-        void for_selected_meshes(Comet::Scene& scene, const SelectionService& selection,
+        void for_selected_bounds(Comet::Scene& scene, const SelectionService& selection,
             const Comet::AssetRegistry& assets, Function&& visit) {
             if(&selection.get_scene() != &scene)
                 return;
@@ -33,7 +33,11 @@ namespace CometEditor {
                     const auto mesh = assets.resolve<Comet::Mesh>(
                         entity.get_component<Comet::MeshRendererComponent>().mesh);
                     if(mesh)
-                        visit(entity, *mesh);
+                        visit(entity, mesh->get_local_bounds());
+                }
+                if(entity.has_component<Comet::DecalComponent>()) {
+                    const auto extent = entity.get_component<Comet::DecalComponent>().half_extents;
+                    visit(entity, Comet::BoundingBox{-extent, extent});
                 }
                 const auto children = scene.get_children(entity);
                 pending.insert(pending.end(), children.begin(), children.end());
@@ -126,10 +130,9 @@ namespace CometEditor {
         if(!scene)
             return;
         std::optional<Comet::BoundingBox> bounds;
-        for_selected_meshes(
-            *scene, m_selection, m_assets, [&](Comet::Entity entity, const Comet::Mesh& mesh) {
-                const auto world =
-                    Comet::transform_box(mesh.get_local_bounds(), scene->get_world_matrix(entity));
+        for_selected_bounds(*scene, m_selection, m_assets,
+            [&](Comet::Entity entity, const Comet::BoundingBox& local) {
+                const auto world = Comet::transform_box(local, scene->get_world_matrix(entity));
                 if(!world)
                     return;
                 if(bounds)
@@ -144,11 +147,35 @@ namespace CometEditor {
     }
 
     void Viewport::append_selection_bounds(Comet::Scene& scene) {
-        for_selected_meshes(
-            scene, m_selection, m_assets, [&](Comet::Entity entity, const Comet::Mesh& mesh) {
-                static_cast<void>(m_feedback_lines.add_box(mesh.get_local_bounds(),
-                    scene.get_world_matrix(entity), Comet::Math::Vec4(1.0f, 0.65f, 0.1f, 1.0f)));
+        if(&m_selection.get_scene() != &scene)
+            return;
+        for_selected_bounds(scene, m_selection, m_assets,
+            [&](Comet::Entity entity, const Comet::BoundingBox& local) {
+                static_cast<void>(m_feedback_lines.add_box(local, scene.get_world_matrix(entity),
+                    Comet::Math::Vec4(1.0f, 0.65f, 0.1f, 1.0f)));
             });
+        for(const auto uuid : m_selection.get_selected_entities()) {
+            const auto entity = scene.find_entity(uuid);
+            if(!entity)
+                continue;
+            const auto& world = scene.get_world_matrix(entity);
+            if(entity.has_component<Comet::NavigationObstacleComponent>()) {
+                const auto& obstacle = entity.get_component<Comet::NavigationObstacleComponent>();
+                static_cast<void>(m_feedback_lines.add_box(
+                    {-obstacle.half_extents, obstacle.half_extents}, world, {1, .3f, .1f, 1}));
+            }
+            if(entity.has_component<Comet::NavigationLinkComponent>()) {
+                const auto& link = entity.get_component<Comet::NavigationLinkComponent>();
+                const auto start = Comet::Math::Vec3(world[3]);
+                const auto end = Comet::Math::Vec3(world * Comet::Math::Vec4(link.end, 1));
+                static_cast<void>(m_feedback_lines.add_line(start, end, {0, 1, .6f, 1}));
+                for(const auto point : {start, end}) {
+                    const auto extent = Comet::Math::Vec3(link.radius, .05f, link.radius);
+                    static_cast<void>(m_feedback_lines.add_box(
+                        {point - extent, point + extent}, Comet::Math::Mat4(1), {0, 1, .6f, 1}));
+                }
+            }
+        }
     }
 
     void Viewport::submit_feedback(Comet::Scene* scene) {

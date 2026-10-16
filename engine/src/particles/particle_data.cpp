@@ -23,11 +23,30 @@ namespace Comet {
             return Result<void>::failure("有效帧数须介于 1 和图集格数之间");
         if(!std::isfinite(frame_rate) || frame_rate < 0 || frame_rate > 240)
             return Result<void>::failure("序列帧帧率须为 0～240");
+        if(collision != ParticleCollision::None && collision != ParticleCollision::Bounce
+            && collision != ParticleCollision::Kill)
+            return Result<void>::failure("无效的粒子碰撞模式");
+        if(!std::isfinite(collision_radius) || collision_radius < 0 || collision_radius > 10
+            || !std::isfinite(restitution) || restitution < 0 || restitution > 1
+            || !std::isfinite(friction) || friction < 0 || friction > 1)
+            return Result<void>::failure("粒子碰撞半径须为 0～10 米，弹性与摩擦须为 0～1");
         for(const auto color : {start_color, end_color}) {
             if(color.x < 0 || color.y < 0 || color.z < 0 || color.w < 0 || color.w > 1)
                 return Result<void>::failure(
                     "Particle colors require nonnegative RGB and alpha in [0, 1]");
         }
+        return Result<void>::success();
+    }
+
+    Result<void> TrailComponent::validate() const {
+        if(capacity < 2 || capacity > 512 || !std::isfinite(lifetime) || lifetime < 0.01f
+            || lifetime > 60 || !std::isfinite(minimum_distance) || minimum_distance < 0.001f
+            || !std::isfinite(break_distance) || break_distance <= minimum_distance
+            || !std::isfinite(width) || width <= 0 || !Math::is_finite(color) || color.x < 0
+            || color.y < 0 || color.z < 0 || color.w < 0 || color.w > 1
+            || !std::isfinite(soft_distance) || soft_distance < 0 || soft_distance > 1000
+            || (blend != ParticleBlend::Additive && blend != ParticleBlend::Alpha))
+            return Result<void>::failure("无效的拖尾设置：检查容量、寿命、采样距离、宽度与颜色");
         return Result<void>::success();
     }
     Math::Vec4 ParticleEmitterComponent::texture_region(double age) const {

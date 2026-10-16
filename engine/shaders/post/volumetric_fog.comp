@@ -1,0 +1,52 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#define COMET_SHADOW_PCF_RADIUS 0
+#include "../common/frame.glsl"
+#include "../lighting/forward.glsl"
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(set = 1, binding = 0, rgba16f) uniform writeonly image2D output_volume;
+layout(set = 1, binding = 1, std140) uniform Parameters {
+    vec4 range; // near, far, log(far/near)
+    vec4 medium; // density, base height, height falloff, anisotropy
+    vec4 tint_ambient;
+} parameters;
+void main() {
+    ivec2 grid = imageSize(output_volume) / 8;
+    ivec2 cell = ivec2(gl_GlobalInvocationID.xy);
+    if(any(greaterThanEqual(cell, grid))) return;
+    vec2 uv = (vec2(cell) + .5) / vec2(grid);
+    vec2 ndc = uv * vec2(2, -2) + vec2(-1, 1);
+    vec4 near_h = lighting.inverse_view_projection * vec4(ndc, 0, 1);
+    vec4 middle_h = lighting.inverse_view_projection * vec4(ndc, .5, 1);
+    vec3 near_position = near_h.xyz / near_h.w;
+    vec3 ray = normalize(middle_h.xyz / middle_h.w - near_position);
+    float cosine = max(-dot(ray, frame.view_direction), .001);
+    vec3 origin = near_position - ray * parameters.range.x / cosine;
+    vec3 scattering = vec3(0);
+    float transmittance = 1, previous = 0;
+    for(int slice = 0; slice < 64; ++slice) {
+        float end = parameters.range.x * exp(parameters.range.z * float(slice + 1) / 64);
+        float step_length = (end - previous) / cosine;
+        vec3 position = origin + ray * ((previous + end) * .5 / cosine);
+        if(transmittance > .0001 && parameters.medium.x > 0) {
+            float extinction = parameters.medium.x * exp(clamp(
+                -parameters.medium.z * (position.y - parameters.medium.y), -10, 10));
+            float segment = exp(-extinction * step_length);
+            vec3 incident = vec3(parameters.tint_ambient.w);
+            for(int index = 0; index < int(lighting.light_count); ++index) {
+                vec3 direction, radiance;
+                if(!sample_light(index, position, direction, radiance)) continue;
+                float g = parameters.medium.w;
+                float phase = (1 - g * g) / (12.56637061436
+                    * pow(max(1 + g * g - 2 * g * dot(ray, direction), .001), 1.5));
+                incident += radiance * phase * shadow_visibility(index, position, vec3(0), vec3(0), 1);
+            }
+            scattering += transmittance * (1 - segment) * parameters.tint_ambient.rgb * incident;
+            transmittance *= segment;
+        }
+        ivec2 tile = ivec2(slice % 8, slice / 8);
+        imageStore(output_volume, tile * grid + cell,
+            vec4(clamp(scattering, 0, 65504), transmittance));
+        previous = end;
+    }
+}

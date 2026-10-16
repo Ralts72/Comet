@@ -9,10 +9,14 @@ namespace Comet {
         static Result<std::shared_ptr<SampledImageBinding>, GraphicsError> create(Device& device,
             std::vector<std::shared_ptr<ImageView>> images,
             std::shared_ptr<DescriptorSetLayout> layout, std::shared_ptr<Sampler> sampler);
+        static Result<std::shared_ptr<SampledImageBinding>, GraphicsError> create(Device& device,
+            std::vector<std::shared_ptr<ImageView>> images,
+            std::shared_ptr<DescriptorSetLayout> layout,
+            std::vector<std::shared_ptr<Sampler>> samplers);
 
         std::vector<std::shared_ptr<ImageView>> images;
         std::shared_ptr<DescriptorSetLayout> layout;
-        std::shared_ptr<Sampler> sampler;
+        std::vector<std::shared_ptr<Sampler>> samplers;
         std::unique_ptr<DescriptorPool> pool;
         DescriptorSet descriptor;
     };

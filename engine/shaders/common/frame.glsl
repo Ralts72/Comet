@@ -11,4 +11,10 @@ layout(set = 0, binding = 0, std140) uniform FrameData {
     vec4 fog_color; // RGB linear color, W inverse distance range; zero disables fog.
 } frame;
 
+// Axial distance for the engine's perspective and orthographic projections.
+float view_distance_at_depth(float depth) {
+    return (depth * frame.projection[3][3] - frame.projection[3][2])
+        / (depth * frame.projection[2][3] - frame.projection[2][2]);
+}
+
 #endif

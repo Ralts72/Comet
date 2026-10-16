@@ -63,6 +63,16 @@ namespace Comet::Gameplay {
                     return fail("Navigation geometry contains nonfinite vertices");
             return Result<rcConfig>::success(cfg);
         }
+        Result<void> validate_links(std::span<const NavigationMesh::Link> links) {
+            if(links.size() > 256)
+                return Result<void>::failure("最多支持 256 个导航连接");
+            for(const auto& link : links)
+                if(!Math::is_finite(link.start) || !Math::is_finite(link.end)
+                    || !std::isfinite(link.radius) || link.radius <= 0 || link.radius > 10
+                    || Math::length(link.end - link.start) < .01f)
+                    return Result<void>::failure("无效的导航连接端点或半径");
+            return Result<void>::success();
+        }
         Result<void> validate_product(const NavigationData& product) {
             const auto fail = [](const char* message) { return Result<void>::failure(message); };
             if(auto valid = product.validate(); !valid)
@@ -77,10 +87,12 @@ namespace Comet::Gameplay {
             if(header.magic != DT_NAVMESH_MAGIC || header.version != DT_NAVMESH_VERSION
                 || header.polyCount <= 0 || header.polyCount > 1000000 || header.vertCount < 3
                 || header.vertCount >= 65535 || header.maxLinkCount <= 0
-                || header.detailMeshCount != header.polyCount || header.detailVertCount < 0
+                || header.detailMeshCount != header.offMeshBase || header.detailVertCount < 0
                 || header.detailTriCount <= 0 || header.bvNodeCount < 0
-                || header.offMeshConCount != 0 || header.offMeshBase != header.polyCount)
-                return fail("Invalid navigation tile counts or unsupported off-mesh connections");
+                || header.offMeshConCount < 0 || header.offMeshConCount > 256
+                || header.offMeshBase <= 0
+                || int64_t(header.offMeshBase) + header.offMeshConCount != header.polyCount)
+                return fail("Invalid navigation tile counts");
             const auto aligned = [](uint64_t size) { return (size + 3) & ~uint64_t(3); };
             const uint64_t vertices = aligned(sizeof(dtMeshHeader));
             const uint64_t polygons =
@@ -93,7 +105,10 @@ namespace Comet::Gameplay {
             const uint64_t triangles =
                 detail_vertices + aligned(uint64_t(header.detailVertCount) * 3 * sizeof(float));
             const uint64_t tree = triangles + aligned(uint64_t(header.detailTriCount) * 4);
-            const uint64_t size = tree + aligned(uint64_t(header.bvNodeCount) * sizeof(dtBVNode));
+            const uint64_t off_mesh =
+                tree + aligned(uint64_t(header.bvNodeCount) * sizeof(dtBVNode));
+            const uint64_t size =
+                off_mesh + aligned(uint64_t(header.offMeshConCount) * sizeof(dtOffMeshConnection));
             if(size != product.tile.size())
                 return fail("Navigation tile counts exceed its payload");
             const auto read = [&]<typename T>(uint64_t offset) {
@@ -116,19 +131,24 @@ namespace Comet::Gameplay {
             for(int i = 0; i < header.polyCount; ++i) {
                 const auto poly =
                     read.template operator()<dtPoly>(polygons + uint64_t(i) * sizeof(dtPoly));
-                const auto detail = read.template operator()<dtPolyDetail>(
-                    details + uint64_t(i) * sizeof(dtPolyDetail));
-                if(poly.vertCount < 3 || poly.vertCount > DT_VERTS_PER_POLYGON
-                    || poly.getType() != DT_POLYTYPE_GROUND
-                    || uint64_t(detail.vertBase) + detail.vertCount
-                           > uint64_t(header.detailVertCount)
-                    || uint64_t(detail.triBase) + detail.triCount > uint64_t(header.detailTriCount))
-                    return fail("Invalid navigation polygon or detail range");
+                const bool ground = i < header.offMeshBase;
+                if(poly.vertCount < (ground ? 3 : 2) || poly.vertCount > DT_VERTS_PER_POLYGON
+                    || (ground ? poly.getType() != DT_POLYTYPE_GROUND
+                               : poly.getType() != DT_POLYTYPE_OFFMESH_CONNECTION
+                                     || poly.vertCount != 2))
+                    return fail("Invalid navigation polygon");
                 for(int vertex = 0; vertex < poly.vertCount; ++vertex)
                     if(poly.verts[vertex] >= header.vertCount
                         || (!(poly.neis[vertex] & DT_EXT_LINK)
                             && poly.neis[vertex] > header.polyCount))
                         return fail("Navigation polygon references an invalid vertex or neighbor");
+                if(!ground)
+                    continue;
+                const auto detail = read.template operator()<dtPolyDetail>(
+                    details + uint64_t(i) * sizeof(dtPolyDetail));
+                if(uint64_t(detail.vertBase) + detail.vertCount > uint64_t(header.detailVertCount)
+                    || uint64_t(detail.triBase) + detail.triCount > uint64_t(header.detailTriCount))
+                    return fail("Invalid navigation detail range");
                 for(unsigned triangle = 0; triangle < detail.triCount; ++triangle)
                     for(unsigned vertex = 0; vertex < 3; ++vertex) {
                         const auto index = std::to_integer<unsigned>(
@@ -137,6 +157,17 @@ namespace Comet::Gameplay {
                         if(index >= unsigned(poly.vertCount) + detail.vertCount)
                             return fail("Navigation detail triangle references an invalid vertex");
                     }
+            }
+            for(int i = 0; i < header.offMeshConCount; ++i) {
+                const auto connection = read.template operator()<dtOffMeshConnection>(
+                    off_mesh + uint64_t(i) * sizeof(dtOffMeshConnection));
+                if(connection.poly != header.offMeshBase + i || !std::isfinite(connection.rad)
+                    || connection.rad <= 0 || (connection.flags & ~DT_OFFMESH_CON_BIDIR)
+                    || (connection.side != 0xff && connection.side > 7))
+                    return fail("Invalid navigation off-mesh connection");
+                for(const auto coordinate : connection.pos)
+                    if(!std::isfinite(coordinate))
+                        return fail("Nonfinite navigation off-mesh endpoint");
             }
             for(int i = 0; i < header.bvNodeCount; ++i) {
                 const auto node =
@@ -155,6 +186,7 @@ namespace Comet::Gameplay {
             nullptr, dtFreeNavMeshQuery};
         dtQueryFilter filter;
         Math::Vec3 extents{0.5f, 1, 0.5f};
+        bool empty = false;
         bool nearest(Math::Vec3 point, dtPolyRef& ref, Math::Vec3& projected) const {
             return dtStatusSucceed(
                        query->findNearestPoly(&point.x, &extents.x, &filter, &ref, &projected.x))
@@ -171,9 +203,11 @@ namespace Comet::Gameplay {
     }
 
     Result<uint64_t> NavigationMesh::input_fingerprint(std::span<const Math::Vec3> triangles,
-        Math::Vec3 center, const NavigationRegionComponent& settings) {
+        Math::Vec3 center, const NavigationRegionComponent& settings, std::span<const Link> links) {
         if(auto described = configuration(triangles, center, settings); !described)
             return Result<uint64_t>::failure(described.error());
+        if(auto valid = validate_links(links); !valid)
+            return Result<uint64_t>::failure(valid.error());
         std::vector<uint64_t> triangle_hashes;
         triangle_hashes.reserve(triangles.size() / 3);
         for(size_t i = 0; i < triangles.size(); i += 3) {
@@ -198,12 +232,23 @@ namespace Comet::Gameplay {
         for(const float value : {settings.cell_size, settings.agent_radius, settings.agent_height,
                 settings.max_climb, settings.max_slope})
             input.write_float(value == 0 ? 0 : value);
+        if(!links.empty()) {
+            input.write_u32(0x4c494e4b);
+            input.write_u32(uint32_t(links.size()));
+            for(const auto& link : links) {
+                for(const auto point : {link.start, link.end})
+                    for(int axis = 0; axis < 3; ++axis)
+                        input.write_float(point[axis] == 0 ? 0 : point[axis]);
+                input.write_float(link.radius);
+                input.write_u32(link.bidirectional ? 1 : 0);
+            }
+        }
         return Result<uint64_t>::success(Binary::hash_bytes(
             std::as_bytes(std::span(triangle_hashes)), Binary::hash_bytes(input.data())));
     }
 
     Result<NavigationData> NavigationMesh::product(const uint64_t fingerprint) const {
-        if(!m_impl)
+        if(!m_impl || m_impl->empty)
             return Result<NavigationData>::failure("Navigation product requires a built mesh");
         const auto* tile = std::as_const(*m_impl->mesh).getTile(0);
         if(!tile || !tile->data || tile->dataSize <= 0)
@@ -243,8 +288,16 @@ namespace Comet::Gameplay {
     }
 
     Result<void> NavigationMesh::build(std::span<const Math::Vec3> triangles, Math::Vec3 center,
-        const NavigationRegionComponent& s) {
-        clear();
+        const NavigationRegionComponent& s, std::span<const Link> links,
+        std::span<const Obstacle> obstacles) {
+        if(auto valid = validate_links(links); !valid)
+            return valid;
+        if(obstacles.size() > 128)
+            return Result<void>::failure("最多支持 128 个动态导航障碍");
+        for(const auto& obstacle : obstacles)
+            if(!Math::is_finite(obstacle.minimum) || !Math::is_finite(obstacle.maximum)
+                || !glm::all(glm::lessThan(obstacle.minimum, obstacle.maximum)))
+                return Result<void>::failure("无效的动态导航障碍范围");
         auto described = configuration(triangles, center, s);
         if(!described)
             return Result<void>::failure(described.error());
@@ -284,18 +337,32 @@ namespace Comet::Gameplay {
         rcFilterLedgeSpans(&context, cfg.walkableHeight, cfg.walkableClimb, *height);
         rcFilterWalkableLowHeightSpans(&context, cfg.walkableHeight, *height);
         if(!rcBuildCompactHeightfield(
-               &context, cfg.walkableHeight, cfg.walkableClimb, *height, *compact)
-            || !rcErodeWalkableArea(&context, cfg.walkableRadius, *compact)
+               &context, cfg.walkableHeight, cfg.walkableClimb, *height, *compact))
+            return fail("Cannot build compact navigation heightfield");
+        for(const auto& obstacle : obstacles) {
+            // 头部空间也受障碍影响；水平净空统一交给后续 walkableRadius 侵蚀。
+            const auto minimum = obstacle.minimum - Math::Vec3(0, s.agent_height, 0);
+            rcMarkBoxArea(&context, &minimum.x, &obstacle.maximum.x, RC_NULL_AREA, *compact);
+        }
+        if(!rcErodeWalkableArea(&context, cfg.walkableRadius, *compact)
             || !rcBuildDistanceField(&context, *compact)
             || !rcBuildRegions(&context, *compact, 0, cfg.minRegionArea, cfg.mergeRegionArea)
             || !rcBuildContours(
-                &context, *compact, cfg.maxSimplificationError, cfg.maxEdgeLen, *contours)
-            || !rcBuildPolyMesh(&context, *contours, cfg.maxVertsPerPoly, *polygons)
+                &context, *compact, cfg.maxSimplificationError, cfg.maxEdgeLen, *contours))
+            return fail("Cannot build navigation contours");
+        if(contours->nconts == 0 && !obstacles.empty()) {
+            m_impl = std::make_unique<Impl>();
+            m_impl->empty = true;
+            return Result<void>::success();
+        }
+        if(!rcBuildPolyMesh(&context, *contours, cfg.maxVertsPerPoly, *polygons)
             || !rcBuildPolyMeshDetail(&context, *polygons, *compact, cfg.detailSampleDist,
                 cfg.detailSampleMaxError, *detail))
             return fail("Cannot build navigation polygons");
         if(!polygons->npolys)
             return fail("Navigation region contains no walkable surface");
+        if(polygons->nverts + links.size() * 2 >= 65535)
+            return fail("Navigation links exceed the tile vertex budget");
         for(int i = 0; i < polygons->npolys; ++i) {
             polygons->areas[i] = 0;
             polygons->flags[i] = 1;
@@ -321,6 +388,25 @@ namespace Comet::Gameplay {
         params.cs = cfg.cs;
         params.ch = cfg.ch;
         params.buildBvTree = true;
+        std::vector<float> connection_vertices, connection_radii;
+        std::vector<unsigned short> connection_flags(links.size(), 1);
+        std::vector<unsigned char> connection_areas(links.size(), 0), connection_directions;
+        std::vector<unsigned> connection_ids;
+        for(std::size_t index = 0; index < links.size(); ++index) {
+            const auto& link = links[index];
+            for(const auto point : {link.start, link.end})
+                connection_vertices.insert(connection_vertices.end(), {point.x, point.y, point.z});
+            connection_radii.push_back(link.radius);
+            connection_directions.push_back(link.bidirectional ? DT_OFFMESH_CON_BIDIR : 0);
+            connection_ids.push_back(unsigned(index + 1));
+        }
+        params.offMeshConCount = int(links.size());
+        params.offMeshConVerts = connection_vertices.data();
+        params.offMeshConRad = connection_radii.data();
+        params.offMeshConFlags = connection_flags.data();
+        params.offMeshConAreas = connection_areas.data();
+        params.offMeshConDir = connection_directions.data();
+        params.offMeshConUserID = connection_ids.data();
         unsigned char* data = nullptr;
         int size = 0;
         if(!dtCreateNavMeshData(&params, &data, &size))
@@ -347,6 +433,8 @@ namespace Comet::Gameplay {
         if(!m_impl || !Math::is_finite(start) || !Math::is_finite(target))
             return Output::failure(
                 "Path query requires a built navigation mesh and finite positions");
+        if(m_impl->empty)
+            return Output::success({});
         dtPolyRef first = 0, last = 0;
         Math::Vec3 a, b;
         if(!m_impl->nearest(start, first, a) || !m_impl->nearest(target, last, b))
@@ -362,21 +450,37 @@ namespace Comet::Gameplay {
         if(!count || corridor[count - 1] != last || dtStatusDetail(status, DT_PARTIAL_RESULT))
             return Output::success({});
         std::array<float, 256 * 3> points{};
+        std::array<unsigned char, 256> flags{};
+        std::array<dtPolyRef, 256> references{};
         int point_count = 0;
-        status = m_impl->query->findStraightPath(
-            &a.x, &b.x, corridor.data(), count, points.data(), nullptr, nullptr, &point_count, 256);
+        status = m_impl->query->findStraightPath(&a.x, &b.x, corridor.data(), count, points.data(),
+            flags.data(), references.data(), &point_count, 256);
         if(dtStatusFailed(status))
             return Output::failure("Detour straight path query failed");
         if(dtStatusDetail(status, DT_BUFFER_TOO_SMALL))
             return Output::success({Status::BudgetExceeded, {}});
         Path result{Status::Complete, {}};
-        for(int i = 0; i < point_count; ++i)
+        for(int i = 0; i < point_count; ++i) {
             result.points.emplace_back(points[i * 3], points[i * 3 + 1], points[i * 3 + 2]);
+            if(flags[i] & DT_STRAIGHTPATH_OFFMESH_CONNECTION) {
+                const auto* connection = m_impl->mesh->getOffMeshConnectionByRef(references[i]);
+                if(!connection)
+                    return Output::failure("Missing navigation connection in path");
+                const auto found =
+                    std::find(corridor.begin(), corridor.begin() + count, references[i]);
+                Math::Vec3 entry, endpoint;
+                if(found == corridor.begin() || found == corridor.begin() + count
+                    || dtStatusFailed(m_impl->mesh->getOffMeshConnectionPolyEndPoints(
+                        *(found - 1), references[i], &entry.x, &endpoint.x)))
+                    return Output::failure("Invalid navigation connection corridor");
+                result.jumps.push_back({std::size_t(i), endpoint, connection->rad});
+            }
+        }
         return Output::success(std::move(result));
     }
     std::optional<Math::Vec3> NavigationMesh::surface_step(
         Math::Vec3 start, Math::Vec3 target) const {
-        if(!m_impl || !Math::is_finite(start) || !Math::is_finite(target))
+        if(!m_impl || m_impl->empty || !Math::is_finite(start) || !Math::is_finite(target))
             return std::nullopt;
         dtPolyRef ref = 0;
         Math::Vec3 projected;

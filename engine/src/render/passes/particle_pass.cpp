@@ -1,3 +1,4 @@
+#include "render/passes/volumetric_fog_pass.h"
 #include "render/passes/particle_pass.h"
 
 #include "graphics/command/command_buffer.h"
@@ -26,7 +27,7 @@
 #include <algorithm>
 
 namespace Comet {
-    static_assert(sizeof(ParticleInstance) == 48);
+    static_assert(sizeof(ParticleInstance) == 64);
 
     ParticlePass::ParticlePass(Device& device, const uint32_t frame_slots)
         : m_device(device), m_buffers(frame_slots), m_depth_bindings(frame_slots) {}
@@ -51,20 +52,24 @@ namespace Comet {
         auto image_layout = DescriptorSetLayout::create(device, bindings);
         if(!image_layout)
             return Creation::failure(image_layout.error());
+        bindings.add_binding(
+            1, DescriptorType::CombinedImageSampler, Flags<ShaderStage>(ShaderStage::Fragment));
         auto depth_layout = DescriptorSetLayout::create(device, bindings);
         if(!depth_layout)
             return Creation::failure(depth_layout.error());
         layout.descriptor_set_layouts = {image_layout.value(), depth_layout.value()};
         layout.push_constants.push_back(
             std::make_shared<PushConstantRange>(ShaderStage::Vertex, 0, sizeof(BillboardCamera)));
-        layout.push_constants.push_back(std::make_shared<PushConstantRange>(
-            ShaderStage::Fragment, 96, sizeof(Math::Vec4) + sizeof(Math::Vec2)));
+        layout.push_constants.push_back(
+            std::make_shared<PushConstantRange>(ShaderStage::Fragment, 96, sizeof(Math::Vec4) * 2));
         VertexInputDescription input;
         input.add_binding(0, sizeof(ParticleInstance), VertexInputRate::Instance);
         input.add_attribute(
             0, 0, Format::R32G32B32A32_SFLOAT, offsetof(ParticleInstance, position_size));
         input.add_attribute(1, 0, Format::R32G32B32A32_SFLOAT, offsetof(ParticleInstance, color));
         input.add_attribute(2, 0, Format::R32G32B32A32_SFLOAT, offsetof(ParticleInstance, uv_rect));
+        input.add_attribute(
+            3, 0, Format::R32G32B32A32_SFLOAT, offsetof(ParticleInstance, end_position_size));
         PipelineConfig config;
         config.set_vertex_input_state(input);
         config.set_multisample_state(samples, false);
@@ -78,8 +83,9 @@ namespace Comet {
             config.set_color_blend_attachment_state({.blend_enable = true,
                 .src_color_blend_factor = BlendFactor::SrcAlpha,
                 .dst_color_blend_factor = alpha ? BlendFactor::OneMinusSrcAlpha : BlendFactor::One,
-                .src_alpha_blend_factor = BlendFactor::Zero,
-                .dst_alpha_blend_factor = BlendFactor::One});
+                .src_alpha_blend_factor = BlendFactor::One,
+                .dst_alpha_blend_factor = BlendFactor::One,
+                .alpha_blend_op = BlendOp::Max});
             auto pipeline =
                 pipelines.create_pipeline(alpha ? "particle_alpha" : "particle_additive", layout,
                     config, vertex.value(), fragment.value());
@@ -144,8 +150,11 @@ namespace Comet {
         for(uint32_t source = 0; source < batches.size(); ++source) {
             const auto& batch = batches[source];
             for(uint32_t index = batch.first; index < batch.first + batch.count; ++index) {
-                const auto position =
-                    Math::Vec4(Math::Vec3(particles.instances[index].position_size), 1);
+                const auto& instance = particles.instances[index];
+                auto center = Math::Vec3(instance.position_size);
+                if(instance.end_position_size.w >= 0)
+                    center = (center + Math::Vec3(instance.end_position_size)) * 0.5f;
+                const auto position = Math::Vec4(center, 1);
                 m_order.push_back({index, source, DrawOrder::camera_depth(view, position)});
             }
         }
@@ -178,7 +187,7 @@ namespace Comet {
 
     Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> ParticlePass::prepare(
         FrameScheduler& frames, const ViewProjectMatrix& camera, const RenderWorld& world,
-        const bool sort_for_meshes, std::shared_ptr<ImageView> scene_depth) {
+        const bool sort_for_meshes, std::shared_ptr<ImageView> scene_depth, const FogVolume* fog) {
         using Prepared = Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>;
         clear_draws();
         if(!world.particles || world.particles->instances.empty()) {
@@ -203,15 +212,17 @@ namespace Comet {
         auto& depth_binding = m_depth_bindings.at(frames.get_current_frame_slot_index());
         if(!scene_depth)
             scene_depth = m_white->get_image_view();
-        if(!depth_binding || depth_binding->images.front() != scene_depth) {
+        const auto fog_image = fog ? fog->image : m_white->get_image_view();
+        const std::vector depth_images{scene_depth, fog_image};
+        if(!depth_binding || depth_binding->images != depth_images) {
             auto binding = SampledImageBinding::create(
-                m_device, {scene_depth}, m_depth_layout, m_depth_sampler);
+                m_device, depth_images, m_depth_layout, m_depth_sampler);
             if(!binding)
                 return Prepared::failure(binding.error());
             depth_binding = std::move(binding).value();
         }
         frames.retain_current_frame_resource(depth_binding);
-        if(particles.uses_soft_depth()) {
+        if(particles.uses_soft_depth() || fog) {
             const auto inverse_projection = Math::inverse(camera.projection);
             if(!Math::is_finite(inverse_projection))
                 return Prepared::failure({"Invalid particle projection"});
@@ -235,6 +246,8 @@ namespace Comet {
         frames.retain_current_frame_resource(buffer);
         const auto pose = Math::inverse(camera.view);
         m_camera = {camera.projection * camera.view, pose[0], pose[1]};
+        m_camera.right.w = fog ? fog->parameters.x : 0;
+        m_camera.up.w = fog ? fog->parameters.y : 0;
         std::vector<QueueSemaphoreSubmit> waits;
         const auto& white_ready = m_white->get_ready_completion();
         if(white_ready.is_valid())
@@ -259,7 +272,7 @@ namespace Comet {
                 sampler = m_sampler;
             auto& binding = m_bindings[batch.texture];
             if(!binding || binding->images.front() != texture->get_image_view()
-                || binding->sampler != sampler) {
+                || binding->samplers[0] != sampler) {
                 auto candidate = SampledImageBinding::create(
                     m_device, {texture->get_image_view()}, m_layout, sampler);
                 if(!candidate)
@@ -304,9 +317,9 @@ namespace Comet {
                 active_pipeline = pipeline.get();
             }
             command.bind_descriptor_sets(layout, std::span(&source.binding->descriptor, 1));
-            const std::array<float, 6> settings{m_depth_coefficients.x, m_depth_coefficients.y,
+            const std::array<float, 8> settings{m_depth_coefficients.x, m_depth_coefficients.y,
                 m_depth_coefficients.z, m_depth_coefficients.w, source.textured ? 1.0f : 0.0f,
-                source.soft_distance};
+                source.soft_distance, source.blend == ParticleBlend::Additive ? 1.0f : 0.0f, 0};
             command.push_constants(layout, Flags<ShaderStage>(ShaderStage::Fragment), 96,
                 settings.data(), sizeof(settings));
             const auto begin = std::max(first, batch->first);

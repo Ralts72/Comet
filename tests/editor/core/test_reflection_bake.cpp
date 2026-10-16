@@ -1,3 +1,4 @@
+#include "assets/lighting_bake_input.h"
 #include "assets/reflection_bake.h"
 #include "asset/serialization/material_serializer.h"
 #include "asset/serialization/metadata_serializer.h"
@@ -8,9 +9,59 @@
 #include "support/temporary_directory.h"
 
 #include <gtest/gtest.h>
+#include <algorithm>
 
 namespace CometEditor::Tests {
     using namespace Comet;
+    TEST(ReflectionBakeTest, StaticDecalFingerprintIncludesTextureAndIgnoresVolumetricFog) {
+        Comet::Tests::TemporaryDirectory directory;
+        const ProjectPaths paths(directory.path());
+        std::filesystem::create_directories(paths.assets());
+        const auto texture = paths.assets() / "paint.png";
+        std::filesystem::copy_file(std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY)
+                                       / "assets/textures/awesomeface.png",
+            texture);
+        const AssetHandle handle(80303);
+        ASSERT_TRUE(MetadataSerializer{}.save({.handle = handle,
+                                                  .type = AssetType::Texture,
+                                                  .import_settings = TextureImportSettings{}},
+            metadata_path(texture)));
+        AssetDatabase assets(paths);
+        ASSERT_TRUE(assets.scan().succeeded());
+        Scene scene;
+        auto decal = scene.create_entity("static decal");
+        decal.add_component<DecalComponent>(DecalComponent{.texture = handle});
+        auto moving = scene.create_entity("moving decal");
+        moving.add_component<RigidBodyComponent>();
+        moving.add_component<DecalComponent>();
+        const auto describe = [&](LightingBakeInput::Purpose purpose) {
+            return LightingBakeInput::describe(scene, assets, purpose, 123);
+        };
+        const auto original = describe(LightingBakeInput::Purpose::Reflection);
+        ASSERT_TRUE(original) << original.error();
+        ASSERT_EQ(original.value().scene.decals.size(), 1u);
+        EXPECT_NE(std::ranges::find(original.value().dependencies, handle),
+            original.value().dependencies.end());
+        auto environment = scene.get_environment();
+        environment.volumetric_fog.enabled = true;
+        ASSERT_TRUE(scene.set_environment(environment));
+        moving.edit_component<DecalComponent>([](auto& value) { value.color.r = .2f; });
+        auto unchanged = describe(LightingBakeInput::Purpose::Reflection);
+        ASSERT_TRUE(unchanged);
+        EXPECT_EQ(unchanged.value().fingerprint, original.value().fingerprint);
+        EXPECT_FALSE(unchanged.value().scene.environment.volumetric_fog.active());
+        const auto gi = describe(LightingBakeInput::Purpose::Irradiance);
+        ASSERT_TRUE(gi);
+        EXPECT_TRUE(gi.value().scene.decals.empty());
+        decal.edit_component<DecalComponent>([](auto& value) { value.color.r = .3f; });
+        const auto changed = describe(LightingBakeInput::Purpose::Reflection);
+        ASSERT_TRUE(changed);
+        EXPECT_NE(changed.value().fingerprint, original.value().fingerprint);
+        const auto same_gi = describe(LightingBakeInput::Purpose::Irradiance);
+        ASSERT_TRUE(same_gi);
+        EXPECT_EQ(same_gi.value().fingerprint, gi.value().fingerprint);
+    }
+
     TEST(ReflectionBakeTest, FingerprintTracksStaticInputsAndSurvivesSceneReopen) {
         Comet::Tests::TemporaryDirectory directory;
         const ProjectPaths paths(directory.path());

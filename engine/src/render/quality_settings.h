@@ -10,6 +10,7 @@ namespace Comet {
         std::uint32_t msaa_samples = 4;
         float max_anisotropy = 8;
         float render_scale = 1;
+        bool temporal_aa = false;
 
         [[nodiscard]] Result<void> validate() const;
         [[nodiscard]] Math::Vec2u scene_size(Math::Vec2u output) const;

@@ -45,8 +45,10 @@ namespace CometEditor::LightingBakeInput {
         input.scene.reflection_probes.clear();
         input.scene.particles.reset();
         input.scene.environment.fog_enabled = false;
+        input.scene.environment.volumetric_fog.enabled = false;
         input.scene.post_process = {};
         if(purpose == Purpose::Irradiance) {
+            input.scene.decals.clear();
             input.scene.irradiance_volumes.clear(); // 不把旧 GI 再次反弹进新 GI。
             auto& environment = input.scene.environment;
             environment.background = false;
@@ -59,8 +61,13 @@ namespace CometEditor::LightingBakeInput {
                 environment.rotation = 0;
             }
         }
+        std::erase_if(input.scene.decals, [&](const auto& decal) {
+            return !static_geometry(scene, scene.find_entity(decal.entity_id));
+        });
+        std::ranges::sort(input.scene.decals, by_uuid);
         Binary::Writer writer;
-        writer.write_u32(3); // 静态筛选、依赖与内置材质规则版本。
+        // 只有反射捕获新增贴花输入，GI 的既有产品指纹保持有效。
+        writer.write_u32(purpose == Purpose::Reflection ? 4 : 3);
         writer.write_u32(static_cast<uint32_t>(purpose));
         writer.write_u64(shader_fingerprint);
         const auto vector = [&](const Math::Vec3& value) {
@@ -68,6 +75,11 @@ namespace CometEditor::LightingBakeInput {
                 writer.write_float(value[axis]);
         };
         std::set<AssetHandle> handles;
+        const auto matrix = [&](const Math::Mat4& value) {
+            for(int column = 0; column < 4; ++column)
+                for(int row = 0; row < 4; ++row)
+                    writer.write_float(value[column][row]);
+        };
         writer.write_u64(input.scene.render_items.size());
         for(auto& item : input.scene.render_items) {
             item.lod.reset();
@@ -76,11 +88,24 @@ namespace CometEditor::LightingBakeInput {
                 std::as_bytes(std::span(scene.find_entity(item.entity_id).get_uuid().bytes())));
             writer.write_u64(item.mesh_handle.value());
             writer.write_u64(item.material_handle.value());
-            for(int column = 0; column < 4; ++column)
-                for(int row = 0; row < 4; ++row)
-                    writer.write_float(item.model_matrix[column][row]);
+            matrix(item.model_matrix);
             handles.insert(item.mesh_handle);
             handles.insert(item.material_handle);
+        }
+        if(purpose == Purpose::Reflection) {
+            writer.write_u64(input.scene.decals.size());
+            for(const auto& decal : input.scene.decals) {
+                writer.write_bytes(std::as_bytes(
+                    std::span(scene.find_entity(decal.entity_id).get_uuid().bytes())));
+                writer.write_u64(decal.texture.value());
+                matrix(decal.world_to_local);
+                for(int channel = 0; channel < 4; ++channel)
+                    writer.write_float(decal.color[channel]);
+                for(const auto value : {decal.roughness, decal.normal_threshold, decal.edge_fade})
+                    writer.write_float(value);
+                writer.write_u32(decal.draw_order);
+                handles.insert(decal.texture);
+            }
         }
         writer.write_u64(input.scene.lights.size());
         for(const auto& light : input.scene.lights) {

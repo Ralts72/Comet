@@ -914,18 +914,17 @@ namespace {
 
             m_hierarchy_panel = std::make_unique<CometEditor::HierarchyPanel>(
                 *m_selection, m_command_history, m_editor_state, m_scene_editor->clipboard());
+            const Comet::PhysicsService::MeshSource preview_meshes{
+                .read = [this](
+                            Comet::AssetHandle handle) { return m_assets->read_mesh_data(handle); },
+                .revision =
+                    [this](Comet::AssetHandle handle) {
+                        return m_assets->mesh_data_revision(handle);
+                    }};
             m_viewport = std::make_unique<CometEditor::Viewport>(m_editor_state,
                 get_engine().get_scene_runtime(), *m_selection, m_command_history,
                 m_component_registry, m_property_edit, m_shortcuts, get_engine().get_renderer(),
-                get_engine().get_asset_registry(), *m_imgui_context,
-                Comet::PhysicsService::MeshSource{.read =
-                                                      [this](Comet::AssetHandle handle) {
-                                                          return m_assets->read_mesh_data(handle);
-                                                      },
-                    .revision =
-                        [this](Comet::AssetHandle handle) {
-                            return m_assets->mesh_data_revision(handle);
-                        }},
+                get_engine().get_asset_registry(), *m_imgui_context, preview_meshes,
                 Comet::PathTraceSceneBuilder::Images{.texture =
                                                          [this](Comet::AssetHandle handle) {
                                                              return m_assets->read_texture_data(
@@ -943,7 +942,8 @@ namespace {
                 *m_selection, m_command_history, m_property_edit, m_component_registry,
                 m_property_editor_registry, m_assets->database(), get_engine().get_asset_registry(),
                 get_engine().get_material_parameters(), &get_engine().get_scene_runtime(),
-                m_reflection_bake.get(), m_irradiance_bake.get(), m_navigation_bake.get());
+                m_reflection_bake.get(), m_irradiance_bake.get(), m_navigation_bake.get(),
+                preview_meshes);
             m_project_panel = std::make_unique<CometEditor::ProjectPanel>(m_assets->database(),
                 m_project.paths().assets(), std::move(initial_asset_scan), *m_selection,
                 m_command_history);

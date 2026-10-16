@@ -78,7 +78,8 @@ namespace Comet {
             vk::ImageLayout::eTransferDstOptimal, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
             image, range);
         auto command = frames.get_current_command_buffer().get();
-        command.pipelineBarrier(vk::PipelineStageFlagBits::eFragmentShader,
+        command.pipelineBarrier(
+            vk::PipelineStageFlagBits::eFragmentShader | vk::PipelineStageFlagBits::eComputeShader,
             vk::PipelineStageFlagBits::eTransfer, {}, {}, {}, before);
         command.clearDepthStencilImage(
             image, vk::ImageLayout::eTransferDstOptimal, vk::ClearDepthStencilValue(1, 0), range);
@@ -87,7 +88,8 @@ namespace Comet {
             vk::ImageLayout::eShaderReadOnlyOptimal, VK_QUEUE_FAMILY_IGNORED,
             VK_QUEUE_FAMILY_IGNORED, image, range);
         command.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
-            vk::PipelineStageFlagBits::eFragmentShader, {}, {}, {}, after);
+            vk::PipelineStageFlagBits::eFragmentShader | vk::PipelineStageFlagBits::eComputeShader,
+            {}, {}, {}, after);
         fallback.recorded_serial = frames.get_current_frame_serial();
         return Result<void, GraphicsError>::success();
     }

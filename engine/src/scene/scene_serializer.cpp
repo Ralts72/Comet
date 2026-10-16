@@ -45,6 +45,63 @@ namespace Comet {
             AssetType source_type = AssetType::Prefab;
         };
 
+        Result<VolumetricFogSettings> read_volumetric_fog(
+            Json::Node node, const Json::Context& context) {
+            using Read = Result<VolumetricFogSettings>;
+            constexpr std::string_view location = "environment.volumetric_fog";
+            if(auto valid = context.validate_keys(node,
+                   {"enabled", "color", "density", "base_height", "height_falloff", "anisotropy",
+                       "max_distance", "ambient"},
+                   location);
+                !valid)
+                return Read::failure(valid.error());
+            VolumetricFogSettings settings;
+            auto enabled =
+                context.read_optional_field<bool>(node, "enabled", "a boolean", location);
+            if(!enabled)
+                return Read::failure(enabled.error());
+            settings.enabled = enabled.value().value_or(false);
+            for(const auto& [key, target] : {std::pair{"density", &settings.density},
+                    std::pair{"base_height", &settings.base_height},
+                    std::pair{"height_falloff", &settings.height_falloff},
+                    std::pair{"anisotropy", &settings.anisotropy},
+                    std::pair{"max_distance", &settings.max_distance},
+                    std::pair{"ambient", &settings.ambient}}) {
+                const auto value =
+                    context.read_optional_field<float>(node, key, "a finite number", location);
+                if(!value)
+                    return Read::failure(value.error());
+                *target = value.value().value_or(*target);
+            }
+            const auto color = context.find(node, "color");
+            if(!color)
+                return Read::failure(color.error());
+            if(color.value()) {
+                auto parsed = Json::read_vector<Math::Vec3>(
+                    *color.value(), context, "environment.volumetric_fog.color");
+                if(!parsed)
+                    return Read::failure(parsed.error());
+                settings.color = parsed.value();
+            }
+            if(auto valid = settings.validate(); !valid)
+                return Read::failure(context.error(location, valid.error()));
+            return Read::success(settings);
+        }
+
+        void write_volumetric_fog(Json::Writer& writer, const VolumetricFogSettings& settings) {
+            writer.begin_object();
+            writer.field("enabled", settings.enabled);
+            writer.key("color");
+            Json::write_vector(writer, settings.color);
+            writer.field("density", settings.density);
+            writer.field("base_height", settings.base_height);
+            writer.field("height_falloff", settings.height_falloff);
+            writer.field("anisotropy", settings.anisotropy);
+            writer.field("max_distance", settings.max_distance);
+            writer.field("ambient", settings.ambient);
+            writer.end_object();
+        }
+
         void write_entity_reference(Json::Writer& writer, const EntityUuid value) {
             writer.begin_object();
             writer.field("entity", value.to_string());
@@ -769,6 +826,10 @@ namespace Comet {
             Json::write_vector(writer, environment.fog_color);
             writer.field("fog_start", environment.fog_start);
             writer.field("fog_end", environment.fog_end);
+            if(environment.volumetric_fog != VolumetricFogSettings{}) {
+                writer.key("volumetric_fog");
+                write_volumetric_fog(writer, environment.volumetric_fog);
+            }
             writer.end_object();
             const auto& post_process = content.post_process;
             writer.key("post_process");
@@ -844,7 +905,7 @@ namespace Comet {
             if(auto valid = context.validate_keys(environment_node,
                    {"asset", "background", "intensity", "rotation", "lighting",
                        "lighting_intensity", "background_color", "fog_enabled", "fog_color",
-                       "fog_start", "fog_end"},
+                       "fog_start", "fog_end", "volumetric_fog"},
                    "environment");
                 !valid)
                 return LoadResult::failure(valid.error());
@@ -915,6 +976,15 @@ namespace Comet {
                 if(!color)
                     return LoadResult::failure(color.error());
                 environment.fog_color = color.value();
+            }
+            const auto volumetric = context.find(environment_node, "volumetric_fog");
+            if(!volumetric)
+                return LoadResult::failure(volumetric.error());
+            if(volumetric.value()) {
+                auto parsed = read_volumetric_fog(*volumetric.value(), context);
+                if(!parsed)
+                    return LoadResult::failure(parsed.error());
+                environment.volumetric_fog = parsed.value();
             }
             content.environment = environment;
         }

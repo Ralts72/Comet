@@ -350,7 +350,7 @@ namespace CometEditor {
         const Comet::AssetDatabase& asset_database, const Comet::AssetRegistry& runtime_assets,
         const Comet::MaterialProgramValidator& programs, const Comet::SceneRuntime* runtime,
         ReflectionBake* reflection_bake, IrradianceBake* irradiance_bake,
-        NavigationBake* navigation_bake)
+        NavigationBake* navigation_bake, Comet::PhysicsService::MeshSource preview_meshes)
         : EditorPanel("属性###Inspector"), m_state(state), m_selection(selection),
           m_history(history), m_property_edit(property_edit),
           m_component_registry(component_registry),
@@ -358,7 +358,8 @@ namespace CometEditor {
           m_property_editor_registry(property_editor_registry), m_asset_database(asset_database),
           m_runtime_assets(runtime_assets), m_runtime(runtime), m_reflection_bake(reflection_bake),
           m_irradiance_bake(irradiance_bake), m_navigation_bake(navigation_bake),
-          m_asset_inspector(asset_database, programs) {}
+          m_asset_inspector(asset_database, programs),
+          m_particle_preview(std::move(preview_meshes)) {}
 
     InspectorPanel::~InspectorPanel() {
         reset_animation_preview();
@@ -452,7 +453,10 @@ namespace CometEditor {
             if(expanded) {
                 if(component_descriptor.id == "animator" && m_entities.size() == 1)
                     render_animation_preview(entity);
-                if(component_descriptor.id == "particle_emitter" && m_entities.size() == 1)
+                if(m_entities.size() == 1
+                    && (component_descriptor.id == "particle_emitter"
+                        || (component_descriptor.id == "trail"
+                            && !entity.has_component<Comet::ParticleEmitterComponent>())))
                     render_particle_preview(entity);
                 if(component_descriptor.id == "character_controller")
                     ImGui::TextWrapped(
@@ -661,6 +665,29 @@ namespace CometEditor {
             environment.fog_start + 0.01f, Comet::SceneEnvironment::MAX_FOG_DISTANCE, "%.2f m",
             ImGuiSliderFlags_AlwaysClamp));
         ImGui::EndDisabled();
+        ImGui::Spacing();
+        auto& volume = environment.volumetric_fog;
+        const bool volume_changed = ImGui::Checkbox("体积高度雾###Volumetric fog", &volume.enabled);
+        result.changed |= volume_changed;
+        result.finished |= volume_changed;
+        if(ImGui::IsItemHovered())
+            ImGui::SetTooltip("相机空间体素积分；灯光、阴影、网格和粒子共用雾层。");
+        if(volume.enabled) {
+            result.include_item(ImGui::ColorEdit3(
+                "介质颜色###Volume color", &volume.color.x, ImGuiColorEditFlags_Float));
+            result.include_item(ImGui::DragFloat("密度###Volume density", &volume.density, .001f, 0,
+                2, "%.3f", ImGuiSliderFlags_AlwaysClamp));
+            result.include_item(ImGui::DragFloat("基准高度###Volume height", &volume.base_height,
+                .1f, -100000, 100000, "%.2f m", ImGuiSliderFlags_AlwaysClamp));
+            result.include_item(ImGui::DragFloat("高度衰减###Volume falloff",
+                &volume.height_falloff, .01f, 0, 10, "%.2f", ImGuiSliderFlags_AlwaysClamp));
+            result.include_item(ImGui::DragFloat("前向散射###Volume anisotropy", &volume.anisotropy,
+                .01f, -.9f, .9f, "%.2f", ImGuiSliderFlags_AlwaysClamp));
+            result.include_item(ImGui::DragFloat("最大积分距离###Volume distance",
+                &volume.max_distance, 1, 1, 1000, "%.0f m", ImGuiSliderFlags_AlwaysClamp));
+            result.include_item(ImGui::DragFloat("环境散射强度###Volume ambient", &volume.ambient,
+                .01f, 0, 16, "%.2f", ImGuiSliderFlags_AlwaysClamp));
+        }
         apply_scene_edit(environment_target, environment, result, can_edit);
         ImGui::EndDisabled();
     }
@@ -806,7 +833,8 @@ namespace CometEditor {
     bool InspectorPanel::bind_particle_preview(Comet::Entity entity) {
         auto& scene = m_selection.get_scene();
         if(m_state.mode != EditorMode::Edit || (m_runtime && m_runtime->is_active()) || !entity
-            || !entity.has_component<Comet::ParticleEmitterComponent>()) {
+            || (!entity.has_component<Comet::ParticleEmitterComponent>()
+                && !entity.has_component<Comet::TrailComponent>())) {
             reset_particle_preview();
             return false;
         }
@@ -817,8 +845,14 @@ namespace CometEditor {
         const auto& world = entity.get_component<Comet::WorldTransformComponent>();
         auto pose = world.pose_world_matrix;
         pose[3] = world.world_matrix[3];
-        auto bound = m_particle_preview.bind(
-            target, entity.get_component<Comet::ParticleEmitterComponent>(), pose);
+        Comet::ParticleEmitterComponent settings;
+        settings.enabled = false;
+        if(entity.has_component<Comet::ParticleEmitterComponent>())
+            settings = entity.get_component<Comet::ParticleEmitterComponent>();
+        const auto* trail = entity.has_component<Comet::TrailComponent>()
+                                ? &entity.get_component<Comet::TrailComponent>()
+                                : nullptr;
+        auto bound = m_particle_preview.bind(target, settings, pose, &scene, trail);
         if(!bound) {
             reset_particle_preview();
             return false;
@@ -829,7 +863,8 @@ namespace CometEditor {
     void InspectorPanel::render_particle_preview(Comet::Entity entity) {
         if(m_state.mode != EditorMode::Edit)
             return;
-        ImGui::SeparatorText("粒子预览");
+        const bool emitter = entity.has_component<Comet::ParticleEmitterComponent>();
+        ImGui::SeparatorText(emitter ? "粒子预览" : "拖尾预览");
         if(!bind_particle_preview(entity)) {
             ImGui::TextDisabled("粒子配置无效，请检查参数");
             return;
@@ -843,7 +878,8 @@ namespace CometEditor {
                 LOG_ERROR("Particle preview: {}", played.error().message);
         }
         ImGui::SameLine();
-        ImGui::BeginDisabled(!entity.get_component<Comet::ParticleEmitterComponent>().enabled);
+        ImGui::BeginDisabled(
+            !emitter || !entity.get_component<Comet::ParticleEmitterComponent>().enabled);
         if(ImGui::Button("爆发###Burst Particle Preview"))
             if(auto emitted = m_particle_preview.burst(); !emitted)
                 LOG_ERROR("Particle preview: {}", emitted.error().message);
@@ -858,6 +894,8 @@ namespace CometEditor {
         const auto frame = m_particle_preview.snapshot();
         ImGui::TextDisabled(
             "存活 %zu；预览不运行游戏脚本，也不写入场景。", frame ? frame->instances.size() : 0);
+        if(entity.has_component<Comet::TrailComponent>())
+            ImGui::TextDisabled("播放后移动实体可观察拖尾。");
         ImGui::SeparatorText("发射配置");
     }
 

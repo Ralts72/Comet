@@ -114,6 +114,7 @@ namespace Comet {
         settings.vulkan.msaa_samples = static_cast<SampleCount>(quality.msaa_samples);
         settings.render.max_anisotropy = quality.max_anisotropy;
         settings.render.render_scale = quality.render_scale;
+        settings.render.temporal_aa = quality.temporal_aa;
         settings.render.hdr_headroom = m_output.hdr_headroom;
         settings.render.hdr_white_level = m_output.hdr_white_level;
         auto scene = SceneRenderer::create(m_render_context->get_device(), *m_programs,
