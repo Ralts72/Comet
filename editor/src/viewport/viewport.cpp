@@ -1,6 +1,5 @@
 #include "viewport/viewport.h"
 #include "viewport/physics_overlay.h"
-#include "render/path_trace_denoise.h"
 
 #include "asset/registry.h"
 #include "asset/import/image_encoding.h"
@@ -46,13 +45,13 @@ namespace CometEditor {
         SelectionService& selection, CommandHistory& history,
         const Comet::ComponentRegistry& components, PropertyEditTransaction& inspector_edit,
         const EditorShortcuts& shortcuts, Comet::Renderer& renderer, Comet::AssetRegistry& assets,
-        Ui::ImGuiContext& ui, Comet::TaskScheduler& scheduler,
-        Comet::PhysicsService::MeshSource meshes, Comet::PathTraceSceneBuilder::Images images)
+        Ui::ImGuiContext& ui, Comet::PhysicsService::MeshSource meshes,
+        Comet::PathTraceSceneBuilder::Images images)
         : m_state(state), m_selection(selection), m_renderer(renderer), m_assets(assets), m_ui(ui),
           m_gizmo(history, components),
           m_panel(state, runtime, selection, m_gizmo, inspector_edit,
               std::min(renderer.max_render_target_dimension(), std::uint32_t{4096}), shortcuts),
-          m_colliders(meshes), m_denoise(std::make_unique<PathTraceDenoise>(renderer, scheduler)) {
+          m_colliders(meshes) {
         renderer.set_path_trace_sources(
             std::move(meshes.read), std::move(meshes.revision), std::move(images));
     }
@@ -88,7 +87,6 @@ namespace CometEditor {
                                         && m_panel.path_trace_enabled()
                                         && m_state.mode == EditorMode::Edit;
         parameters.path_trace_settings = m_panel.path_trace_settings();
-        parameters.path_trace_settings.denoised_view = m_panel.path_trace_denoise_enabled();
         if(m_panel.take_path_trace_restart())
             ++m_path_trace_generation;
         parameters.path_trace_settings.reset_generation = m_path_trace_generation;
@@ -96,12 +94,6 @@ namespace CometEditor {
             parameters.path_trace_enabled ? m_renderer.path_trace_error() : std::string{});
         if(auto view = m_renderer.set_render_view(std::move(parameters)); !view)
             return Comet::Result<void, Comet::Error>::failure(view.error().as_error());
-        m_denoise->update(scene && m_state.mode == EditorMode::Edit && m_panel.is_visible()
-                              && m_panel.path_trace_enabled()
-                              && m_panel.path_trace_denoise_enabled(),
-            m_panel.path_trace_settings().samples, scene ? scene->get_lifetime() : 0);
-        m_panel.set_path_trace_denoise_status(
-            m_denoise->busy(), m_denoise->image() != nullptr, m_denoise->status());
         update_texture();
         m_panel.draw_gizmo();
         return Comet::Result<void, Comet::Error>::success();
@@ -116,15 +108,7 @@ namespace CometEditor {
         const auto extension = path.extension().string();
         if(extension != ".png" && extension != ".hdr")
             return Exported::failure({"请选择 .png 或 .hdr 文件"});
-        auto image = [&]() -> Comet::Result<Comet::TextureData, Comet::GraphicsError> {
-            if(!m_panel.path_trace_export_denoised())
-                return m_renderer.capture_path_trace();
-            const auto* denoised = m_denoise->image();
-            if(!denoised)
-                return Comet::Result<Comet::TextureData, Comet::GraphicsError>::failure(
-                    {"降噪结果已失效或尚未完成，请等待当前采样和降噪完成"});
-            return Comet::Result<Comet::TextureData, Comet::GraphicsError>::success(*denoised);
-        }();
+        auto image = m_renderer.capture_path_trace();
         if(!image)
             return Exported::failure(image.error().as_error());
         auto encoded = Comet::encode_image(

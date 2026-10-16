@@ -502,15 +502,6 @@ namespace Comet {
                                    : PathTracePass::Statistics{};
     }
 
-    std::array<std::shared_ptr<ImageView>, 3> SceneRenderer::get_path_trace_inputs() const {
-        return m_state->path_trace ? m_state->path_trace->inputs()
-                                   : std::array<std::shared_ptr<ImageView>, 3>{};
-    }
-    bool SceneRenderer::publish_path_trace_denoised(
-        std::shared_ptr<ImageView> image, uint64_t generation, uint32_t samples) {
-        return m_state->path_trace
-               && m_state->path_trace->publish_denoised(std::move(image), generation, samples);
-    }
     const PostProcessSettings& SceneRenderer::get_post_process_settings() const {
         return m_post_process;
     }

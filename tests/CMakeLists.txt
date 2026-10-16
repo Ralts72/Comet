@@ -173,7 +173,6 @@ set(INTEGRATION_SOURCES
         editor/integration/test_material_editing.cpp
         editor/integration/test_asset_thumbnails.cpp
         editor/integration/test_viewport.cpp
-        editor/integration/test_image_denoiser.cpp
         editor/integration/test_game_ui.cpp
         editor/ui/test_animation_preview.cpp
         graphics/test_creation.cpp
@@ -262,7 +261,6 @@ foreach(target IN LISTS TEST_TARGETS)
     target_link_libraries(${target} PRIVATE editor_core comet_shader_tools gtest glfw)
     target_compile_definitions(${target} PRIVATE GLFW_INCLUDE_NONE)
     comet_copy_runtime_dependencies(${target})
-    comet_copy_oidn_runtime(${target})
 endforeach()
 
 foreach(target unit_testing integration_testing)

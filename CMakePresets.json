@@ -70,15 +70,18 @@
     "buildPresets": [
         {
             "name": "dev-debug",
-            "configurePreset": "dev-debug"
+            "configurePreset": "dev-debug",
+            "jobs": 4
         },
         {
             "name": "editor-dev",
-            "configurePreset": "editor-dev"
+            "configurePreset": "editor-dev",
+            "jobs": 4
         },
         {
             "name": "app-release",
-            "configurePreset": "app-release"
+            "configurePreset": "app-release",
+            "jobs": 4
         },
         {
             "name": "ci-release",

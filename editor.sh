@@ -7,7 +7,7 @@ cd "$ROOT_DIR"
 
 echo "配置 editor-dev（RelWithDebInfo）..."
 cmake --preset editor-dev
-cmake --build --preset editor-dev --parallel
+cmake --build --preset editor-dev
 
 EXEC="$ROOT_DIR/build-editor/editor/editor"
 if [[ "$(uname -s)" == "Darwin" ]]; then

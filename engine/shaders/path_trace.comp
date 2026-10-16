@@ -36,8 +36,6 @@ layout(std430, set = 0, binding = 8) readonly buffer EnvironmentMap {
     uvec4 environment_size;
     vec4 environment_texels[];
 };
-layout(rgba32f, set = 0, binding = 9) uniform image2D albedo_accumulation;
-layout(rgba32f, set = 0, binding = 10) uniform image2D normal_accumulation;
 layout(push_constant) uniform Parameters {
     mat4 inverse_view_projection;
     vec4 background;
@@ -481,10 +479,7 @@ vec3 direct_environment(Surface surface, vec3 position, vec3 normal, vec3 geomet
     return value * environment_radiance(direction, false) * cosine * weight / light_pdf;
 }
 
-vec3 radiance(vec3 origin, vec3 direction, float primary_distance, out vec3 albedo, out vec3 guide_normal) {
-    albedo = vec3(1);
-    guide_normal = vec3(0);
-    bool guide_pending = parameters.background.w != 0.0;
+vec3 radiance(vec3 origin, vec3 direction, float primary_distance) {
     vec3 result = vec3(0);
     vec3 throughput = vec3(1);
     float previous_pdf = 0.0;
@@ -494,7 +489,6 @@ vec3 radiance(vec3 origin, vec3 direction, float primary_distance, out vec3 albe
         float distance = bounce == 0 ? primary_distance : 1e30;
         uint index; vec3 barycentric;
         if(!intersect_scene(origin, direction, distance, index, barycentric, false)) {
-            if(guide_pending) { albedo = vec3(1); guide_normal = vec3(0); }
             float weight = bounce > 0 && !previous_delta ? power_heuristic(previous_pdf, environment_pdf(direction)) : 1.0;
             result += throughput * environment_radiance(direction, bounce == 0) * weight;
             break;
@@ -508,16 +502,6 @@ vec3 radiance(vec3 origin, vec3 direction, float primary_distance, out vec3 albe
         if(!entering && surface.emission_roughness.w >= 0.0)
             surface.parameters.w = 1.0 / surface.parameters.w;
         vec3 normal = hit_normal(triangle, surface, barycentric, geometric, -direction);
-        if(guide_pending) {
-            albedo = transmission_weight(surface) > 0.0 ? vec3(1) : surface.albedo_metallic.rgb;
-            guide_normal = normal;
-            // Smooth glass and mirrors use the next visible surface; the same stochastic path
-            // and pixel jitter as beauty preserve refraction/coverage and reconstruction edges.
-            guide_pending = surface.emission_roughness.w >= 0.0
-                && ((abs(surface.parameters.w - 1.0) < 1e-4 && transmission_weight(surface) > 0.95)
-                    || (surface.emission_roughness.w < 0.1
-                        && (transmission_weight(surface) > 0.95 || surface.albedo_metallic.w > 0.95)));
-        }
         float emission_weight = 1.0;
         if(bounce > 0 && !previous_delta && parameters.counts.w > 0 && any(greaterThan(surface.emission_roughness.xyz, vec3(0))))
             emission_weight = power_heuristic(previous_pdf, emitter_pdf(triangle, previous_position, position));
@@ -570,19 +554,11 @@ void main() {
     vec4 far_point = parameters.inverse_view_projection * vec4(ndc, 1, 1);
     vec3 origin = near_point.xyz / near_point.w;
     vec3 delta = far_point.xyz / far_point.w - origin;
-    vec3 albedo, guide_normal;
-    vec3 sample_value = radiance(origin, normalize(delta), length(delta), albedo, guide_normal);
+    vec3 sample_value = radiance(origin, normalize(delta), length(delta));
     if(any(isnan(sample_value)) || any(isinf(sample_value)))
         sample_value = vec3(0);
     vec3 mean = sample_value;
     if(sample_index > 0)
         mean = imageLoad(accumulation, ivec2(pixel)).xyz + (sample_value - imageLoad(accumulation, ivec2(pixel)).xyz) / float(sample_index + 1);
     imageStore(accumulation, ivec2(pixel), vec4(mean, 1));
-    if(parameters.background.w == 0.0) return;
-    if(sample_index > 0) {
-        albedo = mix(imageLoad(albedo_accumulation, ivec2(pixel)).xyz, albedo, 1.0 / float(sample_index + 1));
-        guide_normal = mix(imageLoad(normal_accumulation, ivec2(pixel)).xyz, guide_normal, 1.0 / float(sample_index + 1));
-    }
-    imageStore(albedo_accumulation, ivec2(pixel), vec4(albedo, 1));
-    imageStore(normal_accumulation, ivec2(pixel), vec4(guide_normal, 1));
 }

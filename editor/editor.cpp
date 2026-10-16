@@ -918,7 +918,6 @@ namespace {
                 get_engine().get_scene_runtime(), *m_selection, m_command_history,
                 m_component_registry, m_property_edit, m_shortcuts, get_engine().get_renderer(),
                 get_engine().get_asset_registry(), *m_imgui_context,
-                get_engine().get_task_scheduler(),
                 Comet::PhysicsService::MeshSource{.read =
                                                       [this](Comet::AssetHandle handle) {
                                                           return m_assets->read_mesh_data(handle);

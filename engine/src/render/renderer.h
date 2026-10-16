@@ -12,7 +12,6 @@
 #include "render/scene/scene_resolver.h"
 #include "render/path_trace_scene.h"
 #include "render/passes/skinning_pass.h"
-#include "render/passes/path_trace_pass.h"
 #include "render/scene/scene_picking.h"
 #include "render/debug/line_draw_list.h"
 #include "render/material/material_renderer.h"
@@ -78,11 +77,6 @@ namespace Comet {
             std::shared_ptr<ImageView> color_view;
         };
 
-        struct PathTraceCapture {
-            TextureData color, albedo, normal;
-            uint64_t generation = 0;
-            uint32_t samples = 0;
-        };
         struct Overlay {
             std::function<OverlayDrawList()> capture;
             std::function<void()> release;
@@ -146,12 +140,6 @@ namespace Comet {
         // 显式导出操作：在 RenderThread 取回当前积分的原尺寸 RGBA32F，不含曝光与 UI。
         [[nodiscard]] Result<TextureData, GraphicsError> capture_path_trace(
             ViewId id = DEFAULT_VIEW);
-        [[nodiscard]] Result<PathTraceCapture, GraphicsError> capture_path_trace_inputs(
-            ViewId id = DEFAULT_VIEW, bool features = true);
-        [[nodiscard]] PathTracePass::Statistics path_trace_statistics(
-            ViewId id = DEFAULT_VIEW) const;
-        [[nodiscard]] Result<bool, GraphicsError> publish_path_trace_denoised(
-            TextureData color, uint64_t generation, uint32_t samples, ViewId id = DEFAULT_VIEW);
         [[nodiscard]] const std::string& path_trace_error(ViewId id = DEFAULT_VIEW) const;
         void set_path_trace_sources(PathTraceSceneBuilder::MeshReader read,
             PathTraceSceneBuilder::MeshRevision revision = {},

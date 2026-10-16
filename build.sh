@@ -6,6 +6,6 @@ cd "$ROOT_DIR"
 
 echo "配置 dev-debug（Debug: app + editor + tests）..."
 cmake --preset dev-debug
-cmake --build --preset dev-debug --parallel
+cmake --build --preset dev-debug
 
 echo "全部目标构建完成：$ROOT_DIR/build"

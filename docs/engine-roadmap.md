@@ -73,8 +73,8 @@ P1 是近期功能主线，P2 是下一组可玩性与表现能力，G 是可穿
 | P1.3 物理与玩法 | 盒／球／胶囊／凸包／静态网格、32 位层／掩码、射线／扫掠／范围查询；双关卡、入关基线重开、共享进度及单槽检查点。[物理回归](../tests/physics/test_physics_service.cpp)与[会话／存档回归](../tests/gameplay/test_game_session.cpp)覆盖基础行为 | App／Play 收集、切关、返回、退出后继续；暂停／单步及 Stop 隔离 |
 | P1.3 可搬移交付 | 只读产品索引与依赖闭包、Editor 一键增量构建／导出及 macOS App 随包依赖；[真实 App 回归](../tests/runtime/test_packaged_app.py)在源码／缓存不可读且包禁止写入时，绘制双关卡、返回并恢复第二关存档 | 用户从导出入口生成 App 并试玩 |
 
-自动验证入口为 `cmake --build --preset dev-debug --parallel` 和 `ctest --preset dev-debug`；
-Release App 使用 `cmake --build --preset app-release --parallel`。操作验收集中在[使用手册](usage.md#p1-操作验收)，不以自动测试代替实际交互结论。
+自动验证入口为 `cmake --build --preset dev-debug` 和 `ctest --preset dev-debug`；
+Release App 使用 `cmake --build --preset app-release`。操作验收集中在[使用手册](usage.md#p1-操作验收)，不以自动测试代替实际交互结论。
 首版边界保持不变：只支持 TEXCOORD_0，其他 UV 集与 KHR_texture_transform 明确报错；
 无名／重名模型节点及 primitive 仍受源下标限制，源删除与本地内容／外部引用冲突时拒绝更新。
 Prefab 不包含根变体；多选组件增删和动画预览仍保持单选；透明使用对象级排序，混合材质不投射实心阴影。
@@ -763,7 +763,7 @@ Alpha Mask 与随机覆盖的 Alpha Blend 已接通，主射线、阴影查询�
 它不是 Bloom 一类后处理，也不是给每个 MeshRenderer 挂一个附加 pass；作为替代 forward 场景积分的渲染模式，
 产生线性 HDR 图像，再复用显示输出。先以静态场景渐进预览／离线参考图验收，不承诺实时游戏性能。
 
-- OIDN 的颜色基线评估与可选降噪已接入，见[降噪评估](usage.md#降噪评估)。颜色与反照率／法线共用采样，辅助特征预滤后过滤 HDR；完成采样后后台执行，原图与降噪图分别导出。继续按真实参考图验收细节与透射，保留原始 HDR，不逐帧同步回读。
+- **动态路径追踪与共用降噪（未接入）**：现有静态预览作为算法学习与参考图工具维护，暂不扩展离线降噪工作流。后续以 App／Editor 共用的动态游戏场景为目标，再结合运动向量、历史帧复用与 GPU 时空降噪推进；Engine 管理过滤和资源寿命，宿主配置与显示。OIDN 仅保留[静态结果评估](usage.md#降噪评估)，当前不引入降噪依赖。
 - 扩展蒙皮、介质栈与射线贴图 LOD 时，分别固定参考图、能量与结束条件。
 - 测量 key、BVH 构建、场景上传和 GPU 采样；动态几何确有压力后再做 refit、BLAS／TLAS 或更优树构建，不先重写 RenderGraph。
 - 硬件光追保留独立学习目标，检测扩展、feature 与加速结构寿命，不假设 Vulkan 1.3 或 macOS/MoltenVK 一定可用；首版继续维护软件路线。

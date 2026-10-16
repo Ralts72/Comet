@@ -33,7 +33,7 @@ fi
 cd "$ROOT_DIR"
 echo "配置并构建 Release 渲染基准..."
 cmake --preset app-release -DCOMET_BUILD_BENCHMARKS=ON
-cmake --build --preset app-release --target render_benchmark --parallel
+cmake --build --preset app-release --target render_benchmark
 
 EXEC="$ROOT_DIR/build-release/tools/render_benchmark/render_benchmark"
 echo "运行固定场景基准，报告：${args[0]}"

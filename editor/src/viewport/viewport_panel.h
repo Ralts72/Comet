@@ -57,13 +57,6 @@ namespace CometEditor {
         [[nodiscard]] const Comet::PathTraceSettings& path_trace_settings() const {
             return m_path_trace_settings;
         }
-        [[nodiscard]] bool path_trace_denoise_enabled() const { return m_path_trace_denoise; }
-        [[nodiscard]] bool path_trace_export_denoised() const { return m_export_denoised; }
-        void set_path_trace_denoise_status(bool busy, bool ready, std::string status) {
-            m_denoise_busy = busy;
-            m_denoise_ready = ready;
-            m_denoise_status = std::move(status);
-        }
         bool take_path_trace_restart() { return std::exchange(m_path_trace_restart, false); }
         bool take_path_trace_export() { return std::exchange(m_path_trace_export, false); }
         void set_path_trace_status(uint32_t samples, std::string error) {
@@ -143,11 +136,6 @@ namespace CometEditor {
         bool m_path_trace = false;
         bool m_path_trace_restart = false;
         bool m_path_trace_export = false;
-        bool m_path_trace_denoise = false;
-        bool m_export_denoised = false;
-        bool m_denoise_busy = false;
-        bool m_denoise_ready = false;
-        std::string m_denoise_status;
         Comet::PathTraceSettings m_path_trace_settings;
         uint32_t m_path_trace_samples = 0;
         std::string m_path_trace_error;

@@ -50,7 +50,7 @@ else
 fi
 echo "配置并构建 $preset 资产扫描基准..." >&2
 cmake --preset "$preset" -DCOMET_BUILD_BENCHMARKS=ON >&2
-cmake --build --preset "$preset" --target asset_scan_benchmark --parallel >&2
+cmake --build --preset "$preset" --target asset_scan_benchmark >&2
 
 cd "$CALLER_DIRECTORY"
 exec "$ROOT_DIR/$build_dir/tools/asset_scan_benchmark/asset_scan_benchmark" "${args[@]}"

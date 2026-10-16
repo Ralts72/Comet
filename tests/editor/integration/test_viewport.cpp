@@ -253,7 +253,7 @@ namespace CometEditor::Tests {
         EditorState state;
         EditorShortcuts shortcuts;
         Viewport viewport(state, engine.get_scene_runtime(), selection, history, components, edit,
-            shortcuts, renderer, engine.get_asset_registry(), ui, engine.get_task_scheduler());
+            shortcuts, renderer, engine.get_asset_registry(), ui);
         Comet::RenderThread render_thread(renderer);
         renderer.set_overlay({.capture = [&] {
             Comet::OverlayDrawList draws;

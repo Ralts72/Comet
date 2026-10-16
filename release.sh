@@ -7,7 +7,7 @@ cd "$ROOT_DIR"
 
 echo "配置 app-release（Release）..."
 cmake --preset app-release
-cmake --build --preset app-release --parallel
+cmake --build --preset app-release
 
 EXEC="$ROOT_DIR/build-release/app/app"
 if [[ "$(uname -s)" == "Darwin" ]]; then

@@ -131,7 +131,6 @@ namespace Comet {
         uint32_t seed = 0;
         uint64_t reset_generation = 0;
         uint32_t max_dimension = 512;
-        bool denoised_view = false;
         [[nodiscard]] Result<void> validate() const;
         [[nodiscard]] Math::Vec2u image_size(Math::Vec2u output) const;
         bool operator==(const PathTraceSettings&) const = default;

@@ -129,7 +129,7 @@ def export_app(project, destination, scenes, cmake="cmake"):
     run(cmake, "--preset", "app-release", cwd=root, stream=True)
     stage("正在构建运行程序…")
     run(cmake, "--build", "--preset", "app-release", "--target", "app", "comet_prepare_project",
-        "--parallel", str(min(8, os.cpu_count() or 1)), cwd=root, stream=True)
+        cwd=root, stream=True)
     return package_app(project, root / "build-release", destination, scenes)
 
 

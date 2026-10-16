@@ -205,7 +205,3 @@ if (COMET_BUILD_TESTS)
     option(BUILD_GMOCK OFF)
     add_subdirectory(googletest EXCLUDE_FROM_ALL)
 endif ()
-
-if(COMET_BUILD_EDITOR OR COMET_BUILD_TESTS)
-    include("${CMAKE_CURRENT_SOURCE_DIR}/oidn.cmake")
-endif()
