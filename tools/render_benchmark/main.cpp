@@ -64,7 +64,7 @@ namespace {
     constexpr unsigned MAX_PHYSICS_OBJECTS = 512;
     constexpr std::string_view USAGE =
         "Usage: render_benchmark OUTPUT.csv OBJECTS WIDTH HEIGHT FRAMES BLOOM(0/1) "
-        "[MATERIALS [static|moving|script-moving|skeletal|light-moving|culling|project-shader|physics-active|physics-sleeping "
+        "[MATERIALS [static|moving|script-moving|skeletal|light-moving|culling|project-shader|physics-active|physics-sleeping|reflections-off|reflections "
         "[MSAA ANISOTROPY RENDER_SCALE [forward|deferred]]]]";
 
     enum class Workload {
@@ -76,7 +76,9 @@ namespace {
         Culling,
         ProjectShader,
         PhysicsActive,
-        PhysicsSleeping
+        PhysicsSleeping,
+        ReflectionSurface,
+        Reflections
     };
 
     std::string_view workload_name(Workload workload) {
@@ -97,6 +99,10 @@ namespace {
                 return "physics-active";
             case Workload::PhysicsSleeping:
                 return "physics-sleeping";
+            case Workload::ReflectionSurface:
+                return "reflections-off";
+            case Workload::Reflections:
+                return "reflections";
             default:
                 return "static";
         }
@@ -154,6 +160,10 @@ namespace {
                 workload = Workload::PhysicsSleeping;
             else if(name == "project-shader")
                 workload = Workload::ProjectShader;
+            else if(name == "reflections-off")
+                workload = Workload::ReflectionSurface;
+            else if(name == "reflections")
+                workload = Workload::Reflections;
             else if(name != "static")
                 return Result<Options>::failure("Invalid benchmark workload: " + std::string(name));
         }
@@ -184,6 +194,9 @@ namespace {
             if(auto valid = quality.validate(); !valid)
                 return Result<Options>::failure("Invalid benchmark quality: " + valid.error());
         }
+        if((workload == Workload::Reflections || workload == Workload::ReflectionSurface)
+            && quality.render_path != Comet::RenderPath::Deferred)
+            return Result<Options>::failure("Reflection workloads require deferred rendering");
         return Result<Options>::success({argv[1], values[0], values[1], values[2], values[3],
             values[4] != 0, values[5], workload, quality});
     }
@@ -230,6 +243,17 @@ namespace {
         const auto base = Comet::MaterialSerializer{}.load(root / "assets" / material_path(0));
         if(!base)
             return Result<void>::failure(base.error());
+        if(options.workload == Workload::Reflections
+            || options.workload == Workload::ReflectionSurface) {
+            auto data = base.value();
+            data.scalar_properties["roughness"] = .08f;
+            data.scalar_properties["metallic"] = 1;
+            data.vector_properties["base_color"] = {1, 1, 1, 1};
+            if(auto saved =
+                    Comet::MaterialSerializer{}.save(data, root / "assets" / material_path(0));
+                !saved)
+                return saved;
+        }
         for(unsigned index = 1; index < options.materials; ++index) {
             auto data = base.value();
             const float t = float(index) / options.materials;
@@ -373,7 +397,8 @@ namespace {
             bytes[15] = static_cast<uint8_t>(identity);
             return scene->create_entity_with_uuid(Comet::EntityUuid(bytes), name);
         };
-        if(!scene->set_post_process({.bloom_enabled = options.bloom}))
+        if(!scene->set_post_process({.bloom_enabled = options.bloom,
+               .reflections = {.enabled = options.workload == Workload::Reflections}}))
             return Result<void>::failure("Invalid benchmark post processing settings");
         auto camera = create_entity("Camera");
         camera.add_component<Comet::CameraComponent>(Comet::CameraComponent{.primary = true});
@@ -472,6 +497,8 @@ namespace {
                 m_passes = {"shadow", "G-buffer", "deferred lighting and Forward"};
             else
                 m_passes = {"shadow", "scene"};
+            if(options.workload == Workload::Reflections)
+                m_passes.push_back("screen space reflections");
             if(options.bloom)
                 m_passes.insert(
                     m_passes.end(), {"bloom extract", "bloom horizontal", "bloom vertical"});
@@ -618,6 +645,7 @@ namespace {
                    << "# render_path="
                    << (m_quality.render_path == Comet::RenderPath::Deferred ? "deferred"
                                                                             : "forward")
+                   << " ssr=" << (m_options.workload == Workload::Reflections)
                    << " gbuffer_draws=" << stats.gbuffer_draw_calls << " gbuffer_bytes_per_slot="
                    << (m_quality.render_path == Comet::RenderPath::Deferred
                               ? uint64_t(m_scene_size.x) * m_scene_size.y * 36
@@ -745,7 +773,9 @@ namespace {
                 || stats.material_binds != visible_materials
                 || stats.material_preparations != visible_materials || stats.mesh_binds != meshes
                 || stats.cached_material_versions != visible_materials
-                || scene.get_post_process_settings().uses_bloom() != m_options.bloom)
+                || scene.get_post_process_settings().uses_bloom() != m_options.bloom
+                || scene.get_post_process_settings().uses_reflections()
+                       != (m_options.workload == Workload::Reflections))
                 return Result<void>::failure("Benchmark did not execute the expected scene");
             for(size_t index = 0; index < m_passes.size(); ++index)
                 if(frame.passes[index].name != m_passes[index])

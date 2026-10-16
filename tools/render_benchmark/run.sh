@@ -9,7 +9,7 @@ usage() {
         '用法：tools/render_benchmark/run.sh [OUTPUT.csv OBJECTS WIDTH HEIGHT FRAMES BLOOM(0/1) [MATERIALS [WORKLOAD [MSAA ANISOTROPY RENDER_SCALE [forward|deferred]]]]]' \
         '不带参数：64 个物体、640×360 逻辑窗口、240 帧、Bloom 开启。' \
         'MATERIALS 默认 1，范围 1..256 且不能超过物体数。' \
-        'WORKLOAD：static（默认）、moving、script-moving（Lua 旋转）、light-moving（仅方向光旋转）、culling（3/4 物体屏外）、project-shader、physics-active、physics-sleeping；物理场景最多 512 个物体。' \
+        'WORKLOAD：static（默认）、moving、script-moving（Lua 旋转）、light-moving（仅方向光旋转）、culling（3/4 物体屏外）、project-shader、reflections-off／reflections（关闭／开启 SSR，需 deferred）、physics-active、physics-sleeping；物理场景最多 512 个物体。' \
         '画质默认 4×MSAA、1×各向异性、100% 渲染比例；自定义时三个参数一起提供。' \
         'MSAA：1/2/4/8；ANISOTROPY：1..16；RENDER_SCALE：0.5..1。' \
         '渲染路径默认 forward；deferred 要求 MSAA=1。' \

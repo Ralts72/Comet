@@ -1,0 +1,19 @@
+{
+  "version": 2,
+  "template": "unlit_color",
+  "properties": {
+    "color": {
+      "type": "vector",
+      "value": [
+        1,
+        0.03,
+        0.01,
+        1
+      ]
+    },
+    "intensity": {
+      "type": "scalar",
+      "value": 2
+    }
+  }
+}

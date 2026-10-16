@@ -971,6 +971,22 @@ AO 只衰减 PBR 环境光，需启用 Environment 的环境照明；直接光�
 
 首版增加一次全分辨率、单采样的相机深度绘制，PBR 每个片元固定采样 16 次，兼容主画面的 MSAA。深度缓冲每个帧槽约为宽×高×4 字节，关闭后跳过绘制与采样；没有其他消费者时释放相机深度，在途帧继续保活旧资源。只能感知当前相机深度中的表面，画外或被前景完全遮住的几何不参与；没有时域积累、半分辨率降噪或 GI 反弹。实际观感请检查相机移动、画面边缘、薄物体与不同渲染分辨率。
 
+## 屏幕空间反射（SSR）
+
+打开 `scenes/screen_space_reflections.scene`，先在游戏或项目画质设置选择 Deferred。Hierarchy 选中“场景”，在 Inspector 的“画面效果”切换“屏幕空间反射”；保存后 App／Play 共用参数。左侧为平滑镜面、右侧为粗糙镜面，Play 后红色物体往返移动；Edit 可移动物体和相机，观察反射变化与屏幕边缘回退。
+
+强度为 0～1；追踪距离和命中厚度以世界米数计，最大粗糙度限制接收表面。命中有效时替换相应的环境镜面贡献，未命中保持探针／IBL。粗糙度逐渐降低 SSR 权重并对命中颜色做小范围模糊，首版更适合光滑表面。
+SSR 消费当前可见的内置不透明／裁切表面；透明层和只实现 Forward 的自定义程序不作为接收者或命中，仍可遮住后方接收面。离屏、背面和被前景遮住的内容无法恢复，有限步长也可能漏掉薄几何。Forward 路径不执行 SSR；它不改变项目保存的开关。
+
+SSR 位于 HDR 场景之后、TAA／Bloom 之前；没有独立历史缓存，TAA 使用反射覆盖降低历史权重。开启时额外分配每帧槽一张 RGBA16F（8 字节／像素），并保存 Deferred 场景深度；关闭时不分配反射目标。CPU／GPU 统计增加 `screen space reflections` 阶段。可用相同反射材质场景比较开销：
+
+```bash
+./tools/render_benchmark/run.sh /tmp/ssr-off.csv 512 640 360 240 0 8 reflections-off 1 1 1 deferred
+./tools/render_benchmark/run.sh /tmp/ssr-on.csv 512 640 360 240 0 8 reflections 1 1 1 deferred
+```
+
+2026-10-17 Apple M4／Release、1280×720 framebuffer 下，按关闭／开启／开启／关闭各采样 240 帧：SSR 阶段 GPU P50 为 3.50～3.53 ms，GPU graph P50 从 0.70～0.82 ms 增至 4.06～4.07 ms；VMA 当前分配从 164.6 MiB 增至 179.1 MiB。两边使用相同反射材质；默认保持关闭，按场景选择画面收益与成本。
+
 ## 体积高度雾
 
 在场景 Inspector 的“环境”中开启“体积高度雾”；App 与 Editor Play 共用场景保存的参数。

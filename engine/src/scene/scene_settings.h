@@ -43,6 +43,17 @@ namespace Comet {
         bool operator==(const SceneEnvironment&) const = default;
     };
 
+    struct COMET_API ScreenSpaceReflectionSettings {
+        bool enabled = false;
+        float strength = 1;
+        float max_distance = 25;
+        float thickness = .15f;
+        float max_roughness = .65f;
+        [[nodiscard]] bool active() const { return enabled && strength > 0; }
+        [[nodiscard]] Result<void> validate() const;
+        bool operator==(const ScreenSpaceReflectionSettings&) const = default;
+    };
+
     struct COMET_API PostProcessSettings {
         static constexpr float MAX_EXPOSURE = 100.0f;
         static constexpr float MAX_BLOOM_STRENGTH = 10.0f;
@@ -55,9 +66,11 @@ namespace Comet {
         bool ao_enabled = false;
         float ao_radius = 0.5f;
         float ao_strength = 1.0f;
+        ScreenSpaceReflectionSettings reflections;
 
         [[nodiscard]] bool uses_ao() const { return ao_enabled && ao_strength > 0.0f; }
         [[nodiscard]] bool uses_bloom() const { return bloom_enabled && bloom_strength > 0.0f; }
+        [[nodiscard]] bool uses_reflections() const { return reflections.active(); }
         [[nodiscard]] Result<void> validate() const;
         bool operator==(const PostProcessSettings&) const = default;
     };

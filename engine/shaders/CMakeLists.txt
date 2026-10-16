@@ -25,6 +25,7 @@ list(APPEND SHADER_FILES
         "${CMAKE_CURRENT_SOURCE_DIR}/post/temporal.frag"
         "${CMAKE_CURRENT_SOURCE_DIR}/post/decal.frag"
         "${CMAKE_CURRENT_SOURCE_DIR}/post/deferred.frag"
+        "${CMAKE_CURRENT_SOURCE_DIR}/post/screen_space_reflection.frag"
         "${CMAKE_CURRENT_SOURCE_DIR}/material/pbr_gbuffer.frag"
         "${CMAKE_CURRENT_SOURCE_DIR}/material/unlit_gbuffer.frag"
         "${CMAKE_CURRENT_SOURCE_DIR}/post/volumetric_fog.comp"

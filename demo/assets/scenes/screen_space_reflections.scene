@@ -1,0 +1,165 @@
+{
+  "version": 2,
+  "post_process": {
+    "exposure": 1,
+    "bloom_enabled": false,
+    "bloom_strength": 0.15,
+    "bloom_threshold": 1,
+    "screen_space_reflections": {
+      "enabled": true,
+      "max_distance": 20
+    }
+  },
+  "entities": [
+    {
+      "uuid": "ebe0da98-16f7-5ea6-8a26-1c3c720c174d",
+      "components": {
+        "name": "主相机",
+        "transform": {
+          "translation": [
+            0,
+            3,
+            8
+          ],
+          "rotation": [
+            -18,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "camera": {
+          "primary": true,
+          "fov": 50,
+          "near_clip": 0.1,
+          "far_clip": 80
+        },
+        "camera_controller": {
+          "enabled": true,
+          "move_speed": 5,
+          "look_sensitivity": 0.2,
+          "look_speed": 120
+        }
+      }
+    },
+    {
+      "uuid": "961d785e-2d8f-5150-99e6-42de5dd9b702",
+      "components": {
+        "name": "平滑镜面",
+        "transform": {
+          "translation": [
+            -2,
+            -0.1,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            3.9,
+            0.2,
+            8
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 6729301842000000340
+        }
+      }
+    },
+    {
+      "uuid": "e86205a3-9d65-561a-8e52-7aaabebdc9c9",
+      "components": {
+        "name": "粗糙镜面",
+        "transform": {
+          "translation": [
+            2,
+            -0.1,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            3.9,
+            0.2,
+            8
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 6729301842000000341
+        }
+      }
+    },
+    {
+      "uuid": "976a27fd-86d1-59f7-80ed-9370eea67a61",
+      "components": {
+        "name": "移动红色物体",
+        "transform": {
+          "translation": [
+            0.3,
+            1,
+            -0.5
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.8,
+            2,
+            0.8
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 6729301842000000342
+        },
+        "script": {
+          "asset": 14309634625000312006,
+          "parameters": {
+            "amplitude": 1.3,
+            "speed": 0.7
+          }
+        }
+      }
+    },
+    {
+      "uuid": "0cfff68d-8f62-5779-82aa-460ed3ba6ea7",
+      "components": {
+        "name": "绿色参考物体",
+        "transform": {
+          "translation": [
+            -2.5,
+            0.7,
+            -1.5
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.8,
+            1.4,
+            0.8
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 6729301842000000343
+        }
+      }
+    }
+  ]
+}

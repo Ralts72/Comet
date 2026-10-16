@@ -771,7 +771,12 @@ namespace Comet::Tests {
             .bloom_threshold = 2.0f,
             .ao_enabled = true,
             .ao_radius = 1.2f,
-            .ao_strength = 1.5f};
+            .ao_strength = 1.5f,
+            .reflections = {.enabled = true,
+                .strength = .7f,
+                .max_distance = 18,
+                .thickness = .2f,
+                .max_roughness = .8f}};
         ASSERT_TRUE(scene.set_post_process(settings));
         scene.create_entity("Camera").add_component<CameraComponent>(
             CameraComponent{.primary = true});
@@ -810,6 +815,15 @@ namespace Comet::Tests {
         EXPECT_EQ(scene.get_post_process(), PostProcessSettings{});
         EXPECT_FALSE(scene.get_post_process().uses_bloom());
         EXPECT_FALSE(scene.get_post_process().uses_ao());
+        EXPECT_FALSE(scene.get_post_process().uses_reflections());
+        for(const auto field :
+            {&ScreenSpaceReflectionSettings::strength, &ScreenSpaceReflectionSettings::max_distance,
+                &ScreenSpaceReflectionSettings::thickness,
+                &ScreenSpaceReflectionSettings::max_roughness}) {
+            auto value = scene.get_post_process();
+            value.reflections.*field = std::numeric_limits<float>::infinity();
+            EXPECT_FALSE(scene.set_post_process(value));
+        }
         for(auto field : {&PostProcessSettings::exposure, &PostProcessSettings::bloom_strength,
                 &PostProcessSettings::bloom_threshold, &PostProcessSettings::ao_radius,
                 &PostProcessSettings::ao_strength}) {
@@ -835,6 +849,15 @@ namespace Comet::Tests {
             ASSERT_FALSE(result) << object;
             EXPECT_NE(result.error().find("post_process"), std::string::npos);
             EXPECT_NE(result.error().find("invalid-post-process.scene"), std::string::npos);
+        }
+        for(const std::string value :
+            {"null", "[]", R"({"enabled":1})", R"({"strength":2})", R"({"max_distance":0})",
+                R"({"thickness":-1})", R"({"max_roughness":0})", R"({"unknown":1})"}) {
+            const auto result = serializer.deserialize(
+                R"({"version":2,"entities":[],"post_process":{"exposure":1,"bloom_enabled":false,"bloom_strength":0,"bloom_threshold":1,"screen_space_reflections":)"
+                    + value + "}}",
+                "invalid-reflections.scene");
+            EXPECT_FALSE(result) << value;
         }
     }
 

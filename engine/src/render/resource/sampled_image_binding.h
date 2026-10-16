@@ -13,6 +13,11 @@ namespace Comet {
             std::vector<std::shared_ptr<ImageView>> images,
             std::shared_ptr<DescriptorSetLayout> layout,
             std::vector<std::shared_ptr<Sampler>> samplers);
+        // 独立图像先连续编号，随后绑定共用采样器，减少每阶段采样器配额。
+        static Result<std::shared_ptr<SampledImageBinding>, GraphicsError> create_separate(
+            Device& device, std::vector<std::shared_ptr<ImageView>> images,
+            std::shared_ptr<DescriptorSetLayout> layout,
+            std::vector<std::shared_ptr<Sampler>> samplers);
 
         std::vector<std::shared_ptr<ImageView>> images;
         std::shared_ptr<DescriptorSetLayout> layout;

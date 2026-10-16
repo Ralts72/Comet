@@ -841,6 +841,17 @@ namespace Comet {
             writer.field("ao_enabled", post_process.ao_enabled);
             writer.field("ao_radius", post_process.ao_radius);
             writer.field("ao_strength", post_process.ao_strength);
+            if(post_process.reflections != ScreenSpaceReflectionSettings{}) {
+                const auto& reflections = post_process.reflections;
+                writer.key("screen_space_reflections");
+                writer.begin_object();
+                writer.field("enabled", reflections.enabled);
+                writer.field("strength", reflections.strength);
+                writer.field("max_distance", reflections.max_distance);
+                writer.field("thickness", reflections.thickness);
+                writer.field("max_roughness", reflections.max_roughness);
+                writer.end_object();
+            }
             writer.end_object();
         }
         writer.key("entities");
@@ -995,7 +1006,7 @@ namespace Comet {
                 return LoadResult::failure(context.error("post_process", "invalid object"));
             if(auto valid = context.validate_keys(post_process_node,
                    {"exposure", "bloom_enabled", "bloom_strength", "bloom_threshold", "ao_enabled",
-                       "ao_radius", "ao_strength"},
+                       "ao_radius", "ao_strength", "screen_space_reflections"},
                    "post_process");
                 !valid)
                 return LoadResult::failure(valid.error());
@@ -1032,6 +1043,33 @@ namespace Comet {
             settings.ao_enabled = ao_enabled.value().value_or(settings.ao_enabled);
             settings.ao_radius = ao_radius.value().value_or(settings.ao_radius);
             settings.ao_strength = ao_strength.value().value_or(settings.ao_strength);
+            const auto reflections = context.find(post_process_node, "screen_space_reflections");
+            if(!reflections)
+                return LoadResult::failure(reflections.error());
+            if(reflections.value()) {
+                constexpr std::string_view location = "post_process.screen_space_reflections";
+                const auto node = *reflections.value();
+                if(auto valid = context.validate_keys(node,
+                       {"enabled", "strength", "max_distance", "thickness", "max_roughness"},
+                       location);
+                    !valid)
+                    return LoadResult::failure(valid.error());
+                auto& value = settings.reflections;
+                const auto enabled =
+                    context.read_optional_field<bool>(node, "enabled", "a boolean", location);
+                if(!enabled)
+                    return LoadResult::failure(enabled.error());
+                value.enabled = enabled.value().value_or(value.enabled);
+                for(const auto& [key, target] :
+                    {std::pair{"strength", &value.strength}, {"max_distance", &value.max_distance},
+                        {"thickness", &value.thickness}, {"max_roughness", &value.max_roughness}}) {
+                    const auto number =
+                        context.read_optional_field<float>(node, key, "a finite number", location);
+                    if(!number)
+                        return LoadResult::failure(number.error());
+                    *target = number.value().value_or(*target);
+                }
+            }
             content.post_process = settings;
         }
         return restore_content(content, source);

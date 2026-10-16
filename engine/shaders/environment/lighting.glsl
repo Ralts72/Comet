@@ -48,6 +48,24 @@ vec3 environment_direction(vec3 direction) {
         sine * direction.x + cosine * direction.z);
 }
 
+vec3 environment_reflected_energy(float n_dot_v, vec3 base_color, float metallic, float roughness) {
+    vec3 f0 = mix(vec3(0.04), base_color, metallic);
+    vec3 reflected_energy = f0 + (1.0 - f0) * pow(1.0 - n_dot_v, 5.0);
+    if(lighting.environment.x > 0.0 || lighting.reflection_metadata.x > 0.0) {
+        vec2 brdf = texture(environment_brdf, vec2(n_dot_v, roughness)).rg;
+        reflected_energy = f0 * brdf.x + brdf.y;
+    }
+    return reflected_energy;
+}
+
+vec3 environment_specular_radiance(vec3 position, vec3 normal, vec3 view, float roughness) {
+    vec3 reflection = environment_direction(reflect(-view, normal));
+    vec3 specular = textureLod(environment_specular, reflection,
+        roughness * lighting.environment.y).rgb;
+    return local_reflection(position, reflect(-view, normal), roughness,
+        specular * lighting.environment.x);
+}
+
 vec3 evaluate_environment(vec3 position, vec3 normal, vec3 view, vec3 base_color,
     float metallic, float roughness) {
     if(lighting.environment.x <= 0.0 && lighting.reflection_metadata.x <= 0.0
@@ -56,21 +74,13 @@ vec3 evaluate_environment(vec3 position, vec3 normal, vec3 view, vec3 base_color
     float n_dot_v = clamp(dot(normal, view), 0.0, 1.0);
     if(n_dot_v <= 0.0)
         return vec3(0.0);
-    vec3 f0 = mix(vec3(0.04), base_color, metallic);
-    vec3 reflected_energy = f0 + (1.0 - f0) * pow(1.0 - n_dot_v, 5.0);
-    if(lighting.environment.x > 0.0 || lighting.reflection_metadata.x > 0.0) {
-        vec2 brdf = texture(environment_brdf, vec2(n_dot_v, roughness)).rg;
-        reflected_energy = f0 * brdf.x + brdf.y;
-    }
+    vec3 reflected_energy = environment_reflected_energy(n_dot_v, base_color, metallic, roughness);
     // Irradiance stores E/pi; the LUT partitions single-scattering specular and diffuse energy.
     vec3 irradiance;
     if(!sample_irradiance(position, normal, irradiance))
         irradiance = texture(environment_irradiance, environment_direction(normal)).rgb * lighting.environment.x;
     vec3 diffuse = irradiance * base_color * (1.0 - metallic) * (1.0 - reflected_energy);
-    vec3 reflection = environment_direction(reflect(-view, normal));
-    vec3 specular = textureLod(environment_specular, reflection,
-        roughness * lighting.environment.y).rgb;
-    vec3 indirect_specular = local_reflection(position, reflect(-view, normal), roughness,
-        specular * lighting.environment.x) * reflected_energy;
+    vec3 indirect_specular = environment_specular_radiance(position, normal, view, roughness)
+        * reflected_energy;
     return diffuse + indirect_specular;
 }

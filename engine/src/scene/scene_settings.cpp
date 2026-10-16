@@ -44,7 +44,18 @@ namespace Comet {
         return Result<void>::success();
     }
 
+    Result<void> ScreenSpaceReflectionSettings::validate() const {
+        if(!std::isfinite(strength) || strength < 0 || strength > 1 || !std::isfinite(max_distance)
+            || max_distance < .1f || max_distance > 200 || !std::isfinite(thickness)
+            || thickness < .001f || thickness > 2 || !std::isfinite(max_roughness)
+            || max_roughness < .05f || max_roughness > 1)
+            return Result<void>::failure("Invalid SSR strength, distance, thickness or roughness");
+        return Result<void>::success();
+    }
+
     Result<void> PostProcessSettings::validate() const {
+        if(auto valid = reflections.validate(); !valid)
+            return valid;
         if(!std::isfinite(ao_radius) || ao_radius < 0.01f || ao_radius > 10)
             return Result<void>::failure("ao_radius must be finite and between 0.01 and 10");
         if(!std::isfinite(ao_strength) || ao_strength < 0 || ao_strength > 2)

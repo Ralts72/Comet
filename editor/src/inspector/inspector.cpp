@@ -729,6 +729,24 @@ namespace CometEditor {
         result.include_item(ImGui::DragFloat("遮蔽强度###AO strength", &settings.ao_strength, 0.01f,
             0.0f, 2.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp));
         ImGui::EndDisabled();
+        auto& reflections = settings.reflections;
+        const bool reflection_changed =
+            ImGui::Checkbox("屏幕空间反射###Screen space reflections", &reflections.enabled);
+        result.changed |= reflection_changed;
+        result.finished |= reflection_changed;
+        if(ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "需在画质设置选择 Deferred；离屏或遮挡命中保留反射探针／IBL，透明表面不参与。");
+        if(reflections.enabled) {
+            result.include_item(ImGui::DragFloat("反射强度###SSR strength", &reflections.strength,
+                .01f, 0, 1, "%.2f", ImGuiSliderFlags_AlwaysClamp));
+            result.include_item(ImGui::DragFloat("追踪距离###SSR distance",
+                &reflections.max_distance, .1f, .1f, 200, "%.1f m", ImGuiSliderFlags_AlwaysClamp));
+            result.include_item(ImGui::DragFloat("命中厚度###SSR thickness", &reflections.thickness,
+                .005f, .001f, 2, "%.3f m", ImGuiSliderFlags_AlwaysClamp));
+            result.include_item(ImGui::DragFloat("最大粗糙度###SSR roughness",
+                &reflections.max_roughness, .01f, .05f, 1, "%.2f", ImGuiSliderFlags_AlwaysClamp));
+        }
         apply_scene_edit(post_process_target, settings, result, can_edit);
         ImGui::EndDisabled();
     }

@@ -239,6 +239,7 @@ set(COMET_RENDER_SOURCES
     src/render/passes/temporal_pass.cpp
     src/render/passes/decal_pass.cpp
     src/render/passes/deferred_pass.cpp
+    src/render/passes/screen_space_reflection_pass.cpp
     src/render/passes/volumetric_fog_pass.cpp
     src/render/passes/shadow_pass.cpp
     src/render/renderer.cpp

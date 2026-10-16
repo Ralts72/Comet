@@ -507,9 +507,13 @@ DeferredPass 归 SceneRenderer 的 RenderState，在单采样下为每帧槽持�
 RenderGraph 声明 G-buffer 附件写入与光照采样依赖；全屏光照在既有 HDR 场景 pass 内复用 surface_lighting、ViewBindings、阴影／IBL／GI／AO／雾，并写回独立场景深度，然后绘制 Forward 不透明、贴花、联合排序的透明网格／粒子及辅助线。Bloom、TAA、输出与 UI 沿用现有链路，不增加资产权威。
 QualitySettings 保存路径选择；Deferred 拒绝 MSAA，界面切换时明确选择单采样，可用 TAA。路径切换沿用所有 View 的 RenderState 候选发布，失败保留原状态；resize 单独准备新 G-buffer 图像及采样绑定，在途帧继续保活旧代。四颜色附件和可采样 D32 为首版设备要求。
 
+ScreenSpaceReflectionPass 在完整 HDR 场景后、TAA／Bloom 前执行，仅对 Deferred 启用。七张输入图像共用两个独立采样器，避免逐图像的 combined sampler 超过设备配额；创建时检查片元采样预算。源图只读，输出来自 RenderGraph 的 RGBA16F 逻辑资源，不在同一附件内采样回写。
+追踪在世界空间作有限步进，投影后比较线性深度并细化命中；最终场景深度与 G-buffer 深度一致才允许反射，透明覆盖另行排除。粗糙度、屏幕边缘和命中厚度给出混合权重，复用环境镜面能量与探针／IBL 采样函数进行替换，雾透射只衰减替换量。反射覆盖写入 HDR alpha，供 TAA 降低历史权重。
+SSR 只拥有管线与图像绑定；场景参数归 PostProcessSettings，资源候选全部成功后由 SceneRenderer 发布，在途帧保留旧图像／绑定。Deferred 的 HDR 深度使用可采样 D32 并保存，Forward 沿用原深度策略。SSR 不另建资产缓存或 Editor 渲染链路。
+
 基础 AO、软粒子、贴花与 TAA 复用 DepthPass 绘制相机深度，各帧槽独立；RenderGraph 管理深度写入与采样屏障。TAA 开启时，相机 DepthPass 同时输出 RGBA16F 运动向量、前帧距离与有效位，复用裁切、实例化和 LOD；阴影视图不分配运动资源。按实体身份保留前帧模型变换，蒙皮输出另保留前帧顶点，避免单帧槽覆盖历史。ShadowPass 继续负责光源选择与阴影统计；主视图开启 MSAA 时，相机预深度仍保持单采样。
 
-TemporalPass 归每个 SceneRenderer，消费 RenderThread 实际提交的视图与场景身份。8 相位抖动用于几何采样，重投影移除抖动差，再做保守深度拒绝、YCoCg 邻域裁切与覆盖积累。内部 HDR alpha 记录透明覆盖：不透明表面／天空只写 RGB，透明网格和粒子按最大覆盖写 alpha；TAA 用它降低透明历史权重，最终输出 alpha 仍为 1。
+TemporalPass 归每个 SceneRenderer，消费 RenderThread 实际提交的视图与场景身份。8 相位抖动用于几何采样，重投影移除抖动差，再做保守深度拒绝、YCoCg 邻域裁切与覆盖积累。内部 HDR alpha 记录透明与反射的历史敏感覆盖：不透明表面／天空只写 RGB，透明网格和粒子按最大覆盖写 alpha；TAA 用它降低透明历史权重，最终输出 alpha 仍为 1。
 两张 RGBA16F 历史图交替读写，alpha 保存近邻线性距离；图计划同步跨帧读写，FrameSlot 保留使用中的图像、绑定与骨骼缓冲。resize 发布新目标，场景／投影切换、相机跳变、未连续提交和隐藏恢复失效历史。TAA 在 Bloom／色调映射之前执行，游戏 UI 在其后合成；当前不承担时域升采样。
 
 DecalComponent 提取成有世界包围盒和逆投影变换的只读数据，Main 固定贴图版本。DecalPass 按覆盖顺序绘制屏幕矩形，重建相机深度中的位置／几何法线；颜色与粗糙度通过共用 surface_lighting Shader 计算 PBR 覆盖层。SceneRenderer 在不透明绘制后、透明合成前调用，复用现有视图 GPU 绑定，不新建光照权威。ViewRequirements 汇总阴影、软粒子、贴花、体积雾与相机深度需求；无贴花时不创建对应管线和绑定。图计划只比较实际附件与 pass 需求，已有相机深度时切换贴花不重建 Bloom／雾图像。

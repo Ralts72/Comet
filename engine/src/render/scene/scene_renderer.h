@@ -32,6 +32,7 @@ namespace Comet {
     class Swapchain;
     class BloomPass;
     class VolumetricFogPass;
+    class ScreenSpaceReflectionPass;
     struct SwapchainCompatibility;
 
     class COMET_API SceneRenderer {
@@ -116,6 +117,7 @@ namespace Comet {
         struct EffectPasses {
             BloomPass* bloom;
             VolumetricFogPass* fog;
+            ScreenSpaceReflectionPass* reflections;
         };
         Result<void, GraphicsError> rebuild_graph(RenderState& state,
             const PostProcessSettings& settings, const ViewRequirements& requirements,
