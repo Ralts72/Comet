@@ -1,5 +1,6 @@
 #pragma once
 #include <filesystem>
+#include <memory>
 
 #include "viewport/viewport_panel.h"
 #include "viewport/transform_gizmo.h"
@@ -12,6 +13,7 @@
 namespace Comet {
     class AssetRegistry;
     class Renderer;
+    class TaskScheduler;
 }
 
 namespace CometEditor::Ui {
@@ -19,13 +21,14 @@ namespace CometEditor::Ui {
 }
 
 namespace CometEditor {
+    class PathTraceDenoise;
     class Viewport final {
     public:
         Viewport(EditorState& state, const Comet::SceneRuntime& runtime,
             SelectionService& selection, CommandHistory& history,
             const Comet::ComponentRegistry& components, PropertyEditTransaction& inspector_edit,
             const EditorShortcuts& shortcuts, Comet::Renderer& renderer,
-            Comet::AssetRegistry& assets, Ui::ImGuiContext& ui,
+            Comet::AssetRegistry& assets, Ui::ImGuiContext& ui, Comet::TaskScheduler& scheduler,
             Comet::PhysicsService::MeshSource meshes = {},
             Comet::PathTraceSceneBuilder::Images images = {});
         ~Viewport();
@@ -59,5 +62,6 @@ namespace CometEditor {
         Comet::LineDrawList m_feedback_lines;
         ColliderOverlay m_colliders;
         uint64_t m_path_trace_generation = 0;
+        std::unique_ptr<PathTraceDenoise> m_denoise;
     };
 }

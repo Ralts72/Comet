@@ -4,13 +4,14 @@ Comet 是供作者个人学习使用的 3D 游戏引擎与编辑器，使用 C++
 引擎对外提供一个 `engine` 动态库；ImGui 编辑器与独立 App 共用场景、资产、Gameplay 和 RmlUi 游戏界面。
 
 目前支持场景编辑与撤销、glTF 静态／骨骼模型、参数化动画状态机、1D／2D 混合、独立动画库、基础跨骨架重定向、覆盖／加法分层与骨骼遮罩、动画事件、骨骼挂点、根运动与脚部 IK、静态网格 LOD、纹理 Mipmap、PBR／方向光级联与局部光阴影／IBL／局部反射探针／静态探针 GI／AO／距离雾／Bloom、Lua 热重载、刚体、凸包／静态网格碰撞、碰撞层与角色控制、导航离线烘焙与 NPC 寻路避障、射线／形状扫掠／范围查询、游戏内关卡切换与检查点存档、空间音效／监听者、流式 WAV 音乐、CPU billboard 粒子和游戏设置。
-独立渲染线程与场景更新重叠执行。Prefab 子树与嵌套复用、基础覆盖和 Lua 生成已接入；高级动画／粒子、实时 GI 等继续按路线图推进；支持 PBR 贴图、裁切／半透明覆盖、粗糙介质折射与 HDR 环境的静态软件 BVH／compute 渐进路径追踪预览已接入，可导出 PNG／线性 HDR 图像。macOS 已支持独立 App 导出。
+独立渲染线程与场景更新重叠执行。Prefab 子树与嵌套复用、基础覆盖和 Lua 生成已接入；高级动画／粒子、实时 GI 等继续按路线图推进；支持 PBR 贴图、裁切／半透明覆盖、粗糙介质折射与 HDR 环境的静态软件 BVH／compute 渐进路径追踪预览已接入，支持完成采样后的可选 OIDN 降噪，可分别导出原图与降噪后的 PNG／线性 HDR。macOS 已支持独立 App 导出。
 单队列 RenderGraph 管理同步、逻辑资源寿命与瞬态目标复用，Bloom 已使用同一套资源计划。
 
 ## 快速开始
 
 需要 CMake 3.31+、C++20 编译器、Vulkan SDK 和 Git LFS。第三方源码统一由 Git Submodule 固定版本，
 Shader 编译器随项目构建，无需另装 `glslangValidator`。macOS 编辑器导出与打包测试还需要 Python 3.9+。
+编辑器降噪使用 OIDN 2.5.1 官方 SDK，CMake 首次配置时下载固定版本并校验 SHA-256；无需额外安装 ISPC、TBB 或完整 Xcode。仅 App 构建不下载或链接 OIDN。
 
 构建适配集中在 `3rdparty/CMakeLists.txt`，stb／VMA 的实现入口也由主仓维护；各依赖子仓保留上游原貌。
 

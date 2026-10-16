@@ -10,11 +10,13 @@
 #include "render/frame_scheduler.h"
 #include "render/render_diagnostics.h"
 #include "path_trace_comp.h"
+#include "common/version.h"
 
 #include <cstring>
 
 namespace Comet {
     namespace {
+        VersionSequence next_accumulation;
         struct Parameters {
             Math::Mat4 inverse_view_projection;
             Math::Vec4 background;
@@ -39,10 +41,12 @@ namespace Comet {
         std::shared_ptr<const PathTraceScene> source;
         Math::Vec2u size;
         std::shared_ptr<ImageView> image;
+        std::array<std::shared_ptr<ImageView>, 2> features;
         std::array<std::shared_ptr<CPUBuffer>, 8> buffers;
         std::unique_ptr<DescriptorPool> pool;
         std::vector<DescriptorSet> descriptors;
         bool initialized = false;
+        bool features_enabled = false;
     };
 
     PathTracePass::PathTracePass(Device& device) : m_device(device) {}
@@ -53,9 +57,11 @@ namespace Comet {
         const auto limits = capability.physical_device.getProperties().limits;
         if(limits.maxPerStageDescriptorStorageBuffers < 8
             || limits.maxDescriptorSetStorageBuffers < 8
-            || limits.maxPushConstantsSize < sizeof(Parameters))
+            || limits.maxPushConstantsSize < sizeof(Parameters)
+            || limits.maxPerStageDescriptorStorageImages < 3
+            || limits.maxDescriptorSetStorageImages < 3)
             return Result<void, GraphicsError>::failure(
-                {"设备不支持路径追踪的 8 个 storage buffer／128 字节 push constants"});
+                {"设备不支持路径追踪的 8 个 storage buffer／3 个 storage image／128 字节 push constants"});
         const auto features =
             capability.physical_device.getFormatProperties(vk::Format::eR32G32B32A32Sfloat)
                 .optimalTilingFeatures;
@@ -85,6 +91,9 @@ namespace Comet {
         for(uint32_t i = 4; i < 9; ++i)
             bindings.add_binding(
                 i, DescriptorType::StorageBuffer, Flags<ShaderStage>(ShaderStage::Compute));
+        for(uint32_t i = 9; i < 11; ++i)
+            bindings.add_binding(
+                i, DescriptorType::StorageImage, Flags<ShaderStage>(ShaderStage::Compute));
         auto descriptors = DescriptorSetLayout::create(m_device, bindings);
         if(!descriptors)
             return Result<void, GraphicsError>::failure(descriptors.error());
@@ -118,8 +127,10 @@ namespace Comet {
     }
 
     Result<void, GraphicsError> PathTracePass::prepare(
-        const std::shared_ptr<const PathTraceScene>& scene, Math::Vec2u size) {
-        if(m_resources && m_resources->source == scene && m_resources->size == size)
+        const std::shared_ptr<const PathTraceScene>& scene, Math::Vec2u size, bool features) {
+        features |= m_resources && m_resources->features_enabled;
+        if(m_resources && m_resources->source == scene && m_resources->size == size
+            && m_resources->features_enabled == features)
             return Result<void, GraphicsError>::success();
         if(auto initialized = initialize(); !initialized)
             return initialized;
@@ -127,27 +138,34 @@ namespace Comet {
         next->program = m_program;
         next->source = scene;
         next->size = size;
+        next->features_enabled = features;
         const auto limits = m_device.get_capability().physical_device.getProperties().limits;
         if(size.x > limits.maxImageDimension2D || size.y > limits.maxImageDimension2D)
             return Result<void, GraphicsError>::failure({"路径追踪输入超过设备资源限制"});
-        if(m_resources && m_resources->size == size) {
+        if(m_resources && m_resources->size == size && m_resources->features_enabled == features) {
             next->image = m_resources->image;
+            next->features = m_resources->features;
             next->initialized = m_resources->initialized;
         } else {
-            auto image = Image::try_create(m_device,
-                {Format::R32G32B32A32_SFLOAT, {size.x, size.y, 1},
-                    Flags<ImageUsage>(ImageUsage::StorageBinding) | ImageUsage::Sampled
-                        | ImageUsage::CopySrc | ImageUsage::CopyDst},
-                false, SampleCount::Count1, "path trace accumulation");
-            if(!image)
-                return Result<void, GraphicsError>::failure(
-                    {"Cannot allocate path trace image", image.result()});
-            auto view = ImageView::try_create(
-                m_device, std::move(image).value(), Flags<ImageAspect>(ImageAspect::Color));
-            if(!view)
-                return Result<void, GraphicsError>::failure(
-                    {"Cannot create path trace image view", view.result()});
-            next->image = std::move(view).value();
+            const std::array<std::shared_ptr<ImageView>*, 3> targets{
+                &next->image, &next->features[0], &next->features[1]};
+            for(std::size_t i = 0; i < targets.size(); ++i) {
+                const auto extent = i == 0 || features ? size : Math::Vec2u(1);
+                auto image = Image::try_create(m_device,
+                    {Format::R32G32B32A32_SFLOAT, {extent.x, extent.y, 1},
+                        Flags<ImageUsage>(ImageUsage::StorageBinding) | ImageUsage::Sampled
+                            | ImageUsage::CopySrc | ImageUsage::CopyDst},
+                    false, SampleCount::Count1, "path trace accumulation");
+                if(!image)
+                    return Result<void, GraphicsError>::failure(
+                        {"Cannot allocate path trace image", image.result()});
+                auto view = ImageView::try_create(
+                    m_device, std::move(image).value(), Flags<ImageAspect>(ImageAspect::Color));
+                if(!view)
+                    return Result<void, GraphicsError>::failure(
+                        {"Cannot create path trace image view", view.result()});
+                *targets[i] = std::move(view).value();
+            }
         }
         const PathTraceScene::Node empty_node{};
         const PathTraceScene::Triangle empty_triangle{};
@@ -209,7 +227,7 @@ namespace Comet {
         }
         DescriptorPoolSizes pool_sizes;
         pool_sizes.add_pool_size(DescriptorType::StorageBuffer, 8);
-        pool_sizes.add_pool_size(DescriptorType::StorageImage, 1);
+        pool_sizes.add_pool_size(DescriptorType::StorageImage, 3);
         auto pool = DescriptorPool::create(m_device, 1, pool_sizes);
         if(!pool)
             return Result<void, GraphicsError>::failure(pool.error());
@@ -219,15 +237,20 @@ namespace Comet {
             return Result<void, GraphicsError>::failure(sets.error());
         next->descriptors = std::move(sets).value();
         std::array<vk::DescriptorBufferInfo, 8> infos;
-        std::array<vk::WriteDescriptorSet, 9> writes;
+        std::array<vk::WriteDescriptorSet, 11> writes;
         for(uint32_t i = 0; i < infos.size(); ++i) {
             infos[i] = vk::DescriptorBufferInfo(next->buffers[i]->get(), 0, sizes[i]);
             writes[i] = {next->descriptors[0].get(), i >= 3 ? i + 1 : i, 0, 1,
                 vk::DescriptorType::eStorageBuffer, nullptr, &infos[i]};
         }
-        const vk::DescriptorImageInfo image_info({}, next->image->get(), vk::ImageLayout::eGeneral);
-        writes[8] = {
-            next->descriptors[0].get(), 3, 0, 1, vk::DescriptorType::eStorageImage, &image_info};
+        const std::array<std::shared_ptr<ImageView>, 3> images{
+            next->image, next->features[0], next->features[1]};
+        std::array<vk::DescriptorImageInfo, 3> image_infos;
+        for(std::size_t i = 0; i < images.size(); ++i) {
+            image_infos[i] = {{}, images[i]->get(), vk::ImageLayout::eGeneral};
+            writes[8 + i] = {next->descriptors[0].get(), i == 0 ? 3u : uint32_t(8 + i), 0, 1,
+                vk::DescriptorType::eStorageImage, &image_infos[i]};
+        }
         m_device.get().updateDescriptorSets(writes, {});
         for(size_t i = 0; i < sizes.size(); ++i)
             if(!reused[i]) {
@@ -255,7 +278,8 @@ namespace Comet {
         const auto inverse = Math::inverse(view_projection);
         if(!Math::is_finite(view_projection) || !Math::is_finite(inverse))
             return Result<void, GraphicsError>::failure({"Invalid path trace camera"});
-        if(auto ready = prepare(scene, settings.image_size(output_size)); !ready)
+        if(auto ready = prepare(scene, settings.image_size(output_size), settings.denoised_view);
+            !ready)
             return ready;
         if(view_projection != m_view_projection || settings.bounces != m_settings.bounces
             || settings.seed != m_settings.seed
@@ -263,6 +287,13 @@ namespace Comet {
             m_samples = 0;
         m_view_projection = view_projection;
         m_settings = settings;
+        if(m_samples == 0) {
+            m_generation = next_accumulation.next();
+            m_denoised.reset();
+        }
+        const bool dispatch = m_samples < settings.samples;
+        if(dispatch)
+            m_denoised.reset();
         frames.retain_current_frame_resource(m_resources);
         RenderGraph graph;
         const auto range = ImageSubresourceRange{.aspects = Flags<ImageAspect>(ImageAspect::Color)};
@@ -270,36 +301,53 @@ namespace Comet {
                            ? *resolve_image_state(ResourceUsage::SampledRead, range,
                                  Flags<PipelineStage>(PipelineStage::FragmentShader))
                            : ImageState{.subresources = range};
-        const auto image = graph.import_image("path trace HDR", initial);
+        const std::array views{
+            m_resources->image, m_resources->features[0], m_resources->features[1]};
+        std::vector<RenderGraph::Binding> bindings;
+        std::vector<RenderGraph::Use> clear_uses, compute_uses;
+        for(std::size_t i = 0; i < views.size(); ++i) {
+            const auto image = graph.import_image("path trace input " + std::to_string(i), initial);
+            bindings.push_back(views[i]->get_image());
+            clear_uses.push_back({image, ResourceUsage::TransferDestination, {}});
+            compute_uses.push_back({image, ResourceUsage::StorageReadWrite,
+                Flags<PipelineStage>(PipelineStage::ComputeShader)});
+            graph.export_resource({image, ResourceUsage::SampledRead,
+                Flags<PipelineStage>(PipelineStage::FragmentShader)});
+        }
         std::optional<RenderGraph::PassId> clear;
         if(!m_resources->initialized)
-            clear = graph.add_pass(
-                {"initialize accumulation", {{image, ResourceUsage::TransferDestination, {}}}});
-        const bool dispatch = m_samples < settings.samples;
+            clear = graph.add_pass({"initialize accumulation", std::move(clear_uses)});
         std::optional<RenderGraph::PassId> compute;
         if(dispatch)
-            compute = graph.add_pass(
-                {"path trace", {{image, ResourceUsage::StorageReadWrite,
-                                   Flags<PipelineStage>(PipelineStage::ComputeShader)}}});
-        graph.add_pass({"display", {{image, ResourceUsage::SampledRead,
+            compute = graph.add_pass({"path trace", std::move(compute_uses)});
+        RenderGraph::ResourceId display_image{0};
+        if(m_settings.denoised_view && m_denoised) {
+            display_image = graph.import_image(
+                "denoised HDR", *resolve_image_state(ResourceUsage::SampledRead, range,
+                                    Flags<PipelineStage>(PipelineStage::FragmentShader)));
+            bindings.push_back(m_denoised->get_image());
+            frames.retain_current_frame_resource(m_denoised);
+        }
+        graph.add_pass({"display", {{display_image, ResourceUsage::SampledRead,
                                        Flags<PipelineStage>(PipelineStage::FragmentShader)}}});
         auto compiled = graph.compile();
         if(!compiled)
             return Result<void, GraphicsError>::failure({compiled.error()});
-        const std::array<RenderGraph::Binding, 1> bindings{m_resources->image->get_image()};
         const auto record = [&](RenderGraph::PassId pass, CommandBuffer& command) {
             if(clear && pass == *clear) {
                 const vk::ImageSubresourceRange color(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1);
-                command.get().clearColorImage(m_resources->image->get_image()->get(),
-                    vk::ImageLayout::eTransferDstOptimal,
-                    vk::ClearColorValue(std::array<float, 4>{0, 0, 0, 0}), color);
+                for(std::size_t i = 0; i < views.size(); ++i)
+                    command.get().clearColorImage(views[i]->get_image()->get(),
+                        vk::ImageLayout::eTransferDstOptimal,
+                        vk::ClearColorValue(std::array<float, 4>{0, 0, 0, 0}), color);
                 return Result<void, GraphicsError>::success();
             }
             if(!compute || pass != *compute)
                 return display(pass, command);
             if(dispatch) {
                 const auto size = m_resources->size;
-                const Parameters parameters{inverse, Math::Vec4(scene->background, 1),
+                const Parameters parameters{inverse,
+                    Math::Vec4(scene->background, m_resources->features_enabled ? 1 : 0),
                     {size.x, size.y, m_samples, settings.bounces},
                     {uint32_t(scene->geometry->nodes.size()),
                         uint32_t(scene->lighting->light_count), settings.seed,
@@ -328,6 +376,8 @@ namespace Comet {
     }
 
     std::shared_ptr<ImageView> PathTracePass::output() const {
+        if(m_settings.denoised_view && m_denoised)
+            return m_denoised;
         return m_resources ? m_resources->image : nullptr;
     }
     PathTracePass::Statistics PathTracePass::statistics() const {
@@ -335,9 +385,25 @@ namespace Comet {
             return {};
         return {m_samples, uint32_t(m_resources->source->geometry->triangles.size()),
             uint32_t(m_resources->source->geometry->nodes.size()), m_resources->size,
-            m_upload_bytes, m_geometry_upload_bytes, m_dispatches};
+            m_upload_bytes, m_geometry_upload_bytes, m_dispatches, m_generation, bool(m_denoised),
+            m_resources->features_enabled};
+    }
+    std::array<std::shared_ptr<ImageView>, 3> PathTracePass::inputs() const {
+        if(!m_resources)
+            return {};
+        return {m_resources->image,
+            m_resources->features_enabled ? m_resources->features[0] : nullptr,
+            m_resources->features_enabled ? m_resources->features[1] : nullptr};
+    }
+    bool PathTracePass::publish_denoised(
+        std::shared_ptr<ImageView> image, uint64_t generation, uint32_t samples) {
+        if(!m_resources || generation != m_generation || samples != m_samples || samples == 0)
+            return false;
+        m_denoised = std::move(image);
+        return true;
     }
     void PathTracePass::reset() {
+        m_denoised.reset();
         m_resources.reset();
         m_samples = 0;
         m_recorded_serial = 0;

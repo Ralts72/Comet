@@ -32,6 +32,8 @@ add_library(editor_core STATIC
         src/assets/source_monitor.cpp
         src/assets/material_editing.cpp
         src/assets/material_edit_session.cpp
+        src/render/image_denoiser.cpp
+        src/render/path_trace_denoise.cpp
         src/render/shader_reload.cpp
         src/render/material_shader_reload.cpp
         src/scene/command_history.cpp
@@ -44,7 +46,7 @@ add_library(editor_core STATIC
         src/viewport/viewport_layout.cpp
         src/viewport/physics_overlay.cpp
 )
-target_link_libraries(editor_core PUBLIC engine comet_asset_tools comet_shader_tools PRIVATE fastgltf::fastgltf)
+target_link_libraries(editor_core PUBLIC engine comet_asset_tools comet_shader_tools PRIVATE fastgltf::fastgltf OpenImageDenoise)
 if(APPLE)
     find_package(Python3 3.9 REQUIRED COMPONENTS Interpreter)
     target_compile_definitions(editor_core PRIVATE
@@ -139,6 +141,7 @@ elseif (WIN32)
 endif ()
 target_link_libraries(editor PRIVATE editor_ui)
 comet_copy_runtime_dependencies(editor)
+comet_copy_oidn_runtime(editor)
 target_compile_definitions(editor PRIVATE
         COMET_BUILTIN_SHADER_DIRECTORY="${CMAKE_SOURCE_DIR}/engine/shaders"
         COMET_CONFIG_FILE="${CMAKE_SOURCE_DIR}/config.json"

@@ -4,6 +4,8 @@
 #include "render/render_graph.h"
 #include "render/scene/render_types.h"
 
+#include <array>
+
 namespace Comet {
     class Device;
     class ImageView;
@@ -19,6 +21,9 @@ namespace Comet {
             uint64_t upload_bytes = 0;
             uint64_t geometry_upload_bytes = 0;
             uint64_t dispatches = 0;
+            uint64_t generation = 0;
+            bool denoised = false;
+            bool features = false;
         };
         explicit PathTracePass(Device& device);
         ~PathTracePass();
@@ -29,6 +34,9 @@ namespace Comet {
             const RenderGraph::RecordPass& display, RenderDiagnostics* diagnostics = nullptr);
         [[nodiscard]] std::shared_ptr<ImageView> output() const;
         [[nodiscard]] Statistics statistics() const;
+        [[nodiscard]] std::array<std::shared_ptr<ImageView>, 3> inputs() const;
+        bool publish_denoised(
+            std::shared_ptr<ImageView> image, uint64_t generation, uint32_t samples);
         void reset();
 
     private:
@@ -36,7 +44,7 @@ namespace Comet {
         struct Resources;
         Result<void, GraphicsError> initialize();
         Result<void, GraphicsError> prepare(
-            const std::shared_ptr<const PathTraceScene>& scene, Math::Vec2u size);
+            const std::shared_ptr<const PathTraceScene>& scene, Math::Vec2u size, bool features);
         Device& m_device;
         std::shared_ptr<Program> m_program;
         std::shared_ptr<Resources> m_resources;
@@ -47,5 +55,7 @@ namespace Comet {
         uint64_t m_upload_bytes = 0;
         uint64_t m_geometry_upload_bytes = 0;
         uint64_t m_dispatches = 0;
+        uint64_t m_generation = 0;
+        std::shared_ptr<ImageView> m_denoised;
     };
 }

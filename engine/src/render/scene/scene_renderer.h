@@ -48,6 +48,9 @@ namespace Comet {
         [[nodiscard]] MaterialRenderer::Statistics get_material_statistics() const;
         [[nodiscard]] ShadowPass::Statistics get_shadow_statistics() const;
         [[nodiscard]] PathTracePass::Statistics get_path_trace_statistics() const;
+        [[nodiscard]] std::array<std::shared_ptr<ImageView>, 3> get_path_trace_inputs() const;
+        bool publish_path_trace_denoised(
+            std::shared_ptr<ImageView> image, uint64_t generation, uint32_t samples);
         [[nodiscard]] const PostProcessSettings& get_post_process_settings() const;
         [[nodiscard]] const QualitySettings& get_quality_settings() const { return m_quality; }
         [[nodiscard]] Math::Vec2u get_scene_size() const;

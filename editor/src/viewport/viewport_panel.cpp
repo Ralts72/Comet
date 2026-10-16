@@ -146,10 +146,19 @@ namespace CometEditor {
         render_view_options();
         if(m_path_trace && !is_playing) {
             toolbar_next(ImGui::CalcTextSize("路径追踪 4096/4096").x);
-            if(m_path_trace_error.empty())
-                ImGui::TextDisabled(
-                    "路径追踪 %u/%u", m_path_trace_samples, m_path_trace_settings.samples);
-            else {
+            if(m_path_trace_error.empty()) {
+                const char* suffix = "";
+                if(m_path_trace_denoise && m_denoise_busy)
+                    suffix = " · 降噪中";
+                else if(m_path_trace_denoise && m_denoise_ready)
+                    suffix = " · 已降噪";
+                else if(m_path_trace_denoise && !m_denoise_status.empty())
+                    suffix = " · 降噪失败";
+                ImGui::TextDisabled("路径追踪 %u/%u%s", m_path_trace_samples,
+                    m_path_trace_settings.samples, suffix);
+                if(!m_denoise_status.empty())
+                    ImGui::SetItemTooltip("%s", m_denoise_status.c_str());
+            } else {
                 ImGui::TextColored({1, .55f, .3f, 1}, "%s", "路径追踪不可用");
                 ImGui::SetItemTooltip("%s\n当前显示光栅预览。", m_path_trace_error.c_str());
             }
@@ -334,11 +343,23 @@ namespace CometEditor {
             ImGui::SetNextItemWidth(140);
             if(ImGui::SliderInt("最长边像素###Trace dimension", &dimension, 128, 1024))
                 m_path_trace_settings.max_dimension = uint32_t(dimension);
+            ImGui::MenuItem("完成采样后降噪###Denoise trace", nullptr, &m_path_trace_denoise);
+            ImGui::SetItemTooltip(
+                "首次开启需重新采样；采样完成后在后台降噪。关闭可比较原图。\n原始积分和 HDR 不变。");
+            if(!m_denoise_status.empty())
+                ImGui::TextWrapped("%s", m_denoise_status.c_str());
             if(ImGui::MenuItem("重新采样###Restart trace"))
                 m_path_trace_restart = true;
-            if(ImGui::MenuItem("导出图像…###Export trace", nullptr, false,
-                   m_path_trace_samples != 0 && m_path_trace_error.empty()))
+            if(ImGui::MenuItem("导出原图…###Export trace", nullptr, false,
+                   m_path_trace_samples != 0 && m_path_trace_error.empty())) {
                 m_path_trace_export = true;
+                m_export_denoised = false;
+            }
+            if(ImGui::MenuItem("导出降噪图像…###Export denoised trace", nullptr, false,
+                   m_denoise_ready && !m_denoise_busy && m_path_trace_error.empty())) {
+                m_path_trace_export = true;
+                m_export_denoised = true;
+            }
             if(!m_path_trace_error.empty())
                 ImGui::TextWrapped("%s\n当前显示光栅预览。", m_path_trace_error.c_str());
         }
