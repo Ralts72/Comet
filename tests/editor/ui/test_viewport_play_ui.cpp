@@ -12,6 +12,43 @@
 namespace CometEditor::Tests {
     using ViewportPlayUiTest = ViewportUiTest;
 
+    TEST_F(ViewportPlayUiTest, PathTraceUsesTheExistingViewMenuAndKeepsPlayControlsIndependent) {
+        const auto choose = [&](const char* label) {
+            auto* window = ImGui::FindWindowByName("Viewport");
+            ASSERT_NE(window, nullptr);
+            ImGui::ActivateItemByID(window->GetID("###View"));
+            frame();
+            frame();
+            ASSERT_FALSE(GImGui->OpenPopupStack.empty());
+            auto* popup = GImGui->OpenPopupStack.back().Window;
+            ASSERT_NE(popup, nullptr);
+            ImGui::ActivateItemByID(popup->GetID(label));
+            frame();
+            ImGui::ClosePopupToLevel(0, true);
+            frame();
+        };
+        EXPECT_FALSE(viewport.path_trace_enabled());
+        choose("路径追踪###Path trace");
+        EXPECT_TRUE(viewport.path_trace_enabled());
+        EXPECT_TRUE(viewport.path_trace_settings().validate());
+        choose("重新采样###Restart trace");
+        EXPECT_TRUE(viewport.take_path_trace_restart());
+        EXPECT_FALSE(viewport.take_path_trace_restart());
+        viewport.set_path_trace_status(12, "测试：不支持贴图");
+        frame({300, 700});
+        EXPECT_GT(viewport.get_layout().image_visible_rect.size().y, 0);
+        activate_play_camera();
+        choose("光栅###Raster");
+        EXPECT_TRUE(viewport.path_trace_enabled());
+        EXPECT_FALSE(viewport.take_play_command());
+        ASSERT_TRUE(runtime.stop());
+        state.mode = EditorMode::Edit;
+        frame();
+        choose("光栅###Raster");
+        EXPECT_FALSE(viewport.path_trace_enabled());
+        EXPECT_EQ(history.undo_size(), 0u);
+    }
+
     TEST_F(ViewportPlayUiTest, PhysicsTogglesAreIndependentAndSurviveModeChangesWithoutProjectUi) {
         viewport.set_game_ui_available(false);
         EXPECT_FALSE(viewport.shows_colliders());

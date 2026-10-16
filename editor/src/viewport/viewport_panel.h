@@ -53,6 +53,15 @@ namespace CometEditor {
         [[nodiscard]] bool is_visible() const { return m_actually_visible; }
         [[nodiscard]] bool shows_colliders() const { return m_show_colliders; }
         [[nodiscard]] bool shows_joints() const { return m_show_joints; }
+        [[nodiscard]] bool path_trace_enabled() const { return m_path_trace; }
+        [[nodiscard]] const Comet::PathTraceSettings& path_trace_settings() const {
+            return m_path_trace_settings;
+        }
+        bool take_path_trace_restart() { return std::exchange(m_path_trace_restart, false); }
+        void set_path_trace_status(uint32_t samples, std::string error) {
+            m_path_trace_samples = samples;
+            m_path_trace_error = std::move(error);
+        }
 
         // 所有面板绘制后复核焦点／弹窗，避免当帧输入穿透到运行场景。
         [[nodiscard]] const Comet::Input::Frame& route_runtime_input(
@@ -123,6 +132,11 @@ namespace CometEditor {
         bool m_show_colliders = false;
         bool m_show_joints = false;
         bool m_game_ui_reload_requested = false;
+        bool m_path_trace = false;
+        bool m_path_trace_restart = false;
+        Comet::PathTraceSettings m_path_trace_settings;
+        uint32_t m_path_trace_samples = 0;
+        std::string m_path_trace_error;
         std::uint32_t m_max_render_dimension = 0;
         ViewportLayout::ResolutionPolicy m_play_resolution_policy;
         ViewportLayout::DisplayMode m_play_display_mode = ViewportLayout::DisplayMode::Fit;

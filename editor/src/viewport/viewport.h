@@ -17,6 +17,7 @@ namespace CometEditor::Ui {
 }
 
 namespace CometEditor {
+    class PathTracePreview;
     class Viewport final {
     public:
         Viewport(EditorState& state, const Comet::SceneRuntime& runtime,
@@ -25,6 +26,7 @@ namespace CometEditor {
             const EditorShortcuts& shortcuts, Comet::Renderer& renderer,
             Comet::AssetRegistry& assets, Ui::ImGuiContext& ui,
             Comet::PhysicsService::MeshSource meshes = {});
+        ~Viewport();
 
         Viewport(const Viewport&) = delete;
         Viewport& operator=(const Viewport&) = delete;
@@ -52,5 +54,7 @@ namespace CometEditor {
         ViewportPanel m_panel;
         Comet::LineDrawList m_feedback_lines;
         ColliderOverlay m_colliders;
+        std::unique_ptr<PathTracePreview> m_path_trace;
+        std::string m_path_trace_support_error;
     };
 }

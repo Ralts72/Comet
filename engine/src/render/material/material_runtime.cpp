@@ -10,6 +10,33 @@
 #include <utility>
 
 namespace Comet {
+    namespace {
+        template<typename Value, typename Properties>
+        std::optional<Value> parameter_value(const std::vector<std::byte>& bytes,
+            const Properties& properties, std::string_view name) {
+            for(const auto& property : properties) {
+                if(property.name != name)
+                    continue;
+                if(property.offset > bytes.size() || sizeof(Value) > bytes.size() - property.offset)
+                    return std::nullopt;
+                Value result;
+                std::memcpy(&result, bytes.data() + property.offset, sizeof(Value));
+                return result;
+            }
+            return std::nullopt;
+        }
+    }
+
+    std::optional<float> PreparedMaterial::get_scalar_property(std::string_view name) const {
+        return layout ? parameter_value<float>(parameters, layout->get_scalars(), name)
+                      : std::nullopt;
+    }
+
+    std::optional<Math::Vec4> PreparedMaterial::get_vector_property(std::string_view name) const {
+        return layout ? parameter_value<Math::Vec4>(parameters, layout->get_vectors(), name)
+                      : std::nullopt;
+    }
+
     Result<std::shared_ptr<const PreparedMaterial>> MaterialRuntimeCache::prepare(
         const AssetHandle handle, const std::shared_ptr<const Material>& material,
         const std::shared_ptr<const MaterialLayout>& layout,

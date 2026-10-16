@@ -33,6 +33,7 @@ add_library(editor_core STATIC
         src/assets/material_edit_session.cpp
         src/render/shader_reload.cpp
         src/render/material_shader_reload.cpp
+        src/render/path_trace_preview.cpp
         src/scene/command_history.cpp
         src/scene/editor_scene_session.cpp
         src/scene/scene_commands.cpp

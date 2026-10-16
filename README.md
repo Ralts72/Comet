@@ -4,7 +4,7 @@ Comet 是供作者个人学习使用的 3D 游戏引擎与编辑器，使用 C++
 引擎对外提供一个 `engine` 动态库；ImGui 编辑器与独立 App 共用场景、资产、Gameplay 和 RmlUi 游戏界面。
 
 目前支持场景编辑与撤销、glTF 静态／骨骼模型、参数化动画状态机、1D／2D 混合、独立动画库、基础跨骨架重定向、覆盖／加法分层与骨骼遮罩、动画事件、骨骼挂点、根运动与脚部 IK、静态网格 LOD、纹理 Mipmap、PBR／方向光级联与局部光阴影／IBL／局部反射探针／静态探针 GI／AO／距离雾／Bloom、Lua 热重载、刚体、凸包／静态网格碰撞、碰撞层与角色控制、导航网格与 NPC 寻路避障、射线／形状扫掠／范围查询、游戏内关卡切换与检查点存档、空间音效／监听者、流式 WAV 音乐、CPU billboard 粒子和游戏设置。
-独立渲染线程与场景更新重叠执行。Prefab 子树复用、基础覆盖和 Lua 生成已接入；嵌套 Prefab、高级动画／粒子、实时 GI、路径追踪继续按路线图推进；macOS 已支持独立 App 导出。
+独立渲染线程与场景更新重叠执行。Prefab 子树复用、基础覆盖和 Lua 生成已接入；嵌套 Prefab、高级动画／粒子、实时 GI 等继续按路线图推进；静态场景的软件 BVH／compute 渐进路径追踪预览已接入。macOS 已支持独立 App 导出。
 
 ## 快速开始
 
@@ -62,6 +62,7 @@ Windows 可使用相同 CMake preset，随后启动构建目录中的可执行�
 
 编辑器恢复上次打开的场景。通过“文件 → 切换场景”可选择角色场景，或打开 `scenes/default.scene` 查看材质、灯光与关节演示；`scenes/pbr_surfaces.scene` 展示 PBR 贴图、树叶裁切阴影与透明层叠。
 `scenes/navigation.scene` 是独立导航示例：NPC 绕墙巡逻，靠近后追逐玩家，远离后返回巡逻点；移动障碍用于观察局部避障。配置与使用见[导航说明](docs/usage.md#npc-导航)。
+`scenes/path_tracing.scene` 用于多次反弹与有色间接光参考；Edit 视口 → 视图 → 路径追踪，可调整采样与反弹，见[使用说明](docs/usage.md#渐进路径追踪)。
 `scenes/gi_closed_room.scene` 与 `scenes/gi_open_room.scene` 展示已烘焙的有色间接光；Play 中白色方块左右移动并采样光照，比较方式见[静态探针 GI](docs/usage.md#静态探针-gi)。
 `scenes/mesh_lod.scene` 展示三档静态网格；在 Inspector 添加“静态网格 LOD”可设置简化网格、切换比例与强制层级，详见[LOD 用法](docs/usage.md#静态网格-lod)。
 可选 HDR 环境图通过 `./tools/download_assets.sh` 下载，成功后同时生成保留场景引用 ID 的 `.meta`；角色场景不依赖这项下载。

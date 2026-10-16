@@ -10,7 +10,9 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace Comet {
@@ -26,7 +28,7 @@ namespace Comet {
         auto operator<=>(const MaterialInstanceKey&) const = default;
     };
 
-    struct PreparedMaterial {
+    struct COMET_API PreparedMaterial {
         struct TextureBinding {
             uint32_t binding;
             std::shared_ptr<Texture> texture; // 空值使用布局指定的默认纹理。
@@ -38,6 +40,8 @@ namespace Comet {
         std::vector<TextureBinding> textures;
         std::vector<std::byte> parameters;
         MaterialSurface surface;
+        [[nodiscard]] std::optional<float> get_scalar_property(std::string_view name) const;
+        [[nodiscard]] std::optional<Math::Vec4> get_vector_property(std::string_view name) const;
     };
 
     // 仅所属线程可访问；源对象跟踪版本，准备结果不可变。

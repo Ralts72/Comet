@@ -131,6 +131,8 @@ namespace Comet {
             QualitySettings settings);
         [[nodiscard]] const QualitySettings& get_quality_settings() const;
         [[nodiscard]] Math::Vec2u get_scene_size() const;
+        [[nodiscard]] uint32_t path_trace_samples(ViewId id = DEFAULT_VIEW) const;
+        [[nodiscard]] Result<void, GraphicsError> check_path_trace_support() const;
         [[nodiscard]] std::vector<uint32_t> supported_msaa_samples() const;
         [[nodiscard]] float max_anisotropy() const;
         [[nodiscard]] bool quality_pending() const { return m_pending_quality.has_value(); }

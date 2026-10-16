@@ -19,6 +19,7 @@
 namespace Comet {
     struct AnimationPlayback;
     struct MaterialOverrides;
+    struct PathTraceScene;
 
     struct COMET_API RenderCamera {
         enum class Projection { Perspective, Orthographic };
@@ -124,6 +125,16 @@ namespace Comet {
         std::shared_ptr<const ParticleSnapshot> particles;
     };
 
+    struct COMET_API PathTraceSettings {
+        uint32_t samples = 256;
+        uint32_t bounces = 4;
+        uint32_t seed = 0;
+        uint32_t max_dimension = 512;
+        [[nodiscard]] Result<void> validate() const;
+        [[nodiscard]] Math::Vec2u image_size(Math::Vec2u output) const;
+        bool operator==(const PathTraceSettings&) const = default;
+    };
+
     struct RenderView {
         enum class CameraSelection { ScenePrimary, Override };
 
@@ -131,5 +142,7 @@ namespace Comet {
         Math::Vec2u render_size{};
         CameraSelection camera_selection = CameraSelection::ScenePrimary;
         std::optional<RenderCamera> camera_override;
+        std::shared_ptr<const PathTraceScene> path_trace;
+        PathTraceSettings path_trace_settings;
     };
 }

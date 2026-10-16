@@ -462,6 +462,14 @@ CPU 数据随 Handle 或绘制快照保留，纹理保存 RGBA8 原像素，首�
 MaterialData 保存后端无关参数和表面模式（Alpha 模式、裁切阈值、双面），ShaderProgramData 保存程序契约，MaterialPrograms 由 Renderer 保存已发布程序／布局。
 Engine 持有 Main 的 MaterialProgramValidator；脚本参数校验与 Inspector 接纳只读布局反馈，后续 GPU 发布／清理不修改旧反馈。首次绘制前只反射 CPU 产物校验，不提前发布 GPU 版本。
 MaterialRenderer 负责具体 Pipeline、参数／纹理绑定与绘制；ShaderInterface 由 SPIR-V 反射，不把 Vk 对象写入资产字段。
+路径追踪是 `RenderView` 的替代场景积分方式。Main 通过已有 CPU 网格读取服务和解析后的材质快照生成
+`PathTraceScene`，仅启用预览时保留几何并构建世界空间 BVH；不把 CPU 几何常驻到所有 raster Mesh。
+常量材质复用 `MaterialRuntimeCache` 的默认值、实例覆盖与校验，再从不可变参数中读取 BSDF 数据。
+Render 只消费不可变快照；`PathTracePass` 拥有 compute 管线、描述符和 RGBA32F 累积图，RenderGraph 声明
+初始化／compute 读写／显示采样的依赖，沿同一 graphics queue 执行。输入或尺寸换代后，旧资源由在途 FrameSlot 保活。
+相机与采样参数控制每个视图的累积，曝光在显示阶段应用。Editor 的 `PathTracePreview` 只负责获取输入和呈现诊断，
+不在渲染线程访问 ECS、资产数据库、窗口或 ImGui；路径追踪不叠加 raster 阴影、AO 或已烘焙 GI。
+
 内置材质采用 Forward PBR、方向／点／聚光灯、一盏方向光的四级阴影、最多四盏聚光灯与两盏点光源阴影；Skybox、IBL 与辅助线共用场景输出。
 级联按相机深度划分，透视使用线性／对数混合分割，正交使用等距分割；球形范围、投影中心纹素对齐和 10% 重叠稳定采样。投射者深度范围包含世界界限，防止画面外遮挡者丢失；每级独立剔除、选 LOD，再分组绘制。Shader 在交界混合相邻级，最远一级淡出到无阴影，PCF 采样限制在各自图块内。
 聚光灯使用范围与外角构造透视投影。保守光锥界限通过相机裁剪、且覆盖场景界限的有效候选按实体 ID 分配四个槽位；超预算只取消投影，计数进入诊断。LightingData 统一保存各阴影视图的投影、图集区域、光源索引与偏移，ShadowPass 将几何绘制交给 DepthPass，共用深度管线、裁切绑定和实例缓冲；Shader 在透视除法后计算接收面偏移，不把方向光的仿射深度假设用于聚光灯。

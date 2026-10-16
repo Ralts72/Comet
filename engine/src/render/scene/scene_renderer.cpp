@@ -43,6 +43,7 @@ namespace Comet {
         std::unique_ptr<MaterialRenderer> materials;
         std::unique_ptr<DebugRenderer> debug;
         std::unique_ptr<ParticlePass> particles;
+        std::unique_ptr<PathTracePass> path_trace;
         RenderGraph::Plan graph;
         std::vector<RenderGraph::Binding> bindings;
         RenderGraph::ResourceId shadow_resource;
@@ -467,6 +468,11 @@ namespace Comet {
         return m_shadow->get_statistics();
     }
 
+    PathTracePass::Statistics SceneRenderer::get_path_trace_statistics() const {
+        return m_state->path_trace ? m_state->path_trace->statistics()
+                                   : PathTracePass::Statistics{};
+    }
+
     const PostProcessSettings& SceneRenderer::get_post_process_settings() const {
         return m_post_process;
     }
@@ -504,6 +510,28 @@ namespace Comet {
         frames.retain_current_frame_resource(m_state);
         frames.retain_current_frame_resource(m_state->output_target);
         frames.retain_current_frame_resource(m_state->hdr_target);
+        if(submission.path_trace && submission.view_project_matrix) {
+            m_state->materials->reset_statistics();
+            m_shadow->reset_statistics();
+            m_state->particles->reset();
+            if(!m_state->path_trace)
+                m_state->path_trace = std::make_unique<PathTracePass>(m_device);
+            auto& trace = *m_state->path_trace;
+            const auto display = [&](RenderGraph::PassId, CommandBuffer&) {
+                PostProcessSettings settings;
+                settings.exposure = m_post_process.exposure;
+                return m_state->output_pass->render(
+                    frames, m_state->output_target, trace.output(), settings);
+            };
+            if(auto drawn = trace.render(frames, submission.path_trace,
+                   *submission.view_project_matrix, submission.path_trace_settings,
+                   m_state->output_target->get_size(), display, diagnostics);
+                !drawn)
+                return RenderResult::failure(drawn.error());
+            return RenderResult::success({});
+        }
+        if(m_state->path_trace)
+            m_state->path_trace->reset();
         const auto image = frames.get_current_frame_slot_index();
         frames.retain_current_frame_resource(m_shadow);
         auto lighting = RenderDiagnostics::measure_preparation(diagnostics,
@@ -722,6 +750,8 @@ namespace Comet {
             return nullptr;
         if(slot >= m_frame_slot_count)
             LOG_FATAL("HDR frame slot {} exceeds frame slot count {}", slot, m_frame_slot_count);
+        if(m_state->path_trace && m_state->path_trace->statistics().samples != 0)
+            return m_state->path_trace->output();
         return m_state->hdr_target->get_color_view(slot);
     }
 

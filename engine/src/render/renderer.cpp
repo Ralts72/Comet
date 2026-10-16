@@ -146,6 +146,14 @@ namespace Comet {
         return limit;
     }
 
+    uint32_t Renderer::path_trace_samples(const ViewId id) const {
+        return get_view(id).scene->get_path_trace_statistics().samples;
+    }
+
+    Result<void, GraphicsError> Renderer::check_path_trace_support() const {
+        return PathTracePass::check_support(m_render_context->get_device());
+    }
+
     std::vector<std::shared_ptr<const MaterialLayout>> Renderer::get_material_layouts() const {
         return get_view(DEFAULT_VIEW).scene->get_material_layouts();
     }
@@ -326,25 +334,29 @@ namespace Comet {
         }
         const RenderWorld empty_world;
         const auto& world = frame.world ? *frame.world : empty_world;
-        RenderDiagnostics::measure_preparation(m_diagnostics.get(),
-            RenderDiagnostics::PreparationPhase::Geometry, [&] { m_geometry.prepare(world); });
-        std::vector<MaterialRenderer*> materials;
-        materials.reserve(m_views.size());
-        for(auto& [id, view] : m_views)
-            materials.push_back(&view.scene->get_material_renderer());
-        if(auto programs = RenderDiagnostics::measure_preparation(m_diagnostics.get(),
-               RenderDiagnostics::PreparationPhase::MaterialPrograms,
-               [&] { return MaterialRenderer::prepare_programs(materials, world); });
-            !programs)
-            return programs;
         std::vector<QueueSemaphoreSubmit> resource_waits;
-        if(!m_skinning)
-            m_skinning = std::make_shared<SkinningPass>(
-                m_render_context->get_device(), m_settings.render.max_frames_in_flight);
-        if(auto skinned = m_skinning->prepare(world, *m_frames, m_geometry, resource_waits);
-            !skinned)
-            return skinned;
-        m_frames->retain_current_frame_resource(m_skinning);
+        const bool needs_raster = std::ranges::any_of(frame.views,
+            [](const auto& input) { return input.draw && !input.parameters.path_trace; });
+        if(needs_raster) {
+            RenderDiagnostics::measure_preparation(m_diagnostics.get(),
+                RenderDiagnostics::PreparationPhase::Geometry, [&] { m_geometry.prepare(world); });
+            std::vector<MaterialRenderer*> materials;
+            materials.reserve(m_views.size());
+            for(auto& [id, view] : m_views)
+                materials.push_back(&view.scene->get_material_renderer());
+            if(auto programs = RenderDiagnostics::measure_preparation(m_diagnostics.get(),
+                   RenderDiagnostics::PreparationPhase::MaterialPrograms,
+                   [&] { return MaterialRenderer::prepare_programs(materials, world); });
+                !programs)
+                return programs;
+            if(!m_skinning)
+                m_skinning = std::make_shared<SkinningPass>(
+                    m_render_context->get_device(), m_settings.render.max_frames_in_flight);
+            if(auto skinned = m_skinning->prepare(world, *m_frames, m_geometry, resource_waits);
+                !skinned)
+                return skinned;
+            m_frames->retain_current_frame_resource(m_skinning);
+        }
         // 诊断查询覆盖第一个可见 View；其他 View 不重复开启同一组 GPU 查询。
         bool diagnosed = false;
         for(const auto& input : frame.views) {
@@ -371,8 +383,9 @@ namespace Comet {
         const RenderFrame::View& input, const RenderWorld& world, const bool has_scene,
         std::vector<QueueSemaphoreSubmit>& waits, RenderDiagnostics* diagnostics) {
         const auto& frame_view = input.parameters;
-        const RenderSubmission submission{
-            world, has_scene ? view.camera.resolve(world, frame_view) : std::nullopt};
+        const RenderSubmission submission{world,
+            has_scene ? view.camera.resolve(world, frame_view) : std::nullopt,
+            frame_view.path_trace, frame_view.path_trace_settings};
         if(auto prepared = view.scene->prepare_post_process(world.post_process); !prepared)
             return prepared;
         const auto& pick_request = input.pick;

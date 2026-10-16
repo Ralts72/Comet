@@ -1,0 +1,44 @@
+#pragma once
+
+#include "render/path_trace_scene.h"
+#include "render/render_graph.h"
+#include "render/scene/render_types.h"
+
+namespace Comet {
+    class Device;
+    class ImageView;
+    class RenderDiagnostics;
+
+    class COMET_API PathTracePass {
+    public:
+        struct Statistics {
+            uint32_t samples = 0;
+            uint32_t triangles = 0;
+            uint32_t nodes = 0;
+            Math::Vec2u size{};
+        };
+        explicit PathTracePass(Device& device);
+        ~PathTracePass();
+        [[nodiscard]] static Result<void, GraphicsError> check_support(const Device& device);
+        [[nodiscard]] Result<void, GraphicsError> render(FrameScheduler& frames,
+            const std::shared_ptr<const PathTraceScene>& scene, const ViewProjectMatrix& camera,
+            const PathTraceSettings& settings, Math::Vec2u output_size,
+            const RenderGraph::RecordPass& display, RenderDiagnostics* diagnostics = nullptr);
+        [[nodiscard]] std::shared_ptr<ImageView> output() const;
+        [[nodiscard]] Statistics statistics() const;
+        void reset();
+
+    private:
+        struct Program;
+        struct Resources;
+        Result<void, GraphicsError> initialize();
+        Result<void, GraphicsError> prepare(
+            const std::shared_ptr<const PathTraceScene>& scene, Math::Vec2u size);
+        Device& m_device;
+        std::shared_ptr<Program> m_program;
+        std::shared_ptr<Resources> m_resources;
+        Math::Mat4 m_view_projection{0};
+        PathTraceSettings m_settings;
+        uint32_t m_samples = 0;
+    };
+}

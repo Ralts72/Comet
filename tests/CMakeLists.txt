@@ -106,6 +106,7 @@ set(UNIT_TEST_SOURCES
         physics/test_physics_service.cpp
         ui/test_demo_ui.cpp
         ui/test_resource_dependencies.cpp
+        render/test_path_trace_scene.cpp
         render/test_lighting.cpp
         render/test_line_draw_list.cpp
         render/test_material.cpp
@@ -174,6 +175,7 @@ set(INTEGRATION_SOURCES
         graphics/test_shader_interface.cpp
         graphics/test_swapchain.cpp
         graphics/test_upload_manager.cpp
+        render/test_path_tracing.cpp
         render/test_bloom.cpp
         render/test_debug_renderer.cpp
         render/test_frame_edit_order.cpp
@@ -285,7 +287,7 @@ if(COMET_BUILD_EDITOR)
     add_test(NAME editor_ui_testing COMMAND editor_ui_testing)
     set_tests_properties(editor_ui_testing PROPERTIES LABELS "integration;ui")
 endif()
-set(SYNC_VALIDATION_FILTER "QualityGpuTest.*:RenderGraphGpuTest.*:SkinningGpuTest.*:BloomGpuTest.*:RenderDiagnosticsGpuTest.*:ImGuiOverlayGpuTest.*:RmlUiGpuTest.*:RmlContextGpuTest.*:ProjectUiGpuTest.*:EditorGameUiGpuTest.*:OverlayRecordContextTest.*:ResourceRetirementTest.*:RenderThreadTest.*")
+set(SYNC_VALIDATION_FILTER "QualityGpuTest.*:RenderGraphGpuTest.*:PathTraceGpuTest.*:SkinningGpuTest.*:BloomGpuTest.*:RenderDiagnosticsGpuTest.*:ImGuiOverlayGpuTest.*:RmlUiGpuTest.*:RmlContextGpuTest.*:ProjectUiGpuTest.*:EditorGameUiGpuTest.*:OverlayRecordContextTest.*:ResourceRetirementTest.*:RenderThreadTest.*")
 add_test(NAME integration_testing COMMAND integration_testing
         "--gtest_filter=-${SYNC_VALIDATION_FILTER}" ${TEST_PLATFORM_ARGS})
 set_tests_properties(integration_testing PROPERTIES LABELS "integration;gpu" RESOURCE_LOCK comet_gpu)

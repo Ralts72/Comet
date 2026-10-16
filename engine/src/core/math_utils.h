@@ -46,6 +46,11 @@ namespace Comet::Math {
                && std::isfinite(value.w);
     }
 
+    [[nodiscard]] inline bool is_finite(const Mat4& value) {
+        return is_finite(value[0]) && is_finite(value[1]) && is_finite(value[2])
+               && is_finite(value[3]);
+    }
+
     template<typename T> T identity() {
         return glm::identity<T>();
     }

@@ -1,5 +1,6 @@
 #include "viewport/viewport.h"
 #include "viewport/physics_overlay.h"
+#include "render/path_trace_preview.h"
 
 #include "asset/registry.h"
 #include "diagnostics/logger.h"
@@ -48,7 +49,13 @@ namespace CometEditor {
           m_gizmo(history, components),
           m_panel(state, runtime, selection, m_gizmo, inspector_edit,
               std::min(renderer.max_render_target_dimension(), std::uint32_t{4096}), shortcuts),
-          m_colliders(std::move(meshes)) {}
+          m_colliders(meshes), m_path_trace(std::make_unique<PathTracePreview>(
+                                   assets, std::move(meshes.read), std::move(meshes.revision))) {
+        if(auto support = renderer.check_path_trace_support(); !support)
+            m_path_trace_support_error = support.error().message;
+    }
+
+    Viewport::~Viewport() = default;
 
     void Viewport::update_texture() {
         const auto frame = m_renderer.get_offscreen_frame();
@@ -71,9 +78,29 @@ namespace CometEditor {
         }
         if(m_panel.take_focus_request() && m_state.mode == EditorMode::Edit)
             focus_selection(scene);
-        if(auto view = m_renderer.set_render_view(make_render_view(
-               m_state, m_panel.is_visible(), m_panel.get_requested_render_size()));
-            !view)
+        auto parameters =
+            make_render_view(m_state, m_panel.is_visible(), m_panel.get_requested_render_size());
+        std::string trace_error;
+        if(scene && m_panel.is_visible() && m_panel.path_trace_enabled()
+            && m_state.mode == EditorMode::Edit) {
+            if(m_panel.take_path_trace_restart())
+                m_path_trace->reset();
+            if(!m_path_trace_support_error.empty()) {
+                trace_error = m_path_trace_support_error;
+            } else {
+                auto snapshot = m_path_trace->update(*scene);
+                if(snapshot) {
+                    parameters.path_trace = std::move(snapshot).value();
+                    parameters.path_trace_settings = m_panel.path_trace_settings();
+                } else {
+                    trace_error = snapshot.error();
+                }
+            }
+        } else {
+            m_path_trace->reset();
+        }
+        m_panel.set_path_trace_status(m_renderer.path_trace_samples(), std::move(trace_error));
+        if(auto view = m_renderer.set_render_view(std::move(parameters)); !view)
             return Comet::Result<void, Comet::Error>::failure(view.error().as_error());
         update_texture();
         m_panel.draw_gizmo();

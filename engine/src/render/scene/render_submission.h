@@ -120,5 +120,7 @@ namespace Comet {
     struct RenderSubmission {
         const RenderWorld& world;
         std::optional<ViewProjectMatrix> view_project_matrix;
+        std::shared_ptr<const PathTraceScene> path_trace;
+        PathTraceSettings path_trace_settings;
     };
 }

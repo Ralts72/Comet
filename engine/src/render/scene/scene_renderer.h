@@ -8,6 +8,7 @@
 #include "graphics/queue.h"
 #include "render/material/material_renderer.h"
 #include "render/passes/shadow_pass.h"
+#include "render/passes/path_trace_pass.h"
 #include "render/scene/render_submission.h"
 #include "render/scene/render_geometry.h"
 #include "render/debug/line_draw_list.h"
@@ -45,6 +46,7 @@ namespace Comet {
             const;
         [[nodiscard]] MaterialRenderer::Statistics get_material_statistics() const;
         [[nodiscard]] ShadowPass::Statistics get_shadow_statistics() const;
+        [[nodiscard]] PathTracePass::Statistics get_path_trace_statistics() const;
         [[nodiscard]] const PostProcessSettings& get_post_process_settings() const;
         [[nodiscard]] const QualitySettings& get_quality_settings() const { return m_quality; }
         [[nodiscard]] Math::Vec2u get_scene_size() const;
