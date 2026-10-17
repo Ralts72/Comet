@@ -817,4 +817,76 @@ namespace Comet::Tests {
         EXPECT_FALSE(RealtimeIrradiancePass::validate_region(settings));
     }
 
+    TEST_F(
+        RealtimeIrradianceGpuTest, CrossRegionFeedbackReadsPreviousHistoriesAndNormalizesOverlap) {
+        auto& device = engine->get_renderer().get_render_context().get_device();
+        FrameScheduler frames(device, 2);
+        frames.initialize_swapchain_images(1);
+        FrameWait wait{device, frames};
+        RealtimeIrradiancePass pass(device);
+        ProbeScene scene;
+        scene.world.lights.clear();
+        ASSERT_TRUE(scene.material->set_vector_property("emissive_color", {.15f, 0, 0, 1}));
+        auto wall = scene.world.render_items.front();
+        wall.entity_id = EntityId(2);
+        wall.model_matrix =
+            Math::translate(Math::Mat4(1), {0, 0, 2}) * Math::scale(Math::Mat4(1), {-1, 1, -1});
+        auto grey = std::make_shared<Material>("cross region wall", "pbr");
+        ASSERT_TRUE(grey->set_vector_property("base_color", {.8f, .8f, .8f, 1}));
+        wall.material.resource = grey;
+        scene.world.render_items.push_back(wall);
+        ASSERT_NO_FATAL_FAILURE(scene.capture());
+        auto first = region();
+        first.center.z = .5f;
+        first.half_extents = {4, 4, .25f};
+        first.spacing = 4;
+        first.history_weight = .5f;
+        first.bounce_strength = .75f;
+        auto second = first;
+        second.entity_id = EntityId(2);
+        second.center.z = 1.75f;
+        second.half_extents.z = .5f;
+        auto readback = std::make_shared<Readback>(
+            device, device.get_capability().physical_device, 8 * sizeof(IrradianceProbe));
+        const auto converge = [&](std::vector<RenderIrradianceVolume> regions) {
+            pass.reset();
+            double energy = 0;
+            for(int frame = 0; frame < 64; ++frame) {
+                begin_frame(frames);
+                auto updated =
+                    pass.update(frames, 1, scene.snapshot, regions, uint32_t(regions.size()) * 8);
+                EXPECT_TRUE(updated) << updated.error().message;
+                if(!updated)
+                    return 0.;
+                EXPECT_EQ(pass.statistics().updated_probes, 8 * regions.size());
+                EXPECT_EQ(pass.statistics().rays, 8 * regions.size() * (128 + 64));
+                const auto found = std::ranges::find(updated.value(), first.entity_id,
+                    [](const auto& value) { return value.volume.entity_id; });
+                if(found == updated.value().end()) {
+                    ADD_FAILURE() << "Missing first region";
+                    return 0.;
+                }
+                copy_probes(frames, *found->resource, readback);
+                submit(device, frames);
+                frames.wait_for_all_slots();
+                auto data = decode_probes(*found->resource, *readback);
+                EXPECT_TRUE(data.validate());
+                if(frame >= 56)
+                    for(const auto& probe : data.probes)
+                        energy += probe.coefficients[0].r;
+            }
+            return energy;
+        };
+        const auto alone = converge({first});
+        const auto connected = converge({first, second});
+        const auto reordered = converge({second, first});
+        auto duplicate = first;
+        duplicate.entity_id = EntityId(3);
+        const auto overlapping = converge({first, duplicate});
+        EXPECT_GT(alone, .01);
+        EXPECT_GT(connected, alone * 1.01);
+        EXPECT_NEAR(connected, reordered, connected * .0001);
+        EXPECT_NEAR(overlapping, alone, alone * .0001);
+    }
+
 }

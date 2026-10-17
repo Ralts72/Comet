@@ -4,6 +4,7 @@
 #include "asset/data/animation_library.h"
 #include "asset/data/game_data.h"
 #include "asset/data/irradiance_data.h"
+#include "asset/data/vector_field_data.h"
 #include "asset/serialization/animation_controller_serializer.h"
 #include "asset/default_assets.h"
 #include "scene/prefab.h"
@@ -448,6 +449,21 @@ namespace Comet {
                 if(!prepared)
                     return Result<std::shared_ptr<Environment>, Error>::failure({prepared.error()});
                 return m_render_factory.prepare(std::move(prepared).value().data);
+            });
+    }
+
+    Result<std::shared_ptr<VectorField>, Error> AssetLoader::load_vector_field(
+        const AssetHandle handle) {
+        using Loaded = Result<std::shared_ptr<VectorField>, Error>;
+        return load_runtime_asset<VectorField>(m_database, m_registry, handle,
+            AssetType::VectorField, [this](const AssetRecord& record) -> Loaded {
+                auto path = m_database.paths().resolve_asset_path(record.path);
+                if(!path)
+                    return Loaded::failure({path.error()});
+                auto data = VectorFieldData::load(path.value());
+                if(!data)
+                    return Loaded::failure({data.error()});
+                return m_render_factory.prepare(std::move(data).value());
             });
     }
 

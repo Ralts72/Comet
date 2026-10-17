@@ -494,6 +494,18 @@ namespace Comet {
             return Info::success(std::move(info));
         }
     }
+    Result<TerrainData> TerrainImporter::load_heightfield(
+        const std::filesystem::path& source, const AssetImportLimits& limits) {
+        auto config = read_source(source, limits);
+        if(!config)
+            return Result<TerrainData>::failure(config.error());
+        auto field = load_heights(std::move(config).value(), source, limits);
+        if(!field)
+            return Result<TerrainData>::failure(field.error());
+        auto data = std::move(field.value().data);
+        data.heightmap.clear();
+        return Result<TerrainData>::success(std::move(data));
+    }
     Result<ModelImporter::SourceInfo> TerrainImporter::inspect_source(
         const std::filesystem::path& source, const AssetImportLimits& limits) {
         auto data = read_source(source, limits);

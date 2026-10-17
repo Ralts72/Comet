@@ -21,7 +21,8 @@ namespace Comet {
                                                                               const auto&) {
                 if(collider.is_trigger
                     || (collider.shape != ColliderShape::Box
-                        && collider.shape != ColliderShape::Sphere))
+                        && collider.shape != ColliderShape::Sphere
+                        && collider.shape != ColliderShape::Capsule))
                     return;
                 const auto matrix = interpolating ? scene.get_render_transform(entity).world_matrix
                                                   : scene.get_world_matrix(entity);
@@ -34,12 +35,24 @@ namespace Comet {
                         glm::length(Math::Vec3(matrix[1])), glm::length(Math::Vec3(matrix[2]))});
                     result.world_to_local = Math::translate(Math::Mat4(1), -Math::Vec3(matrix[3]));
                     result.extent_shape = Math::Vec4(Math::Vec3(collider.radius * scale), 1);
+                } else if(collider.shape == ColliderShape::Capsule) {
+                    const auto scale = Math::uniform_scale(matrix);
+                    if(!scale || collider.height <= 2 * collider.radius)
+                        return;
+                    auto pose = matrix;
+                    for(int axis = 0; axis < 3; ++axis)
+                        pose[axis] /= *scale;
+                    result.world_to_local = Math::inverse(pose);
+                    result.extent_shape = {collider.radius * *scale,
+                        (collider.height * .5f - collider.radius) * *scale,
+                        collider.radius * *scale, 2};
                 } else {
                     result.world_to_local = Math::inverse(matrix);
                     result.extent_shape = Math::Vec4(collider.half_extents, 0);
                 }
-                if(!Math::is_finite(result.extent_shape)
-                    || glm::any(glm::lessThanEqual(Math::Vec3(result.extent_shape), Math::Vec3(0))))
+                if(!Math::is_finite(result.extent_shape) || result.extent_shape.x <= 0
+                    || result.extent_shape.z <= 0 || result.extent_shape.y < 0
+                    || (result.extent_shape.w != 2 && result.extent_shape.y == 0))
                     return;
                 result.layers[0] = collider.collision_layer;
                 candidates.emplace_back(entity.get_id(), result);

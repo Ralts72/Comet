@@ -1,4 +1,5 @@
 #include "inspector/asset_inspector.h"
+#include "animation/retarget_preview.h"
 #include "asset/artifact/shader_program_artifact.h"
 #include "assets/asset_reference.h"
 #include "render/material/material_programs.h"
@@ -74,6 +75,7 @@ namespace CometEditor {
             finish_material_edit();
             return;
         }
+        if(m_retarget_preview) m_retarget_preview->enabled = false;
         m_selected_asset = handle;
         m_loaded_target = {};
         m_texture_import_settings.reset();

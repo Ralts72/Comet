@@ -64,7 +64,7 @@ namespace {
     constexpr unsigned MAX_PHYSICS_OBJECTS = 512;
     constexpr std::string_view USAGE =
         "Usage: render_benchmark OUTPUT.csv OBJECTS WIDTH HEIGHT FRAMES BLOOM(0/1) "
-        "[MATERIALS [static|moving|script-moving|skeletal|light-moving|culling|project-shader|physics-active|physics-sleeping|reflections-off|reflections|gi-off|gi|gi-moving "
+        "[MATERIALS [static|moving|script-moving|skeletal|light-moving|culling|project-shader|physics-active|physics-sleeping|reflections-off|reflections|gi-off|gi|gi-moving|gi-bounces|gi-skeletal "
         "[MSAA ANISOTROPY RENDER_SCALE [forward|deferred [GI_REGIONS(1..4)]]]]]";
 
     enum class Workload {
@@ -81,7 +81,9 @@ namespace {
         Reflections,
         IrradianceOff,
         Irradiance,
-        IrradianceMoving
+        IrradianceMoving,
+        IrradianceBounces,
+        IrradianceSkeletal
     };
 
     std::string_view workload_name(Workload workload) {
@@ -106,6 +108,10 @@ namespace {
                 return "reflections-off";
             case Workload::Reflections:
                 return "reflections";
+            case Workload::IrradianceBounces:
+                return "gi-bounces";
+            case Workload::IrradianceSkeletal:
+                return "gi-skeletal";
             case Workload::IrradianceMoving:
                 return "gi-moving";
             case Workload::IrradianceOff:
@@ -118,12 +124,17 @@ namespace {
     }
 
     bool irradiance_enabled(Workload workload) {
-        return workload == Workload::Irradiance || workload == Workload::IrradianceMoving;
+        return workload == Workload::Irradiance || workload == Workload::IrradianceMoving
+               || workload == Workload::IrradianceBounces
+               || workload == Workload::IrradianceSkeletal;
     }
     bool uses_irradiance(Workload workload) {
         return irradiance_enabled(workload) || workload == Workload::IrradianceOff;
     }
 
+    bool uses_skeletal(Workload workload) {
+        return workload == Workload::Skeletal || workload == Workload::IrradianceSkeletal;
+    }
     bool uses_physics(Workload workload) {
         return workload == Workload::PhysicsActive || workload == Workload::PhysicsSleeping;
     }
@@ -184,6 +195,10 @@ namespace {
                 workload = Workload::Reflections;
             else if(name == "gi-off")
                 workload = Workload::IrradianceOff;
+            else if(name == "gi-bounces")
+                workload = Workload::IrradianceBounces;
+            else if(name == "gi-skeletal")
+                workload = Workload::IrradianceSkeletal;
             else if(name == "gi-moving")
                 workload = Workload::IrradianceMoving;
             else if(name == "gi")
@@ -363,7 +378,7 @@ namespace {
             return Result<void>::failure(imported.error().message);
         if(auto loaded = assets.ensure_loaded(mesh_handle, Comet::AssetType::Mesh); !loaded)
             return Result<void>::failure(loaded.error().message);
-        if(options.workload == Workload::Skeletal) {
+        if(uses_skeletal(options.workload)) {
             if(auto loaded =
                     assets.ensure_loaded(Comet::DEFAULT_CHARACTER_MESH, Comet::AssetType::Mesh);
                 !loaded)
@@ -440,7 +455,7 @@ namespace {
         const auto columns = static_cast<unsigned>(std::ceil(std::sqrt(options.objects)));
         const float spacing = 10.0f / columns;
         for(unsigned index = 0; index < options.objects; ++index) {
-            const bool skeletal = options.workload == Workload::Skeletal;
+            const bool skeletal = uses_skeletal(options.workload);
             auto entity = create_entity(skeletal ? "Animated character" : "PBR cube");
             entity.add_component<Comet::MeshRendererComponent>(
                 skeletal ? Comet::DEFAULT_CHARACTER_MESH : mesh_handle,
@@ -507,6 +522,8 @@ namespace {
             environment.realtime_gi_budget = 8;
             if(!scene->set_environment(environment))
                 return Result<void>::failure("Invalid benchmark GI budget");
+            const bool feedback = options.workload == Workload::IrradianceBounces
+                                  || options.workload == Workload::IrradianceSkeletal;
             for(unsigned i = 0; i < options.gi_regions; ++i) {
                 const auto name = "Realtime GI region " + std::to_string(i + 1);
                 auto region = create_entity(name.c_str());
@@ -519,7 +536,8 @@ namespace {
                         .spacing = 1,
                         .realtime = true,
                         .update_budget = 8,
-                        .update_rays = 64});
+                        .update_rays = 64,
+                        .bounce_strength = feedback ? .65f : 0});
             }
         }
         engine.set_scene(std::move(scene));
@@ -739,11 +757,10 @@ namespace {
                    << "# scripts="
                    << (m_options.workload == Workload::ScriptMoving ? m_options.objects : 0) << '\n'
                    << "# skeletal_instances="
-                   << (m_options.workload == Workload::Skeletal ? m_options.objects : 0)
-                   << " animation_delta_s="
-                   << (m_options.workload == Workload::Skeletal ? 1.0 / 60 : 0)
-                   << " animation_clip="
-                   << (m_options.workload == Workload::Skeletal ? "walk" : "none") << '\n'
+                   << (uses_skeletal(m_options.workload) ? m_options.objects : 0)
+                   << " animation_delta_s=" << (uses_skeletal(m_options.workload) ? 1.0 / 60 : 0)
+                   << " animation_clip=" << (uses_skeletal(m_options.workload) ? "walk" : "none")
+                   << '\n'
                    << "# light_rotation_degrees_per_frame="
                    << (m_options.workload == Workload::LightMoving
                                   || uses_irradiance(m_options.workload)
@@ -838,7 +855,7 @@ namespace {
             const auto visible_materials = std::min(m_options.materials, visible_objects);
             const auto& shadow = scene.get_shadow_statistics();
             const bool project_shader = m_options.workload == Workload::ProjectShader;
-            const bool skeletal = m_options.workload == Workload::Skeletal;
+            const bool skeletal = uses_skeletal(m_options.workload);
             const auto draws = project_shader || skeletal ? visible_objects + 1 : visible_materials;
             const auto pipeline_binds =
                 project_shader || skeletal || visible_objects >= 2 * visible_materials - 1 ? 1u
@@ -871,7 +888,8 @@ namespace {
                     || gi.updated_probes != 8 || gi.rays != 1024 || !gi.geometry_upload_bytes)
                     return Result<void>::failure("GI benchmark did not update the expected probes");
                 const bool geometry_changed = gi.geometry_upload_bytes != m_gi_geometry_bytes;
-                const bool expected_motion = m_options.workload == Workload::IrradianceMoving;
+                const bool expected_motion = m_options.workload == Workload::IrradianceMoving
+                                             || m_options.workload == Workload::IrradianceSkeletal;
                 if(m_gi_geometry_bytes && geometry_changed != expected_motion)
                     return Result<void>::failure(
                         "GI benchmark geometry uploads do not match the motion workload");
@@ -1001,21 +1019,20 @@ namespace {
             if(auto started = engine->start_scene_runtime(); !started)
                 return Result<void>::failure(started.error().message);
         }
-        if(options.workload == Workload::Skeletal) {
+        if(uses_skeletal(options.workload))
             if(auto added = engine->add_system(std::make_unique<SkeletalAnimationSystem>()); !added)
                 return Result<void>::failure(added.error().message);
-            if(auto started = engine->start_scene_runtime(); !started)
-                return Result<void>::failure(started.error().message);
-        }
-        if(options.workload == Workload::Moving || options.workload == Workload::LightMoving
-            || uses_irradiance(options.workload)) {
+        const bool scene_motion = options.workload == Workload::Moving
+                                  || options.workload == Workload::LightMoving
+                                  || uses_irradiance(options.workload);
+        if(scene_motion)
             if(auto added = engine->add_system(
                    std::make_unique<SceneAnimationSystem>(std::move(initial_poses)));
                 !added)
                 return Result<void>::failure(added.error().message);
+        if(uses_skeletal(options.workload) || scene_motion)
             if(auto started = engine->start_scene_runtime(); !started)
                 return Result<void>::failure(started.error().message);
-        }
         if(uses_physics(options.workload)) {
             if(auto added = engine->add_default_scene_systems(); !added)
                 return Result<void>::failure(added.error().message);

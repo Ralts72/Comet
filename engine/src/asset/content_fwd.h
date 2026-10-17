@@ -13,4 +13,6 @@ namespace Comet {
     struct COMET_API NavigationData;
     struct COMET_API IrradianceData;
     struct COMET_API Irradiance;
+    struct COMET_API VectorFieldData;
+    struct COMET_API VectorField;
 }

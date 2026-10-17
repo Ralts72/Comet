@@ -18,9 +18,16 @@ layout(push_constant) uniform Parameters {
 // 双面求交用于识别实心几何内的探针；背面不向外发射间接光。
 #define RAY_CULL_BACKFACES 0
 #include "raytracing/scene.glsl"
-#define COMET_IRRADIANCE_GRID int
-#define COMET_IRRADIANCE_FETCH(grid, coordinate) imageLoad(previous_probes, coordinate)
+#define COMET_IRRADIANCE_TEXTURE_SET 1
+#define COMET_IRRADIANCE_TEXTURE_BINDING 1
+#define COMET_IRRADIANCE_SAMPLER_BINDING 2
+#include "lighting/irradiance_texture.glsl"
 #include "lighting/irradiance_sampling.glsl"
+#include "lighting/irradiance_blending.glsl"
+layout(std140, set = 1, binding = 0) uniform Feedback {
+    IrradianceVolume volumes[MAX_IRRADIANCE_VOLUMES];
+    uvec4 counts;
+} feedback;
 
 shared vec3 radiances[256];
 shared vec3 directions[256];
@@ -29,13 +36,9 @@ shared float probe_active;
 
 vec3 feedback_radiance(Surface surface, vec3 point, vec3 normal, float bias) {
     if(parameters.visibility.z <= 0) return vec3(0);
-    IrradianceVolume grid;
-    grid.origin_intensity = vec4(parameters.origin_distance.xyz, 1);
-    grid.spacing_bias = vec4(parameters.spacing_history.xyz, max(bias, parameters.visibility.w));
-    grid.dimensions_blend = vec4(parameters.grid_dimensions.xyz, 0);
     vec3 indirect;
-    float spatial_weight;
-    if(!sample_irradiance_grid(0, grid, point, normal, indirect, spatial_weight)) return vec3(0);
+    if(!sample_irradiance_regions(feedback.volumes, int(feedback.counts.x), point, normal, bias, indirect))
+        return vec3(0);
     vec3 diffuse = surface.albedo_metallic.rgb * (1 - surface.albedo_metallic.a);
     return diffuse * indirect * parameters.visibility.z;
 }

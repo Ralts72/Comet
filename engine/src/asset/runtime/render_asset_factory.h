@@ -27,6 +27,7 @@ namespace Comet {
         [[nodiscard]] Result<std::shared_ptr<Texture>, Error> prepare(TextureData data);
         [[nodiscard]] Result<std::shared_ptr<Environment>, Error> prepare(EnvironmentData data);
         [[nodiscard]] Result<std::shared_ptr<Irradiance>, Error> prepare(IrradianceData data);
+        [[nodiscard]] Result<std::shared_ptr<VectorField>, Error> prepare(VectorFieldData data);
         [[nodiscard]] Result<std::shared_ptr<Environment>, Error> prepare_preview(
             TextureData background);
         [[nodiscard]] static Result<std::shared_ptr<Material>, Error> prepare_material(

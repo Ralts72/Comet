@@ -1,4 +1,6 @@
 #include "animation/animation_retarget.h"
+#include <cctype>
+#include <set>
 #include <glm/gtc/matrix_inverse.hpp>
 #include <algorithm>
 #include <unordered_set>
@@ -10,10 +12,11 @@ namespace Comet {
             Math::Quat rotation;
             float scale;
         };
-        Result<std::vector<RestFrame>> rest_frames(const AnimationData& data) {
+        Result<std::vector<RestFrame>> rest_frames(
+            const AnimationData& data, std::span<const JointTransform> local = {}) {
             std::vector<Math::Mat4> world(data.nodes.size());
             for(const auto i : data.evaluation_order) {
-                const auto& rest = data.nodes[i].rest;
+                const auto& rest = local.empty() ? data.nodes[i].rest : local[i];
                 world[i] = Math::translate(Math::Mat4(1), rest.translation)
                            * glm::mat4_cast(rest.rotation) * Math::scale(Math::Mat4(1), rest.scale);
                 if(data.nodes[i].parent != NO_ANIMATION_NODE)
@@ -47,29 +50,88 @@ namespace Comet {
                         "Retargeting needs unique node names");
             return Result<std::map<std::string, uint32_t>>::success(std::move(nodes));
         }
+        Result<std::vector<JointTransform>> reference_transforms(const AnimationData& data,
+            const std::map<std::string, uint32_t>& names,
+            const std::map<std::string, Math::Vec3>& corrections) {
+            using Posed = Result<std::vector<JointTransform>>;
+            if(corrections.size() > 256)
+                return Posed::failure("Too many reference pose corrections");
+            std::vector<JointTransform> local;
+            local.reserve(data.nodes.size());
+            for(const auto& node : data.nodes)
+                local.push_back(node.rest);
+            for(const auto& [name, degrees] : corrections) {
+                const auto found = names.find(name);
+                if(found == names.end())
+                    return Posed::failure("Reference pose bone is missing: " + name);
+                if(!Math::is_finite(degrees)
+                    || glm::any(glm::greaterThan(glm::abs(degrees), Math::Vec3(180))))
+                    return Posed::failure("Invalid reference pose correction: " + name);
+                auto ancestor = data.mesh_node;
+                while(ancestor != NO_ANIMATION_NODE && ancestor != found->second)
+                    ancestor = data.nodes[ancestor].parent;
+                if(ancestor == found->second)
+                    return Posed::failure("Reference pose cannot rotate the mesh basis");
+                auto& rotation = local[found->second].rotation;
+                rotation = glm::normalize(rotation * Math::Quat(glm::radians(degrees)));
+            }
+            return Posed::success(std::move(local));
+        }
         Result<std::vector<RestFrame>> calibrated_rest_frames(const AnimationData& data,
             const std::map<std::string, uint32_t>& names,
             const std::map<std::string, Math::Vec3>& corrections) {
             if(corrections.empty())
                 return rest_frames(data);
-            AnimationData calibrated{.mesh_node = data.mesh_node,
-                .nodes = data.nodes,
-                .evaluation_order = data.evaluation_order};
-            for(const auto& [name, degrees] : corrections) {
-                const auto found = names.find(name);
-                if(found == names.end())
-                    return Result<std::vector<RestFrame>>::failure(
-                        "Reference pose bone is missing: " + name);
-                auto ancestor = data.mesh_node;
-                while(ancestor != NO_ANIMATION_NODE && ancestor != found->second)
-                    ancestor = data.nodes[ancestor].parent;
-                if(ancestor == found->second)
-                    return Result<std::vector<RestFrame>>::failure(
-                        "Reference pose cannot rotate the mesh basis");
-                auto& rotation = calibrated.nodes[found->second].rest.rotation;
-                rotation = glm::normalize(rotation * Math::Quat(glm::radians(degrees)));
+            auto local = reference_transforms(data, names, corrections);
+            if(!local)
+                return Result<std::vector<RestFrame>>::failure(local.error());
+            return rest_frames(data, local.value());
+        }
+        std::string bone_semantic(std::string_view name) {
+            if(const auto split = name.find_last_of(":|/"); split != std::string_view::npos)
+                name.remove_prefix(split + 1);
+            std::string key;
+            for(unsigned char character : name)
+                if(std::isalnum(character))
+                    key.push_back(char(std::tolower(character)));
+            for(std::string_view prefix : {"mixamorig", "armature", "bip001", "source", "src"})
+                if(key.starts_with(prefix))
+                    key.erase(0, prefix.size());
+            std::string side;
+            if(key.starts_with("left")) {
+                side = "l";
+                key.erase(0, 4);
+            } else if(key.starts_with("right")) {
+                side = "r";
+                key.erase(0, 5);
+            } else if(key.ends_with("left")) {
+                side = "l";
+                key.resize(key.size() - 4);
+            } else if(key.ends_with("right")) {
+                side = "r";
+                key.resize(key.size() - 5);
             }
-            return rest_frames(calibrated);
+            const auto canonical = [](std::string value) {
+                constexpr std::pair<std::string_view, std::string_view> aliases[]{
+                    {"hips", "pelvis"}, {"hip", "pelvis"}, {"body", "pelvis"}, {"arm", "upperarm"},
+                    {"forearm", "lowerarm"}, {"wrist", "hand"}, {"upleg", "thigh"},
+                    {"upperleg", "thigh"}, {"leg", "calf"}, {"lowerleg", "calf"}, {"ankle", "foot"},
+                    {"shoulder", "clavicle"}, {"toebase", "toe"}, {"toes", "toe"},
+                    {"torso", "spine"}, {"spine001", "spine1"}, {"spine002", "spine2"}};
+                for(const auto& [from, to] : aliases)
+                    if(value == from)
+                        return std::string(to);
+                return value;
+            };
+            if(side.empty() && key.size() > 1 && (key.back() == 'l' || key.back() == 'r')) {
+                auto base = canonical(key.substr(0, key.size() - 1));
+                if(base == "upperarm" || base == "lowerarm" || base == "hand" || base == "thigh"
+                    || base == "calf" || base == "foot" || base == "clavicle" || base == "toe") {
+                    side = key.back();
+                    key = std::move(base);
+                }
+            }
+            return canonical(std::move(key)) + side;
         }
         struct RetargetChain {
             std::vector<uint32_t> source, target;
@@ -249,6 +311,50 @@ namespace Comet {
             }
             return false;
         }
+    }
+    Result<std::map<std::string, std::string>> suggest_bone_mapping(const AnimationData& source,
+        const AnimationData& target, const std::map<std::string, std::string>& existing) {
+        using Matched = Result<std::map<std::string, std::string>>;
+        if(auto valid = validate_animation(source); !valid)
+            return Matched::failure(valid.error());
+        if(auto valid = validate_animation(target); !valid)
+            return Matched::failure(valid.error());
+        auto from_names = named_nodes(source), to_names = named_nodes(target);
+        if(!from_names || !to_names)
+            return Matched::failure(!from_names ? from_names.error() : to_names.error());
+        std::map<std::string, std::vector<std::string>> from, to;
+        for(const auto& joint : source.joints)
+            from[bone_semantic(source.nodes[joint.node].name)].push_back(
+                source.nodes[joint.node].name);
+        for(const auto& joint : target.joints)
+            to[bone_semantic(target.nodes[joint.node].name)].push_back(
+                target.nodes[joint.node].name);
+        auto output = existing;
+        std::set<std::string> used;
+        for(const auto& [_, name] : existing)
+            used.insert(name);
+        for(const auto& [semantic, names] : from) {
+            const auto found = to.find(semantic);
+            if(semantic.empty() || names.size() != 1 || found == to.end()
+                || found->second.size() != 1 || output.contains(names.front())
+                || used.contains(found->second.front()))
+                continue;
+            output.emplace(names.front(), found->second.front());
+            used.insert(found->second.front());
+        }
+        return Matched::success(std::move(output));
+    }
+    Result<AnimationPose> retarget_reference_pose(
+        const AnimationData& data, const std::map<std::string, Math::Vec3>& corrections) {
+        if(auto valid = validate_animation(data); !valid)
+            return Result<AnimationPose>::failure(valid.error());
+        auto names = named_nodes(data);
+        if(!names)
+            return Result<AnimationPose>::failure(names.error());
+        auto local = reference_transforms(data, names.value(), corrections);
+        if(!local)
+            return Result<AnimationPose>::failure(local.error());
+        return build_animation_pose(data, std::move(local).value());
     }
     Result<void> AnimationRetarget::validate() const {
         if(nodes.size() > 4096 || translations.size() > 128 || chains.size() > 32

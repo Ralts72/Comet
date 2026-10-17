@@ -1,4 +1,7 @@
 #include "viewport/viewport.h"
+#include "render/resource/vector_field.h"
+#include "assets/terrain_editing.h"
+#include "animation/retarget_preview.h"
 #include "viewport/physics_overlay.h"
 
 #include "asset/registry.h"
@@ -60,12 +63,19 @@ namespace CometEditor {
         SelectionService& selection, CommandHistory& history,
         const Comet::ComponentRegistry& components, PropertyEditTransaction& inspector_edit,
         const EditorShortcuts& shortcuts, Comet::Renderer& renderer, Comet::AssetRegistry& assets,
-        Ui::ImGuiContext& ui, Comet::PhysicsService::MeshSource meshes)
+        Ui::ImGuiContext& ui, Comet::PhysicsService::MeshSource meshes,
+        EditorAssets* editable_assets)
         : m_state(state), m_selection(selection), m_renderer(renderer), m_assets(assets), m_ui(ui),
           m_gizmo(history, components),
           m_panel(state, runtime, selection, m_gizmo, inspector_edit,
               std::min(renderer.max_render_target_dimension(), std::uint32_t{4096}), shortcuts),
-          m_colliders(std::move(meshes)) {}
+          m_colliders(std::move(meshes)) {
+        if(editable_assets) {
+            m_terrain = std::make_unique<TerrainEditing>(*editable_assets, history, components);
+            m_panel.set_terrain_editing(m_terrain.get());
+            m_retarget = std::make_unique<RetargetPreview>(*editable_assets);
+        }
+    }
 
     Viewport::~Viewport() = default;
 
@@ -83,6 +93,8 @@ namespace CometEditor {
 
     Comet::Result<void, Comet::Error> Viewport::update(Comet::Scene* scene) {
         if(m_state.mode == EditorMode::Edit) {
+            if(m_retarget)
+                m_retarget->update();
             if(const auto projection = m_panel.take_projection_request())
                 m_state.camera.projection = *projection;
             if(const auto input = m_panel.take_camera_input())
@@ -160,6 +172,41 @@ namespace CometEditor {
             if(!entity)
                 continue;
             const auto& world = scene.get_world_matrix(entity);
+            if(entity.has_component<Comet::ParticleEmitterComponent>()) {
+                const auto& emitter = entity.get_component<Comet::ParticleEmitterComponent>();
+                const auto origin = Comet::Math::Vec3(world[3]);
+                static_cast<void>(m_feedback_lines.add_line(
+                    origin, origin + emitter.wind * .1f, {.2f, .7f, 1, 1}));
+                if(emitter.vortex_strength != 0) {
+                    static_cast<void>(m_feedback_lines.add_sphere(emitter.vortex_radius,
+                        Comet::Math::translate(Comet::Math::Mat4(1), emitter.vortex_center),
+                        {.4f, .7f, 1, 1}));
+                    static_cast<void>(m_feedback_lines.add_line(emitter.vortex_center,
+                        emitter.vortex_center
+                            + glm::normalize(emitter.vortex_axis) * emitter.vortex_radius,
+                        {.4f, .7f, 1, 1}));
+                }
+                if(const auto field = m_assets.resolve<Comet::VectorField>(emitter.vector_field)) {
+                    const auto& data = field->data;
+                    static_cast<void>(m_feedback_lines.add_box(data.bounds, {.1f, 1, .6f, 1}));
+                    // 固定 5³ 可视采样，不随资产分辨率膨胀。
+                    for(int z = 0; z < 5; ++z)
+                        for(int y = 0; y < 5; ++y)
+                            for(int x = 0; x < 5; ++x) {
+                                const auto point =
+                                    data.bounds.minimum
+                                    + data.bounds.size() * Comet::Math::Vec3(x, y, z) * .25f;
+                                auto direction =
+                                    data.sample(point) * emitter.vector_field_strength * .1f;
+                                const float length = glm::length(direction),
+                                            limit = glm::length(data.bounds.size()) * .05f;
+                                if(length > limit)
+                                    direction *= limit / length;
+                                static_cast<void>(m_feedback_lines.add_line(
+                                    point, point + direction, {.1f, 1, .6f, 1}));
+                            }
+                }
+            }
             if(entity.has_component<Comet::NavigationObstacleComponent>()) {
                 const auto& obstacle = entity.get_component<Comet::NavigationObstacleComponent>();
                 static_cast<void>(m_feedback_lines.add_box(
@@ -201,6 +248,10 @@ namespace CometEditor {
                 m_renderer.request_viewport_pick(
                     *pixel, m_panel.get_layout().image_resolution, scene->get_lifetime());
             append_selection_bounds(*scene);
+            if(m_retarget)
+                m_retarget->append(m_feedback_lines, m_state.camera.target);
+            if(m_terrain && m_panel.terrain_tool())
+                m_terrain->append(*scene, m_feedback_lines);
         } else {
             m_renderer.cancel_viewport_pick();
         }

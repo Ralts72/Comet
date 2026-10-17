@@ -3,6 +3,7 @@
 #include "asset/data/material_data.h"
 #include "asset/data/environment_data.h"
 #include "asset/data/irradiance_data.h"
+#include "render/resource/vector_field.h"
 #include "asset/data/mesh_data.h"
 #include "render/material/material.h"
 #include "render/resource/environment.h"
@@ -38,6 +39,9 @@ namespace Comet {
         return asset_creation<Environment>(Environment::try_create(m_resources, std::move(data)));
     }
 
+    Result<std::shared_ptr<VectorField>, Error> RenderAssetFactory::prepare(VectorFieldData data) {
+        return asset_creation<VectorField>(VectorField::try_create(m_resources, std::move(data)));
+    }
     Result<std::shared_ptr<Irradiance>, Error> RenderAssetFactory::prepare(IrradianceData data) {
         return asset_creation<Irradiance>(Irradiance::try_create(m_resources, std::move(data)));
     }

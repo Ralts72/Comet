@@ -41,6 +41,8 @@ namespace CometEditor {
         [[nodiscard]] Comet::AssetScanReport create_terrain(
             const std::filesystem::path& destination);
         [[nodiscard]] Comet::Result<void, Comet::Error> apply_terrain_edit(const AssetEdit& edit);
+        [[nodiscard]] Comet::Result<std::shared_ptr<const Comet::ModelData>, Comet::Error>
+        rebuild_terrain(Comet::AssetHandle asset);
         [[nodiscard]] Comet::Result<Comet::AnimationLibrary> read_animation_library(
             const Comet::AssetTarget& target) const;
         [[nodiscard]] Comet::Result<Comet::GameData> read_data(

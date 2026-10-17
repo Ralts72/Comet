@@ -72,6 +72,47 @@ namespace Comet::Tests {
             }
         }
     }
+    TEST(AnimationRetargetTest, SuggestionsUseUniqueJointSemanticsAndPreserveManualMappings) {
+        auto source = rig(false), target = rig(true);
+        source.nodes[1].name = "mixamorig:Hips";
+        source.nodes[2].name = "mixamorig:LeftUpLeg";
+        source.nodes[3].name = "mixamorig:LeftLeg";
+        target.nodes[1].name = "pelvis";
+        target.nodes[2].name = "thigh_l";
+        target.nodes[3].name = "calf_l";
+        auto matched = suggest_bone_mapping(source, target);
+        ASSERT_TRUE(matched) << matched.error();
+        EXPECT_EQ(matched.value().at("mixamorig:Hips"), "pelvis");
+        EXPECT_EQ(matched.value().at("mixamorig:LeftUpLeg"), "thigh_l");
+        EXPECT_EQ(matched.value().at("mixamorig:LeftLeg"), "calf_l");
+        matched = suggest_bone_mapping(source, target, {{"mixamorig:LeftUpLeg", "calf_l"}});
+        ASSERT_TRUE(matched);
+        EXPECT_EQ(matched.value().at("mixamorig:LeftUpLeg"), "calf_l");
+        EXPECT_FALSE(matched.value().contains("mixamorig:LeftLeg"));
+        target.nodes[3].name = "left_thigh";
+        matched = suggest_bone_mapping(source, target);
+        ASSERT_TRUE(matched);
+        EXPECT_FALSE(matched.value().contains("mixamorig:LeftUpLeg"));
+        source.nodes[1].name = "骨盆";
+        target.nodes[1].name = "脊柱";
+        matched = suggest_bone_mapping(source, target);
+        ASSERT_TRUE(matched);
+        EXPECT_FALSE(matched.value().contains("骨盆"));
+    }
+    TEST(AnimationRetargetTest, ReferencePreviewUsesCalibrationWithoutChangingSourceOrMeshBasis) {
+        const auto data = rig(true);
+        auto frame = retarget_reference_pose(data, {{"hip", {0, 0, 45}}});
+        ASSERT_TRUE(frame) << frame.error();
+        EXPECT_EQ(frame.value().local_transforms[2].translation, data.nodes[2].rest.translation);
+        const auto expected =
+            data.nodes[2].rest.rotation * Math::Quat(glm::radians(Math::Vec3(0, 0, 45)));
+        EXPECT_NEAR(
+            std::abs(glm::dot(frame.value().local_transforms[2].rotation, expected)), 1, .00001);
+        EXPECT_FALSE(retarget_reference_pose(data, {{"mesh", {0, 0, 0}}}));
+        EXPECT_FALSE(retarget_reference_pose(data, {{"missing", {0, 0, 0}}}));
+        EXPECT_FALSE(retarget_reference_pose(data, {{"hip", {0, 181, 0}}}));
+        EXPECT_EQ(data.nodes[2].rest.rotation, rig(true).nodes[2].rest.rotation);
+    }
     TEST(AnimationRetargetTest, ChainsResampleUnequalBoneCountsAndKeepTargetLengths) {
         AnimationData source{.mesh_node = 0};
         source.nodes = {{"mesh"}, {"upper"}, {"lower", 1, {.translation = {0, 1, 0}}},
@@ -278,6 +319,11 @@ namespace Comet::Tests {
                                           - node_pose.value().matrices[joint][column]),
                         .005f);
         }
+        auto suggested = suggest_bone_mapping(*source.value().animation, *target.value().animation);
+        ASSERT_TRUE(suggested) << suggested.error();
+        auto automatic = definition.value();
+        automatic.retargets.begin()->second.nodes = suggested.value();
+        ASSERT_TRUE(automatic.bind(*target.value().animation));
         auto compatible_only = definition.value();
         compatible_only.retargets.clear();
         EXPECT_FALSE(compatible_only.bind(*target.value().animation));

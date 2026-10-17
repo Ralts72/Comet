@@ -30,7 +30,8 @@ namespace Comet {
         Data,
         AnimationLibrary,
         Irradiance,
-        Navigation
+        Navigation,
+        VectorField
     };
 
     [[nodiscard]] COMET_API std::string_view to_string(AssetType type) noexcept;

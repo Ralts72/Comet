@@ -1,4 +1,5 @@
 #include "assets/source_operations.h"
+#include "asset/data/vector_field_data.h"
 #include "asset/data/irradiance_data.h"
 #include "asset/data/navigation_data.h"
 #include "asset/data/game_data.h"
@@ -135,6 +136,7 @@ namespace CometEditor::AssetSourceOperations {
                 case AssetType::Texture:
                 case AssetType::Environment:
                 case AssetType::Irradiance:
+                case AssetType::VectorField:
                 case AssetType::Navigation:
                 case AssetType::Script:
                 case AssetType::Audio:
@@ -578,6 +580,10 @@ namespace CometEditor::AssetSourceOperations {
                     break;
                 case AssetType::Environment:
                     return EnvironmentImporter{}.validate_source(source);
+                case AssetType::VectorField:
+                    if(auto result = Comet::VectorFieldData::load(source); !result)
+                        return Result<void>::failure(result.error());
+                    break;
                 case AssetType::Irradiance:
                     if(auto result = Comet::IrradianceData::load(source); !result)
                         return Result<void>::failure(result.error());
@@ -1127,7 +1133,7 @@ return script
         const auto* record = database.find(source);
         if(!record)
             return false;
-        if(record->type == AssetType::Data)
+        if(record->type == AssetType::Data || record->type == AssetType::VectorField)
             return true;
         if(extension == ".lua")
             return record->type == AssetType::Script;

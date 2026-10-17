@@ -1,5 +1,6 @@
 #include "support/render_graph_gpu_fixture.h"
 #include "render/passes/gpu_particle_simulation.h"
+#include "render/resource/vector_field.h"
 
 namespace Comet::Tests {
     TEST_F(RenderGraphGpuTest, GpuDynamicsKeepsVelocityPauseAndScreenCollisionAcrossFrameSlots) {
@@ -127,11 +128,11 @@ namespace Comet::Tests {
             Math::Vec4 position_age, velocity;
             std::array<uint32_t, 4> metadata;
         };
-        for(bool sphere : {false, true})
+        for(int shape : {0, 1, 2})
             for(auto mode :
                 {ParticleCollision::None, ParticleCollision::Bounce, ParticleCollision::Kill})
                 for(bool layers : {false, true}) {
-                    SCOPED_TRACE(sphere);
+                    SCOPED_TRACE(shape);
                     SCOPED_TRACE(int(mode));
                     SCOPED_TRACE(layers);
                     GpuParticleSimulation simulation(device, 1);
@@ -140,9 +141,10 @@ namespace Comet::Tests {
                     FrameWait wait{device, frames};
                     ParticleWorldCollider collider;
                     collider.world_to_local =
-                        Math::translate(Math::Mat4(1), {0, sphere ? 0.f : .5f, 0});
+                        Math::translate(Math::Mat4(1), {0, shape ? 0.f : .5f, 0});
                     collider.extent_shape =
-                        sphere ? Math::Vec4(1, 1, 1, 1) : Math::Vec4(10, .5f, 10, 0);
+                        shape ? Math::Vec4(1, shape == 2 ? .5f : 1.f, 1, float(shape))
+                              : Math::Vec4(10, .5f, 10, 0);
                     GpuParticleEmitter emitter;
                     emitter.id = 1;
                     emitter.count = 1;
@@ -162,6 +164,7 @@ namespace Comet::Tests {
                     emitter.settings.restitution = .75f;
                     emitter.spawns = {{Math::translate(Math::Mat4(1), {0, 2, 0}), 0, 0, 0, 1}};
                     std::vector<std::byte> previous;
+                    bool bounced = false;
                     for(int frame = 0; frame <= 11; ++frame) {
                         emitter.time = std::min(frame, 10) * .05;
                         begin_frame(frames);
@@ -187,12 +190,15 @@ namespace Comet::Tests {
                         submit(device, frames, waits);
                         frames.wait_for_all_slots();
                         const auto bytes = readback->read();
+                        State state;
+                        std::memcpy(
+                            &state, bytes.data() + sizeof(vk::DrawIndirectCommand), sizeof(state));
+                        bounced |= state.velocity.y > 0;
                         if(frame == 10)
                             previous = bytes;
                         if(frame != 11)
                             continue;
                         EXPECT_EQ(bytes, previous);
-                        State state;
                         vk::DrawIndirectCommand draw;
                         std::memcpy(&draw, bytes.data(), sizeof(draw));
                         std::memcpy(&state, bytes.data() + sizeof(draw), sizeof(state));
@@ -206,11 +212,92 @@ namespace Comet::Tests {
                             EXPECT_EQ(draw.instanceCount, 0u);
                         else {
                             EXPECT_EQ(draw.instanceCount, 1u);
-                            EXPECT_GT(state.position_age.y, sphere ? 1.f : 0.f);
-                            EXPECT_GT(state.velocity.y, 0);
+                            EXPECT_GT(state.position_age.y, shape ? 1.f : 0.f);
+                            EXPECT_TRUE(bounced);
                         }
                     }
                 }
+    }
+
+    TEST_F(RenderGraphGpuTest, ImportedVectorFieldMatchesTrilinearReferenceAndRetainsPausedState) {
+        auto& context = engine->get_renderer().get_render_context();
+        auto& device = context.get_device();
+        VectorFieldData data;
+        data.bounds = {{-2, -2, -2}, {2, 2, 2}};
+        for(int z = 0; z < 2; ++z)
+            for(int y = 0; y < 2; ++y)
+                for(int x = 0; x < 2; ++x)
+                    data.values.emplace_back(1.f + y, 2.f - x, .5f + z);
+        auto field = VectorField::try_create(engine->get_render_resources(), data);
+        ASSERT_TRUE(field);
+        auto depth = engine->get_render_resources().try_create_texture(
+            TextureData{.width = 1, .height = 1, .pixels = {255, 255, 255, 255}});
+        ASSERT_TRUE(depth);
+        const ViewProjectMatrix camera{
+            Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}), Math::ortho(-1, 1, -1, 1, .1f, 10)};
+        GpuParticleEmitter emitter;
+        emitter.count = 1;
+        emitter.id = 1;
+        auto& settings = emitter.settings;
+        settings.simulation = ParticleSimulation::GPU;
+        settings.gpu_dynamics = true;
+        settings.vector_field = AssetHandle(1);
+        settings.speed = 0;
+        settings.acceleration = {0, 0, 0};
+        settings.lifetime = 4;
+        const Math::Vec3 origin(.3f, .2f, -.1f);
+        emitter.spawns = {{Math::translate(Math::Mat4(1), origin), 0, 0, 0, 1}};
+        GpuParticleSimulation simulation(device, 2);
+        FrameScheduler frames(device, 2);
+        frames.initialize_swapchain_images(1);
+        FrameWait wait{device, frames};
+        std::array<std::shared_ptr<const VectorField>, 1> fields{field.value()};
+        struct State {
+            Math::Vec4 position_age, velocity;
+            std::array<uint32_t, 4> metadata;
+        };
+        Math::Vec3 expected = origin, velocity(0);
+        std::vector<std::byte> previous;
+        for(int frame = 0; frame < 4; ++frame) {
+            emitter.time = frame ? .1 : 0;
+            begin_frame(frames);
+            auto prepared = simulation.prepare(frames, camera, std::span(&emitter, 1), false,
+                depth.value()->get_image_view(), 1, {}, fields);
+            ASSERT_TRUE(prepared) << prepared.error();
+            auto readback =
+                std::make_shared<Readback>(device, context.get_context().get_physical_device(),
+                    sizeof(vk::DrawIndirectCommand) + sizeof(State));
+            auto command = frames.get_current_command_buffer().get();
+            command.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
+                vk::PipelineStageFlagBits::eTransfer, {},
+                vk::MemoryBarrier(
+                    vk::AccessFlagBits::eShaderWrite, vk::AccessFlagBits::eTransferRead),
+                {}, {});
+            command.copyBuffer(simulation.outputs().front().indirect->get(), readback->get(),
+                vk::BufferCopy(0, 0, readback->get_size()));
+            frames.retain_current_frame_resource(readback);
+            std::vector<QueueSemaphoreSubmit> waits;
+            for(const auto& texture : {depth.value(), field.value()->texture})
+                if(auto ready = texture->get_ready_completion(); ready.is_valid())
+                    waits.emplace_back(ready, Flags<PipelineStage>(PipelineStage::ComputeShader));
+            submit(device, frames, waits);
+            frames.wait_for_all_slots();
+            const auto bytes = readback->read();
+            State state;
+            std::memcpy(&state, bytes.data() + sizeof(vk::DrawIndirectCommand), sizeof(state));
+            if(frame == 1) {
+                constexpr float dt = .1f / 6;
+                for(int step = 0; step < 6; ++step) {
+                    auto acceleration = data.sample(expected);
+                    expected += velocity * dt + acceleration * (.5f * dt * dt);
+                    velocity += acceleration * dt;
+                }
+                EXPECT_LT(glm::length(Math::Vec3(state.position_age) - expected), .00001);
+                EXPECT_LT(glm::length(Math::Vec3(state.velocity) - velocity), .00001);
+                previous = bytes;
+            } else if(frame > 1)
+                EXPECT_EQ(bytes, previous);
+        }
     }
 
 }

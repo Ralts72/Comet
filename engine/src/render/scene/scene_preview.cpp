@@ -206,6 +206,7 @@ namespace Comet {
         captured->reflection_probes.clear();
         captured->particles.reset();
         captured->particle_textures.clear();
+        captured->particle_fields.clear();
         captured->environment.fog_enabled = false;
         captured->post_process = {};
         return start(std::move(captured), std::move(cameras), Output::LinearHdr, true);

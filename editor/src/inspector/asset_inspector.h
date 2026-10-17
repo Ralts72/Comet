@@ -20,11 +20,13 @@ namespace Comet {
 
 namespace CometEditor {
     // 拥有资产编辑草稿；文件与 GPU 操作仍由宿主消费请求后执行。
+    class RetargetPreview;
     class AssetInspector {
     public:
         AssetInspector(
             const Comet::AssetDatabase& database, const Comet::MaterialProgramValidator& programs);
         void select(Comet::AssetHandle handle);
+        void set_retarget_preview(RetargetPreview* preview) { m_retarget_preview = preview; }
         void complete_asset_read(
             const Comet::AssetTarget& request, Comet::Result<Comet::GameData> result);
         void complete_asset_read(
@@ -80,6 +82,7 @@ namespace CometEditor {
         [[nodiscard]] std::shared_ptr<const Comet::MaterialLayout> layout_for(
             Comet::AssetHandle program, const std::string& template_name) const;
 
+        RetargetPreview* m_retarget_preview = nullptr;
         const Comet::AssetDatabase& m_asset_database;
         const Comet::MaterialProgramValidator& m_material_parameters;
         Comet::AssetHandle m_selected_asset;

@@ -50,6 +50,7 @@ set(COMET_ASSET_DATA_SOURCES
     src/asset/data/game_data.cpp
     src/asset/data/irradiance_data.cpp
     src/asset/data/terrain_data.cpp
+    src/asset/data/vector_field_data.cpp
     src/asset/data/navigation_data.cpp
     src/asset/data/texture_sampling.cpp
     src/asset/data/cubemap_sampling.cpp
@@ -266,6 +267,7 @@ set(COMET_RENDER_SOURCES
     src/render/resource/texture.cpp
     src/render/resource/environment.cpp
     src/render/resource/irradiance.cpp
+    src/render/resource/vector_field.cpp
     src/render/resource/render_asset_factory.cpp
     src/render/resource/sampled_image_binding.cpp
     src/render/render_context.cpp

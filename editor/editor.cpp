@@ -940,7 +940,8 @@ namespace {
             m_viewport = std::make_unique<CometEditor::Viewport>(m_editor_state,
                 get_engine().get_scene_runtime(), *m_selection, m_command_history,
                 m_component_registry, m_property_edit, m_shortcuts, get_engine().get_renderer(),
-                get_engine().get_asset_registry(), *m_imgui_context, preview_meshes);
+                get_engine().get_asset_registry(), *m_imgui_context, preview_meshes,
+                m_assets.get());
 
             m_inspector_panel = std::make_unique<CometEditor::InspectorPanel>(m_editor_state,
                 *m_selection, m_command_history, m_property_edit, m_component_registry,
@@ -948,6 +949,7 @@ namespace {
                 get_engine().get_material_parameters(), &get_engine().get_scene_runtime(),
                 m_reflection_bake.get(), m_irradiance_bake.get(), m_navigation_bake.get(),
                 preview_meshes);
+            m_inspector_panel->asset_inspector().set_retarget_preview(m_viewport->retarget_preview());
             m_project_panel = std::make_unique<CometEditor::ProjectPanel>(m_assets->database(),
                 m_project.paths().assets(), std::move(initial_asset_scan), *m_selection,
                 m_command_history);

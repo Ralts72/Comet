@@ -22,6 +22,11 @@ namespace Comet {
         [[nodiscard]] Result<void> validate() const;
         bool operator==(const AnimationRetarget&) const = default;
     };
+    [[nodiscard]] COMET_API Result<std::map<std::string, std::string>> suggest_bone_mapping(
+        const AnimationData& source, const AnimationData& target,
+        const std::map<std::string, std::string>& existing = {});
+    [[nodiscard]] COMET_API Result<AnimationPose> retarget_reference_pose(
+        const AnimationData&, const std::map<std::string, Math::Vec3>& corrections);
     [[nodiscard]] COMET_API Result<AnimationData> retarget_animation(const AnimationData& source,
         const AnimationData& target, const AnimationRetarget& settings);
 }

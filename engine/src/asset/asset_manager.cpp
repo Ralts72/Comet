@@ -180,6 +180,8 @@ namespace Comet {
         switch(expected_type) {
             case AssetType::Navigation:
                 return status(load_navigation(handle));
+            case AssetType::VectorField:
+                return status(load_vector_field(handle));
             case AssetType::Irradiance:
                 return status(load_irradiance(handle));
             case AssetType::AnimationLibrary:
@@ -311,6 +313,12 @@ namespace Comet {
     Result<std::shared_ptr<NavigationData>, Error> AssetManager::load_navigation(
         AssetHandle handle) {
         return m_loader->load_navigation(handle);
+    }
+
+    Result<std::shared_ptr<VectorField>, Error> AssetManager::load_vector_field(
+        AssetHandle handle) {
+        m_released_assets.erase(handle);
+        return m_loader->load_vector_field(handle);
     }
 
     Result<std::shared_ptr<Irradiance>, Error> AssetManager::load_irradiance(AssetHandle handle) {

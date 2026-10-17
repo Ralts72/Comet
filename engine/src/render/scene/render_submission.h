@@ -88,6 +88,7 @@ namespace Comet {
         std::vector<ParticleWorldCollider> particle_colliders;
         // 与快照的 CPU batches、GPU emitters 顺序对应。
         std::vector<std::shared_ptr<Texture>> particle_textures;
+        std::vector<std::shared_ptr<const VectorField>> particle_fields;
         // 随世界快照复制，保证独立消费者的解析批次连续性。
         struct ResolutionCache {
             uint64_t asset_revision = 0;
@@ -115,6 +116,7 @@ namespace Comet {
             particles.reset();
             particle_colliders.clear();
             particle_textures.clear();
+            particle_fields.clear();
             environment = {};
             post_process = {};
             environment_revision = 0;

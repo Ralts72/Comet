@@ -8,6 +8,7 @@ endif()
 
 add_library(editor_core STATIC
         src/editor_state.cpp
+        src/animation/retarget_preview.cpp
         src/inspector/animation_preview.cpp
         src/inspector/particle_preview.cpp
         src/ui/window_state.cpp
@@ -24,6 +25,7 @@ add_library(editor_core STATIC
         src/assets/navigation_bake.cpp
         src/assets/reflection_bake.cpp
         src/assets/lighting_bake_input.cpp
+        src/assets/terrain_editing.cpp
         src/assets/editor_assets.cpp
         src/assets/scene_asset_references.cpp
         src/assets/source_operations.cpp

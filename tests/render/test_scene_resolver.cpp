@@ -6,6 +6,7 @@
 #include "render/material/material.h"
 #include "render/resource/render_resources.h"
 #include "render/resource/texture.h"
+#include "render/resource/vector_field.h"
 #include "asset/data/texture_data.h"
 #include "render/resource/environment.h"
 #include "render/resource/mesh.h"
@@ -704,6 +705,38 @@ namespace Comet::Tests {
         EXPECT_FALSE(resolver.resolve(scene).environment_resource);
         EXPECT_NE(messages.str().find("expected environment resource", reported.size()),
             std::string::npos);
+    }
+
+    TEST(SceneResolverTest, ParticleFieldsSurviveUnchangedRefreshAndFreezePublishedVersions) {
+        AssetRegistry registry;
+        constexpr AssetHandle handle{80402};
+        auto original = std::make_shared<VectorField>();
+        ASSERT_TRUE(registry.register_asset(handle, original));
+        SceneResolver resolver(registry);
+        RenderScene scene;
+        auto particles = std::make_shared<ParticleSnapshot>();
+        particles->gpu_emitters.push_back({.settings = {.vector_field = handle}});
+        scene.particles = particles;
+        auto frozen = resolver.update(scene);
+        ASSERT_EQ(frozen->particle_fields.size(), 1u);
+        EXPECT_EQ(frozen->particle_fields.front(), original);
+        resolver.refresh_assets();
+        auto stable = resolver.update(scene);
+        resolver.refresh_assets();
+        EXPECT_EQ(stable->particle_fields.front(), original);
+        RenderWorld world = *stable;
+        resolver.refresh_assets(world);
+        EXPECT_EQ(world.particle_fields.front(), original);
+
+        const auto replacement = std::make_shared<VectorField>();
+        ASSERT_TRUE(registry.replace_asset(handle, replacement));
+        resolver.refresh_assets(world);
+        EXPECT_FALSE(world.particle_fields.front());
+        resolver.resolve(scene, world);
+        EXPECT_EQ(world.particle_fields.front(), replacement);
+        EXPECT_EQ(frozen->particle_fields.front(), original);
+        EXPECT_EQ(stable->particle_fields.front(), original);
+        EXPECT_EQ(world.particles, particles);
     }
 
     TEST(SceneResolverTest, BuildsViewProjectionFromPrimaryCamera) {

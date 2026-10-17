@@ -3,6 +3,8 @@
 #include "asset/default_assets.h"
 #include "render/resource/environment.h"
 #include "assets/editor_assets.h"
+#include "animation/retarget_preview.h"
+#include "render/debug/line_draw_list.h"
 #include "assets/material_editing.h"
 #include "asset/serialization/metadata_serializer.h"
 #include "asset/artifact/mesh_artifact.h"
@@ -142,6 +144,67 @@ namespace CometEditor::Tests {
             return record->handle;
         }
     };
+
+    TEST_F(EditorAssetsTest, RetargetPreviewRejectsStaleModelsAndRecoversAfterPoseCorrection) {
+        using namespace Comet;
+        std::filesystem::copy_file(std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY)
+                                       / "assets/animations/retarget_walk.glb",
+            ProjectPaths(root).assets() / "animated.glb");
+        ASSERT_TRUE(assets->refresh().succeeded());
+        complete_imports();
+        const auto* record = assets->database().find("animated.glb");
+        ASSERT_TRUE(record);
+        const auto model =
+            assets->load_model({record->handle, assets->database().get_revision(record->handle)});
+        ASSERT_TRUE(model) << model.error().message;
+        AssetHandle animated;
+        for(const auto& node : model.value()->nodes)
+            if(!node.parts.empty()) {
+                animated = node.parts.front().mesh;
+                break;
+            }
+        ASSERT_TRUE(animated);
+        RetargetPreview preview(*assets);
+        preview.enabled = true;
+        AnimationRetarget settings;
+        preview.request(animated, animated, settings);
+        preview.update();
+        ASSERT_TRUE(preview.error().empty()) << preview.error();
+        ASSERT_TRUE(preview.source() && preview.target());
+        LineDrawList original;
+        preview.append(original, {});
+        ASSERT_FALSE(original.empty());
+        EXPECT_TRUE(preview.suggest(settings));
+        EXPECT_FALSE(settings.nodes.empty());
+
+        settings.source_pose["missing"] = {0, 0, 10};
+        preview.request(animated, animated, settings);
+        preview.update();
+        EXPECT_FALSE(preview.error().empty());
+        LineDrawList invalid;
+        preview.append(invalid, {});
+        EXPECT_TRUE(invalid.empty());
+        settings.source_pose.clear();
+        preview.request(animated, animated, settings);
+        preview.update();
+        ASSERT_TRUE(preview.error().empty()) << preview.error();
+        LineDrawList restored;
+        preview.append(restored, {});
+        EXPECT_EQ(restored.line_count(), original.line_count());
+
+        preview.request(animated, mesh, settings);
+        EXPECT_FALSE(preview.target());
+        LineDrawList stale;
+        preview.append(stale, {});
+        EXPECT_TRUE(stale.empty());
+        preview.update();
+        EXPECT_FALSE(preview.error().empty());
+        preview.update();
+        EXPECT_FALSE(preview.error().empty());
+        preview.request(animated, animated, settings);
+        preview.update();
+        EXPECT_TRUE(preview.error().empty()) << preview.error();
+    }
 
     TEST_F(EditorAssetsTest, ResidencyRetainsEditPlayAndExplicitPreviewDemands) {
         const auto source = Comet::ProjectPaths(root).assets() / "model.gltf";

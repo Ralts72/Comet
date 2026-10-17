@@ -1,5 +1,7 @@
 #include "inspector/asset_inspector.h"
 #include "inspector/animation_preview.h"
+#include "animation/retarget_preview.h"
+#include "asset/default_assets.h"
 #include <imgui.h>
 #include "ui/widgets.h"
 #include <set>
@@ -168,11 +170,84 @@ namespace CometEditor {
             if(ImGui::Checkbox("启用重定向", &enabled)) {
                 if(enabled)
                     data.retargets.emplace(source, Comet::AnimationRetarget{});
-                else
+                else {
                     data.retargets.erase(source);
+                    if(m_retarget_preview && m_retarget_preview->source_mesh == source)
+                        m_retarget_preview->enabled = false;
+                }
             }
             if(enabled) {
                 auto& settings = data.retargets.at(source);
+                if(m_retarget_preview) {
+                    auto& preview = *m_retarget_preview;
+                    bool visible = preview.enabled && preview.source_mesh == source;
+                    if(ImGui::Checkbox("视口参考姿态对照", &visible)) {
+                        preview.enabled = visible;
+                        if(!preview.target_mesh)
+                            preview.target_mesh = Comet::DEFAULT_CHARACTER_MESH;
+                        preview.request(source, preview.target_mesh, settings);
+                    }
+                    if(visible) {
+                        auto target_mesh = preview.target_mesh;
+                        const auto* target = m_asset_database.find(preview.target_mesh);
+                        const auto target_label =
+                            target ? target->path.generic_string() : "引擎默认角色";
+                        if(ImGui::BeginCombo("目标骨架模型", target_label.c_str())) {
+                            if(ImGui::Selectable("引擎默认角色",
+                                   preview.target_mesh == Comet::DEFAULT_CHARACTER_MESH))
+                                target_mesh = Comet::DEFAULT_CHARACTER_MESH;
+                            for(const auto& mesh : m_asset_database.get_assets()) {
+                                if(mesh.type != Comet::AssetType::Mesh)
+                                    continue;
+                                const auto name = mesh.path.generic_string();
+                                if(ImGui::Selectable(
+                                       name.c_str(), preview.target_mesh == mesh.handle))
+                                    target_mesh = mesh.handle;
+                            }
+                            ImGui::EndCombo();
+                        }
+                        preview.request(source, target_mesh, settings);
+                        ImGui::BeginDisabled(!preview.source() || !preview.target());
+                        if(ImGui::Button("自动匹配骨骼"))
+                            preview.suggest(settings);
+                        const auto bones = [](const char* label, const Comet::AnimationData* data,
+                                               std::string& selected) {
+                            if(!ImGui::BeginCombo(
+                                   label, selected.empty() ? "选择骨骼" : selected.c_str()))
+                                return;
+                            if(data)
+                                for(const auto& joint : data->joints) {
+                                    const auto& name = data->nodes[joint.node].name;
+                                    if(ImGui::Selectable(name.c_str(), selected == name))
+                                        selected = name;
+                                }
+                            ImGui::EndCombo();
+                        };
+                        bones("源骨骼", preview.source(), preview.source_bone);
+                        bones("目标骨骼", preview.target(), preview.target_bone);
+                        ImGui::BeginDisabled(
+                            preview.source_bone.empty() || preview.target_bone.empty());
+                        if(ImGui::Button("连接选中骨骼"))
+                            settings.nodes[preview.source_bone] = preview.target_bone;
+                        ImGui::EndDisabled();
+                        ImGui::BeginDisabled(preview.source_bone.empty());
+                        if(ImGui::Button("校准选中源骨骼"))
+                            settings.source_pose.try_emplace(
+                                preview.source_bone, Comet::Math::Vec3(0));
+                        ImGui::EndDisabled();
+                        ImGui::BeginDisabled(preview.target_bone.empty());
+                        if(ImGui::Button("校准选中目标骨骼"))
+                            settings.target_pose.try_emplace(
+                                preview.target_bone, Comet::Math::Vec3(0));
+                        ImGui::EndDisabled();
+                        ImGui::EndDisabled();
+                        ImGui::TextWrapped(
+                            "青色：源骨架；橙色：目标骨架；灰色：原始姿态。"
+                            "只自动补充唯一匹配，歧义骨骼需手动连接。下方角度实时影响视口对照，保存后用于运行重定向。");
+                        if(!preview.error().empty())
+                            ImGui::TextWrapped("%s", preview.error().c_str());
+                    }
+                }
                 bool automatic = settings.translation_scale == 0;
                 if(ImGui::Checkbox("自动位移比例", &automatic))
                     settings.translation_scale = automatic ? 0 : 1;
@@ -283,6 +358,9 @@ namespace CometEditor {
                     settings.chains.erase(settings.chains.begin() + *removed_chain);
                 if(ImGui::SmallButton("添加骨骼链"))
                     settings.chains.emplace_back();
+                if(m_retarget_preview && m_retarget_preview->enabled
+                    && m_retarget_preview->source_mesh == source)
+                    m_retarget_preview->request(source, m_retarget_preview->target_mesh, settings);
                 ImGui::TextWrapped(
                     "目标骨长保持不变；只转移所选骨骼的平移。自动比例使用对应骨段长度比的中位数；在控制器中选择目标模型试播验证映射。");
             }

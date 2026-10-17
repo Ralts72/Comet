@@ -1,5 +1,6 @@
 #include "render/passes/volumetric_fog_pass.h"
 #include "render/passes/particle_pass.h"
+#include "render/resource/vector_field.h"
 #include "render/passes/transparency_pass.h"
 #include "billboard_oit_frag.h"
 #include "render/passes/gpu_particle_simulation.h"
@@ -49,7 +50,7 @@ namespace Comet {
         return m_gpu->prepare(frames, camera,
             world.particles ? std::span(world.particles->gpu_emitters)
                             : std::span<const GpuParticleEmitter>{},
-            sorted, depth, world.scene_lifetime, world.particle_colliders);
+            sorted, depth, world.scene_lifetime, world.particle_colliders, world.particle_fields);
     }
 
     Result<std::unique_ptr<ParticlePass>, GraphicsError> ParticlePass::create(Device& device,
@@ -317,6 +318,14 @@ namespace Comet {
         m_camera.right.w = fog ? fog->parameters.x : 0;
         m_camera.up.w = fog ? fog->parameters.y : 0;
         std::vector<QueueSemaphoreSubmit> waits;
+        for(const auto& field : world.particle_fields)
+            if(field && field->texture) {
+                const auto ready = field->texture->get_ready_completion();
+                if(ready.is_valid())
+                    merge_semaphore_wait(
+                        waits, QueueSemaphoreSubmit(
+                                   ready, Flags<PipelineStage>(PipelineStage::ComputeShader)));
+            }
         const auto& white_ready = m_white->get_ready_completion();
         if(white_ready.is_valid())
             merge_semaphore_wait(waits, QueueSemaphoreSubmit(white_ready,

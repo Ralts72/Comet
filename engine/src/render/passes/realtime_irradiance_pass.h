@@ -51,6 +51,9 @@ namespace Comet {
         struct History;
         struct Resources;
         struct Timing;
+        struct Feedback;
+        Result<std::shared_ptr<Feedback>, GraphicsError> prepare_feedback(
+            FrameScheduler&, std::span<const RenderIrradianceVolume>);
         [[nodiscard]] Result<std::shared_ptr<Timing>, GraphicsError> prepare_timing(
             FrameScheduler& frames);
         [[nodiscard]] Result<void, GraphicsError> initialize();
@@ -71,5 +74,6 @@ namespace Comet {
         Statistics m_statistics;
         uint64_t m_recorded_serial = 0;
         std::vector<std::shared_ptr<Timing>> m_timings;
+        std::vector<std::shared_ptr<Feedback>> m_feedback;
     };
 }

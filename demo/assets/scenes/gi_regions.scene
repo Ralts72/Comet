@@ -342,7 +342,8 @@
           "update_budget": 24,
           "update_rays": 128,
           "history_weight": 0.85,
-          "blend_distance": 1.2
+          "blend_distance": 1.2,
+          "bounce_strength": 0.6
         }
       }
     },
@@ -451,7 +452,8 @@
           "update_budget": 24,
           "update_rays": 128,
           "history_weight": 0.85,
-          "blend_distance": 1.2
+          "blend_distance": 1.2,
+          "bounce_strength": 0.6
         }
       }
     },

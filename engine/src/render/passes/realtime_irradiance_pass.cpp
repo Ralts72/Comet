@@ -6,6 +6,7 @@
 #include "graphics/pipeline/shader.h"
 #include "graphics/pipeline/descriptor_set.h"
 #include "graphics/resource/image.h"
+#include "graphics/resource/buffer.h"
 #include "graphics/resource/image_view.h"
 #include "graphics/resource/sampler.h"
 #include "render/frame_scheduler.h"
@@ -42,7 +43,7 @@ namespace Comet {
     }
 
     struct RealtimeIrradiancePass::Program {
-        std::shared_ptr<DescriptorSetLayout> descriptors;
+        std::shared_ptr<DescriptorSetLayout> descriptors, feedback;
         vk::UniquePipelineLayout layout;
         vk::UniquePipeline pipeline;
         std::shared_ptr<Sampler> sampler;
@@ -82,9 +83,80 @@ namespace Comet {
         std::unique_ptr<DescriptorPool> pool;
         std::vector<DescriptorSet> descriptors;
         Result<void, GraphicsError> bind(Device& device);
-        void trace(
-            CommandBuffer& command, const RenderIrradianceVolume& volume, uint32_t grant) const;
+        void trace(CommandBuffer& command, const RenderIrradianceVolume& volume, uint32_t grant,
+            const Feedback&) const;
     };
+
+    // 每 GPU 帧槽只改写自身描述符；读到的全是本轮更新前的区域历史。
+    struct RealtimeIrradiancePass::Feedback {
+        std::shared_ptr<Program> program;
+        std::shared_ptr<CPUBuffer> parameters;
+        std::array<std::shared_ptr<Irradiance>, LightingData::MAX_IRRADIANCE_VOLUMES> volumes;
+        std::unique_ptr<DescriptorPool> pool;
+        std::vector<DescriptorSet> descriptors;
+    };
+
+    Result<std::shared_ptr<RealtimeIrradiancePass::Feedback>, GraphicsError>
+    RealtimeIrradiancePass::prepare_feedback(
+        FrameScheduler& frames, std::span<const RenderIrradianceVolume> volumes) {
+        using Prepared = Result<std::shared_ptr<Feedback>, GraphicsError>;
+        struct alignas(16) Parameters {
+            std::array<LightingData::IrradianceVolume, LightingData::MAX_IRRADIANCE_VOLUMES>
+                grids{};
+            std::array<uint32_t, 4> counts{};
+        } parameters;
+        static_assert(sizeof(Parameters) == 208);
+        m_feedback.resize(frames.get_frame_slot_count());
+        auto& slot = m_feedback.at(frames.get_current_frame_slot_index());
+        if(!slot) {
+            auto next = std::make_shared<Feedback>();
+            next->program = m_program;
+            auto buffer =
+                Buffer::try_create_cpu_buffer(m_device, Flags<BufferUsage>(BufferUsage::Uniform),
+                    sizeof(parameters), true, nullptr, "GI feedback regions");
+            if(!buffer)
+                return Prepared::failure(buffer.error());
+            next->parameters = std::move(buffer).value();
+            DescriptorPoolSizes sizes;
+            sizes.add_pool_size(DescriptorType::UniformBuffer, 1);
+            sizes.add_pool_size(DescriptorType::SampledImage, LightingData::MAX_IRRADIANCE_VOLUMES);
+            sizes.add_pool_size(DescriptorType::Sampler, 1);
+            auto pool = DescriptorPool::create(m_device, 1, sizes);
+            if(!pool)
+                return Prepared::failure(pool.error());
+            next->pool = std::move(pool).value();
+            auto sets = next->pool->allocate_descriptor_set(*m_program->feedback, 1);
+            if(!sets)
+                return Prepared::failure(sets.error());
+            next->descriptors = std::move(sets).value();
+            slot = std::move(next);
+        }
+        std::array<vk::DescriptorImageInfo, LightingData::MAX_IRRADIANCE_VOLUMES> images;
+        for(size_t i = 0; i < images.size(); ++i) {
+            const auto index = std::min(i, volumes.size() - 1);
+            const auto& history = *m_regions[index]->history;
+            slot->volumes[i] = history.volumes[history.output];
+            const auto& grid = *slot->volumes[i];
+            if(i < volumes.size())
+                parameters.grids[i] = {{grid.origin, 1}, {grid.spacing, volumes[i].normal_bias},
+                    {Math::Vec3(grid.dimensions), volumes[i].blend_distance}};
+            images[i] = vk::DescriptorImageInfo(
+                {}, grid.probes->get_image_view()->get(), vk::ImageLayout::eGeneral);
+        }
+        parameters.counts[0] = uint32_t(volumes.size());
+        slot->parameters->write(&parameters);
+        const auto set = slot->descriptors.front().get();
+        const vk::DescriptorBufferInfo buffer(slot->parameters->get(), 0, sizeof(parameters));
+        const vk::DescriptorImageInfo sampler(m_program->sampler->get(), {}, {});
+        const std::array writes{vk::WriteDescriptorSet(set, 0, 0, 1,
+                                    vk::DescriptorType::eUniformBuffer, nullptr, &buffer),
+            vk::WriteDescriptorSet(set, 1, 0, uint32_t(images.size()),
+                vk::DescriptorType::eSampledImage, images.data()),
+            vk::WriteDescriptorSet(set, 2, 0, 1, vk::DescriptorType::eSampler, &sampler)};
+        m_device.get().updateDescriptorSets(writes, {});
+        frames.retain_current_frame_resource(slot);
+        return Prepared::success(slot);
+    }
 
     struct RealtimeIrradiancePass::Timing {
         std::shared_ptr<GpuTimer> timer;
@@ -134,6 +206,9 @@ namespace Comet {
         if(limits.maxPerStageDescriptorStorageBuffers < 8
             || limits.maxDescriptorSetStorageBuffers < 8
             || limits.maxPerStageDescriptorStorageImages < 2
+            || limits.maxPerStageDescriptorSampledImages < LightingData::MAX_IRRADIANCE_VOLUMES
+            || limits.maxDescriptorSetSampledImages < LightingData::MAX_IRRADIANCE_VOLUMES
+            || limits.maxPerStageDescriptorUniformBuffers < 1 || limits.maxBoundDescriptorSets < 2
             || limits.maxPushConstantsSize < sizeof(Parameters)
             || limits.maxComputeWorkGroupInvocations < 64 || limits.maxComputeWorkGroupSize[0] < 64)
             return Result<void, GraphicsError>::failure(
@@ -166,10 +241,22 @@ namespace Comet {
         if(!descriptors)
             return Result<void, GraphicsError>::failure(descriptors.error());
         program->descriptors = std::move(descriptors).value();
-        const auto set = program->descriptors->get();
+        DescriptorSetLayoutBindings feedback_bindings;
+        feedback_bindings.add_binding(
+            0, DescriptorType::UniformBuffer, Flags<ShaderStage>(ShaderStage::Compute));
+        feedback_bindings.add_binding(1, DescriptorType::SampledImage,
+            Flags<ShaderStage>(ShaderStage::Compute), LightingData::MAX_IRRADIANCE_VOLUMES);
+        feedback_bindings.add_binding(
+            2, DescriptorType::Sampler, Flags<ShaderStage>(ShaderStage::Compute));
+        auto feedback = DescriptorSetLayout::create(m_device, feedback_bindings);
+        if(!feedback)
+            return Result<void, GraphicsError>::failure(feedback.error());
+        program->feedback = std::move(feedback).value();
+        const std::array sets{program->descriptors->get(), program->feedback->get()};
         const vk::PushConstantRange constants(
             vk::ShaderStageFlagBits::eCompute, 0, sizeof(Parameters));
-        const vk::PipelineLayoutCreateInfo layout_info({}, 1, &set, 1, &constants);
+        const vk::PipelineLayoutCreateInfo layout_info(
+            {}, uint32_t(sets.size()), sets.data(), 1, &constants);
         auto layout = Graphics::create_handle<vk::PipelineLayout>(
             m_device.get(), "Create realtime GI layout", [&](auto* output) noexcept {
                 return m_device.get().createPipelineLayout(&layout_info, nullptr, output);
@@ -286,8 +373,8 @@ namespace Comet {
         return Bound::success();
     }
 
-    void RealtimeIrradiancePass::Resources::trace(
-        CommandBuffer& command, const RenderIrradianceVolume& volume, uint32_t grant) const {
+    void RealtimeIrradiancePass::Resources::trace(CommandBuffer& command,
+        const RenderIrradianceVolume& volume, uint32_t grant, const Feedback& feedback) const {
         const auto& scene = buffers->source;
         const auto output = 1 - history->output;
         const auto& result = history->volumes[output];
@@ -303,9 +390,9 @@ namespace Comet {
             {uint32_t(scene->geometry->nodes.size()), uint32_t(scene->lighting->light_count), 0,
                 uint32_t(scene->emitters->size())},
             scene->environment};
-        const auto set = descriptors[output].get();
-        command.get().bindDescriptorSets(
-            vk::PipelineBindPoint::eCompute, program->layout.get(), 0, 1, &set, 0, nullptr);
+        const std::array sets{descriptors[output].get(), feedback.descriptors.front().get()};
+        command.get().bindDescriptorSets(vk::PipelineBindPoint::eCompute, program->layout.get(), 0,
+            uint32_t(sets.size()), sets.data(), 0, nullptr);
         command.get().pushConstants(program->layout.get(), vk::ShaderStageFlagBits::eCompute, 0,
             sizeof(parameters), &parameters);
         command.get().dispatch(grant, 1, 1);
@@ -401,6 +488,9 @@ namespace Comet {
             Flags<PipelineStage>(PipelineStage::FragmentShader) | PipelineStage::ComputeShader;
         const auto compute = Flags<PipelineStage>(PipelineStage::ComputeShader);
         const auto range = ImageSubresourceRange{.aspects = Flags<ImageAspect>(ImageAspect::Color)};
+        auto feedback = prepare_feedback(frames, volumes);
+        if(!feedback)
+            return Recorded::failure(feedback.error());
         RenderGraph graph;
         RenderGraph::Pass clear_pass{"initialize GI histories"}, copy_pass{"preserve GI probes"},
             trace_pass{"update GI probes"};
@@ -414,9 +504,8 @@ namespace Comet {
                 history.visibility_refresh_remaining = history.volumes[0]->probe_count();
             outputs[i] = {volumes[i], history.volumes[history.output], 0, history.cursor, 0,
                 history.evaluated_probes};
-            if(!grants[i] && history.initialized)
-                continue;
-            active[active_count++] = i;
+            if(grants[i] || !history.initialized)
+                active[active_count++] = i;
             const auto initial =
                 history.initialized
                     ? *resolve_image_state(ResourceUsage::SampledRead, range, stages)
@@ -434,9 +523,10 @@ namespace Comet {
             if(grants[i]) {
                 copy_pass.uses.push_back({source, ResourceUsage::TransferSource, {}});
                 copy_pass.uses.push_back({destination, ResourceUsage::TransferDestination, {}});
-                trace_pass.uses.push_back({source, ResourceUsage::StorageRead, compute});
                 trace_pass.uses.push_back({destination, ResourceUsage::StorageReadWrite, compute});
             }
+            // 自身历史 imageLoad 与区域采样共用 GENERAL 布局；未分到预算的区域也可贡献上一帧光照。
+            trace_pass.uses.push_back({source, ResourceUsage::StorageRead, compute});
             graph.export_resource({source, ResourceUsage::SampledRead, stages});
             graph.export_resource({destination, ResourceUsage::SampledRead, stages});
         }
@@ -464,7 +554,7 @@ namespace Comet {
                 else if(copy && pass == *copy && grants[i])
                     history.copy(command);
                 else if(trace && pass == *trace && grants[i])
-                    resources->trace(command, volumes[i], grants[i]);
+                    resources->trace(command, volumes[i], grants[i], *feedback.value());
             }
             return Recorded::success();
         };
@@ -572,5 +662,6 @@ namespace Comet {
         m_statistics = {};
         m_recorded_serial = 0;
         m_timings.clear();
+        m_feedback.clear();
     }
 }

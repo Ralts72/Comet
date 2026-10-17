@@ -15,6 +15,8 @@ namespace Comet {
 
     std::string_view to_string(const AssetType type) noexcept {
         switch(type) {
+            case AssetType::VectorField:
+                return "vector_field";
             case AssetType::Navigation:
                 return "navigation";
             case AssetType::Irradiance:
@@ -54,6 +56,8 @@ namespace Comet {
     }
 
     std::optional<AssetType> asset_type_from_string(const std::string_view value) noexcept {
+        if(value == "vector_field")
+            return AssetType::VectorField;
         if(value == "navigation")
             return AssetType::Navigation;
         if(value == "irradiance")
@@ -121,6 +125,8 @@ namespace Comet {
 
     std::optional<AssetType> asset_type_from_path(const std::filesystem::path& path) {
         const auto extension = source_extension(path);
+        if(extension == ".vfield")
+            return AssetType::VectorField;
         if(extension == ".nav")
             return AssetType::Navigation;
         if(extension == ".gi")

@@ -795,6 +795,23 @@ namespace Comet::Tests {
         EXPECT_EQ(second->particle_colliders.size(), 1u);
         sphere.remove_component<RigidBodyComponent>();
         EXPECT_EQ(extractor.update(scene)->particle_colliders.size(), 1u);
+        auto capsule = scene.create_entity("capsule");
+        capsule.add_component<RigidBodyComponent>();
+        capsule.add_component<ColliderComponent>(
+            ColliderComponent{.shape = ColliderShape::Capsule});
+        capsule.set_transform(
+            {.translation = {2, 3, 4}, .rotation = {0, 0, 45}, .scale = {2, 2, 2}});
+        const auto fourth = extractor.update(scene);
+        ASSERT_EQ(fourth->particle_colliders.size(), 2u);
+        EXPECT_LT(
+            glm::length(fourth->particle_colliders.back().extent_shape - Math::Vec4(1, 1, 1, 2)),
+            .00001);
+        EXPECT_LT(glm::length(Math::Vec3(
+                      fourth->particle_colliders.back().world_to_local * Math::Vec4(2, 3, 4, 1))),
+            .00001);
+        capsule.edit_transform([](auto& transform) { transform.scale.x = 1; });
+        EXPECT_EQ(extractor.update(scene)->particle_colliders.size(), 1u);
+        EXPECT_EQ(fourth->particle_colliders.size(), 2u);
     }
 
 }

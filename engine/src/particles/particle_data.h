@@ -22,6 +22,9 @@ namespace Comet {
         float turbulence = 0;
         float turbulence_frequency = 1;
         bool gpu_world_collision = false;
+        // 向量场的范围与方向均为世界空间；强度只缩放加速度。
+        AssetHandle vector_field;
+        float vector_field_strength = 1;
         Math::Vec3 wind{0}, vortex_center{0}, vortex_axis{0, 1, 0};
         float vortex_strength = 0, vortex_radius = 5;
         bool enabled = true;
@@ -92,7 +95,8 @@ namespace Comet {
     struct ParticleWorldCollider {
         static constexpr uint32_t MAX_COLLIDERS = 64;
         Math::Mat4 world_to_local{1};
-        Math::Vec4 extent_shape{.5f, .5f, .5f, 0}; // XYZ 半尺寸／球半径，W: 0 盒、1 球。
+        Math::Vec4 extent_shape{
+            .5f, .5f, .5f, 0}; // XYZ 半尺寸／球半径，W: 0 盒、1 球、2 胶囊（X 半径，Y 圆柱半高）。
         std::array<uint32_t, 4> layers{1, 0, 0, 0};
     };
     struct GpuParticleEmitter {

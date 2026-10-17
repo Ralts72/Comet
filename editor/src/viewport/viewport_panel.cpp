@@ -1,4 +1,5 @@
 #include "viewport/viewport_panel.h"
+#include "assets/terrain_editing.h"
 #include "ui/shortcuts.h"
 #include "ui/icons.h"
 #include "scene/selection.h"
@@ -108,7 +109,7 @@ namespace CometEditor {
         m_actually_visible = true;
         m_window_id = ImGui::GetCurrentWindow()->RootWindow->ID;
         m_interaction_id = ImGui::GetID("TransformGizmo");
-        if(m_gizmo.active()) {
+        if(m_gizmo.active() || (m_terrain && m_terrain->active())) {
             ImGui::KeepAliveID(m_interaction_id);
         }
 
@@ -181,26 +182,53 @@ namespace CometEditor {
     void ViewportPanel::render_gizmo_settings() {
         auto settings = m_gizmo.settings();
         constexpr const char* modes[]{"移动", "旋转", "缩放"};
-        const std::string label = std::string("工具：") + modes[static_cast<int>(settings.mode)];
+        const std::string label =
+            m_terrain_tool ? "工具：地形"
+                           : std::string("工具：") + modes[static_cast<int>(settings.mode)];
         if(!begin_toolbar_menu("###Tool", label.c_str()))
             return;
         // 设置保持展开，可连续调整模式、空间和吸附步长。
         ImGui::PushItemFlag(ImGuiItemFlags_AutoClosePopups, false);
         ImGui::SeparatorText("操作模式");
+        if(m_terrain
+            && ImGui::MenuItem("地形雕刻###Terrain sculpt", nullptr, m_terrain_tool,
+                m_terrain->available(m_selection.get_selected_entity()))) {
+            m_terrain_tool = !m_terrain_tool;
+            m_terrain->cancel();
+        }
+        if(m_terrain_tool && m_terrain) {
+            constexpr const char* brushes[]{"抬升", "降低", "平滑", "整平"};
+            int mode = int(m_terrain->brush.mode);
+            if(ImGui::Combo("笔刷", &mode, brushes, 4))
+                m_terrain->brush.mode = TerrainBrush::Mode(mode);
+            ImGui::DragFloat("半径（局部米）", &m_terrain->brush.radius, .1f, .1f, 1000);
+            ImGui::DragFloat("强度", &m_terrain->brush.strength, .1f, .01f, 50);
+            ImGui::TextDisabled(
+                "左键绘制；Shift 反向；Esc 取消本笔。\n松开后保存资产并更新全部实例；Ctrl/Cmd+Z 撤销。");
+        }
         bool changed = false;
-        if(ImGui::MenuItem(
-               "移动###Move", nullptr, settings.mode == TransformGizmo::Mode::Translate)) {
+        if(ImGui::MenuItem("移动###Move", nullptr,
+               !m_terrain_tool && settings.mode == TransformGizmo::Mode::Translate)) {
+            m_terrain_tool = false;
             settings.mode = TransformGizmo::Mode::Translate;
             changed = true;
         }
-        if(ImGui::MenuItem(
-               "旋转###Rotate", nullptr, settings.mode == TransformGizmo::Mode::Rotate)) {
+        if(ImGui::MenuItem("旋转###Rotate", nullptr,
+               !m_terrain_tool && settings.mode == TransformGizmo::Mode::Rotate)) {
+            m_terrain_tool = false;
             settings.mode = TransformGizmo::Mode::Rotate;
             changed = true;
         }
-        if(ImGui::MenuItem("缩放###Scale", nullptr, settings.mode == TransformGizmo::Mode::Scale)) {
+        if(ImGui::MenuItem("缩放###Scale", nullptr,
+               !m_terrain_tool && settings.mode == TransformGizmo::Mode::Scale)) {
+            m_terrain_tool = false;
             settings.mode = TransformGizmo::Mode::Scale;
             changed = true;
+        }
+        if(m_terrain_tool) {
+            ImGui::PopItemFlag();
+            ImGui::EndPopup();
+            return;
         }
         ImGui::SeparatorText("坐标空间");
         if(settings.mode == TransformGizmo::Mode::Scale) {
@@ -465,6 +493,8 @@ namespace CometEditor {
     }
 
     void ViewportPanel::update_view_interaction() {
+        if(m_terrain && (!m_terrain_tool || m_state.mode != EditorMode::Edit))
+            m_terrain->cancel();
         if(m_state.mode == EditorMode::Play) {
             if(m_gizmo.active())
                 cancel_interaction();
@@ -482,7 +512,7 @@ namespace CometEditor {
         const auto mapped_pixel = map_viewport_point_to_pixel(m_layout, mouse_position);
         const bool pointer_over_image = ImGui::IsItemHovered() && mapped_pixel.has_value();
 
-        if(pointer_over_image || m_gizmo.active()) {
+        if(pointer_over_image || m_gizmo.active() || (m_terrain && m_terrain->active())) {
             // Image 没有 item ID；直接指定 owner，拖动期间也阻止窗口滚动。
             ImGui::SetKeyOwner(ImGuiKey_MouseWheelY, m_interaction_id);
         }
@@ -500,6 +530,47 @@ namespace CometEditor {
         // Image 没有可聚焦的 item；先接收从其他面板进入的点击，再判断拖动失焦。
         if(pressed)
             ImGui::SetWindowFocus();
+        if(m_terrain_tool && m_terrain) {
+            const bool cancelled = ImGui::IsKeyPressed(ImGuiKey_Escape, false) || io.AppFocusLost
+                                   || m_texture_id == ImTextureID_Invalid
+                                   || (!pointer_over_image && !m_terrain->active())
+                                   || !ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)
+                                   || ImGui::IsPopupOpen(nullptr,
+                                       ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+            if(cancelled || navigation_input)
+                m_terrain->cancel();
+            if(pressed)
+                ImGui::SetActiveID(m_interaction_id, ImGui::GetCurrentWindow());
+            if(!cancelled && !navigation_input && (pointer_over_image || m_terrain->active())
+                && m_terrain->select(m_selection.get_selected_entity())) {
+                const auto projection = m_state.camera.snapshot().projection_matrix(
+                    m_layout.image_display_rect.size().x / m_layout.image_display_rect.size().y);
+                if(projection) {
+                    const auto uv = (mouse_position - m_layout.image_display_rect.min)
+                                    / m_layout.image_display_rect.size();
+                    const auto ray = Comet::unproject_ray(
+                        Comet::Math::inverse(*projection * m_state.camera.snapshot().view_matrix),
+                        {uv.x * 2.f - 1.f, 1.f - uv.y * 2.f});
+                    if(ray)
+                        m_terrain->update(*ray, pressed,
+                            pointer_over_image && ImGui::IsMouseDown(ImGuiMouseButton_Left),
+                            ImGui::IsMouseReleased(ImGuiMouseButton_Left), io.DeltaTime,
+                            io.KeyShift);
+                }
+            }
+            if(m_terrain->active()) {
+                ImGui::KeepAliveID(m_interaction_id);
+                ImGui::SetHoveredID(m_interaction_id);
+            } else if(ImGui::GetActiveID() == m_interaction_id)
+                ImGui::ClearActiveID();
+            if(!m_terrain->error().empty())
+                ImGui::SetTooltip("%s", m_terrain->error().c_str());
+            if(m_terrain->active() || pressed) {
+                reset_camera_interaction();
+                return;
+            }
+            pressed = false;
+        }
         const auto selected = m_selection.get_selected_entities();
         const bool consumed =
             m_gizmo.update_selection(selected, m_state.camera.snapshot(), m_layout,
@@ -601,6 +672,8 @@ namespace CometEditor {
         m_runtime_input = {};
         m_game_ui_input = {};
         static_cast<void>(m_gizmo.cancel());
+        if(m_terrain)
+            m_terrain->cancel();
         if(m_interaction_id != 0 && ImGui::GetActiveID() == m_interaction_id) {
             ImGui::ClearActiveID();
         }
@@ -673,6 +746,8 @@ namespace CometEditor {
     }
 
     void ViewportPanel::draw_gizmo() {
+        if(m_terrain_tool)
+            return;
         // draw list 仅在当前 UI 帧内有效。
         ImDrawList* draw_list = std::exchange(m_gizmo_draw_list, nullptr);
         if(!draw_list || m_state.mode != EditorMode::Edit || m_pick_request || m_play_command

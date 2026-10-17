@@ -13,6 +13,9 @@ namespace Comet {
         const uint32_t limit = gpu ? MAX_GPU_CAPACITY : MAX_CAPACITY;
         if(gpu && !gpu_dynamics && collision != ParticleCollision::None)
             return Result<void>::failure("GPU 深度碰撞需要启用有状态模拟；Jolt 碰撞使用 CPU 模式");
+        if(!std::isfinite(vector_field_strength) || std::abs(vector_field_strength) > 1000
+            || (vector_field && (!gpu || !gpu_dynamics)))
+            return Result<void>::failure("向量场需要 GPU 有状态模拟，强度须为 -1000～1000");
         if(!Math::is_finite(wind) || !Math::is_finite(vortex_center)
             || !Math::is_finite(vortex_axis) || glm::length(vortex_axis) < 1e-5f
             || !std::isfinite(vortex_strength) || std::abs(vortex_strength) > 1000

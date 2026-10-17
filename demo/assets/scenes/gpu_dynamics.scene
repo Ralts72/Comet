@@ -294,7 +294,7 @@
     {
       "uuid": "21adb0d7-fb9a-4ab8-9ca2-83b8d6c88896",
       "components": {
-        "name": "GPU 烟雾（GPU 扰动烟雾）",
+        "name": "GPU 烟雾（三维向量场／风／涡旋）",
         "transform": {
           "translation": [
             3,
@@ -361,7 +361,9 @@
             0
           ],
           "vortex_radius": 3,
-          "vortex_strength": 1.8
+          "vortex_strength": 1.8,
+          "vector_field": 804020001,
+          "vector_field_strength": 1
         }
       }
     },
@@ -426,6 +428,42 @@
             0
           ],
           "gpu_world_collision": true
+        }
+      }
+    },
+    {
+      "uuid": "84c69626-936b-5ca4-a788-9eadab79721d",
+      "components": {
+        "name": "GPU 世界胶囊碰撞（开启碰撞线框观察）",
+        "transform": {
+          "translation": [
+            2,
+            1,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            25
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "rigid_body": {
+          "motion": "static"
+        },
+        "collider": {
+          "shape": "capsule",
+          "radius": 0.4,
+          "height": 2,
+          "half_extents": [
+            0.5,
+            0.5,
+            0.5
+          ]
         }
       }
     }

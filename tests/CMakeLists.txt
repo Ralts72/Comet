@@ -26,6 +26,7 @@ set(UNIT_TEST_SOURCES
         asset/test_environment_artifact.cpp
         asset/test_environment_importer.cpp
         asset/test_irradiance.cpp
+    asset/test_vector_field.cpp
         asset/test_handle.cpp
         asset/test_import_input_snapshot.cpp
         asset/test_material_serializer.cpp
@@ -69,6 +70,7 @@ set(UNIT_TEST_SOURCES
         editor/core/test_physics_overlay.cpp
         editor/core/test_command_history.cpp
         editor/core/test_editor_assets.cpp
+        editor/core/test_terrain_editing.cpp
         editor/core/test_reflection_bake.cpp
         editor/core/test_irradiance_bake.cpp
         editor/core/test_navigation_bake.cpp

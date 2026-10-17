@@ -18,6 +18,9 @@ namespace CometEditor::Ui {
 }
 
 namespace CometEditor {
+    class EditorAssets;
+    class TerrainEditing;
+    class RetargetPreview;
     class Viewport final {
     public:
         Viewport(EditorState& state, const Comet::SceneRuntime& runtime,
@@ -25,7 +28,7 @@ namespace CometEditor {
             const Comet::ComponentRegistry& components, PropertyEditTransaction& inspector_edit,
             const EditorShortcuts& shortcuts, Comet::Renderer& renderer,
             Comet::AssetRegistry& assets, Ui::ImGuiContext& ui,
-            Comet::PhysicsService::MeshSource meshes = {});
+            Comet::PhysicsService::MeshSource meshes = {}, EditorAssets* editable_assets = nullptr);
         ~Viewport();
 
         Viewport(const Viewport&) = delete;
@@ -33,6 +36,7 @@ namespace CometEditor {
 
         [[nodiscard]] ViewportPanel& panel() { return m_panel; }
         void cancel_interaction();
+        RetargetPreview* retarget_preview() { return m_retarget.get(); }
 
         void update_texture();
         [[nodiscard]] Comet::Result<void, Comet::Error> export_path_trace(
@@ -54,6 +58,8 @@ namespace CometEditor {
         Ui::ImGuiContext& m_ui;
         TransformGizmo m_gizmo;
         ViewportPanel m_panel;
+        std::unique_ptr<TerrainEditing> m_terrain;
+        std::unique_ptr<RetargetPreview> m_retarget;
         Comet::LineDrawList m_feedback_lines;
         ColliderOverlay m_colliders;
         uint64_t m_path_trace_generation = 0;

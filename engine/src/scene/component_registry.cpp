@@ -177,9 +177,13 @@ namespace Comet {
             for(const auto& batch : scene.get_particles()->batches)
                 if(batch.texture)
                     references.push_back({batch.texture, AssetType::Texture, true});
-            for(const auto& emitter : scene.get_particles()->gpu_emitters)
+            for(const auto& emitter : scene.get_particles()->gpu_emitters) {
                 if(emitter.settings.texture)
                     references.push_back({emitter.settings.texture, AssetType::Texture, true});
+                if(emitter.settings.vector_field)
+                    references.push_back(
+                        {emitter.settings.vector_field, AssetType::VectorField, true});
+            }
         }
         const auto& environment = scene.get_environment();
         if(environment.asset
@@ -657,8 +661,15 @@ namespace Comet {
                  {.required = false}),
                 make_property_descriptor("gpu_dynamics", "GPU 有状态模拟／深度碰撞",
                     &ParticleEmitterComponent::gpu_dynamics, {.required = false}),
-                make_property_descriptor("gpu_world_collision", "GPU 世界碰撞（盒／球）",
+                make_property_descriptor("gpu_world_collision", "GPU 世界碰撞（盒／球／胶囊）",
                     &ParticleEmitterComponent::gpu_world_collision, {.required = false}),
+                make_property_descriptor("vector_field", "GPU 三维向量场",
+                    &ParticleEmitterComponent::vector_field,
+                    {.required = false, .asset_type = AssetType::VectorField}),
+                make_property_descriptor("vector_field_strength", "向量场强度",
+                    &ParticleEmitterComponent::vector_field_strength,
+                    {.required = false,
+                        .numeric = {.minimum = -1000, .maximum = 1000, .enforce_bounds = true}}),
                 make_property_descriptor("wind", "GPU 风加速度（世界空间）",
                     &ParticleEmitterComponent::wind, {.required = false}),
                 make_property_descriptor("vortex_center", "GPU 涡旋中心（世界空间）",

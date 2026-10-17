@@ -1,4 +1,6 @@
 #include "render/passes/gpu_particle_simulation.h"
+#include "render/resource/vector_field.h"
+#include "render/resource/texture.h"
 #include "graphics/device.h"
 #include "graphics/creation.h"
 #include "graphics/command/command_buffer.h"
@@ -36,12 +38,13 @@ namespace Comet {
             Math::Vec4 timing, dynamics;
             std::array<uint32_t, 4> history;
             Math::Vec4 wind, vortex_center, vortex_axis;
+            Math::Vec4 field_minimum, field_size, field_dimensions;
             std::array<uint32_t, 4> world;
             std::array<ParticleWorldCollider, ParticleWorldCollider::MAX_COLLIDERS> colliders;
         };
         static_assert(sizeof(Spawn) == 96 && sizeof(Parameters) == 176);
         static_assert(sizeof(ParticleWorldCollider) == 96);
-        static_assert(sizeof(DynamicParameters) == 352 + 64 + 64 * 96);
+        static_assert(sizeof(DynamicParameters) == 352 + 64 + 48 + 64 * 96);
     }
     struct GpuParticleSimulation::Program {
         std::shared_ptr<DescriptorSetLayout> descriptors;
@@ -53,6 +56,7 @@ namespace Comet {
         std::shared_ptr<CPUBuffer> spawns, parameters;
         std::shared_ptr<Buffer> instances, indirect, alternate, previous;
         std::shared_ptr<ImageView> depth;
+        std::shared_ptr<const VectorField> field;
         std::unique_ptr<DescriptorPool> pool;
         std::vector<DescriptorSet> descriptors;
         uint32_t capacity = 0;
@@ -61,6 +65,7 @@ namespace Comet {
         struct History {
             std::shared_ptr<Buffer> state;
             ParticleEmitterComponent settings;
+            std::shared_ptr<const VectorField> field;
             double time;
             uint64_t serial;
             uint32_t count;
@@ -90,8 +95,9 @@ namespace Comet {
                 bindings.add_binding(
                     i, DescriptorType::StorageBuffer, Flags<ShaderStage>(ShaderStage::Compute));
             if(dynamic)
-                bindings.add_binding(
-                    4, DescriptorType::SampledImage, Flags<ShaderStage>(ShaderStage::Compute));
+                for(uint32_t binding : {4u, 5u})
+                    bindings.add_binding(binding, DescriptorType::SampledImage,
+                        Flags<ShaderStage>(ShaderStage::Compute));
             auto descriptors = DescriptorSetLayout::create(m_device, bindings);
             if(!descriptors)
                 return Initialized::failure(descriptors.error());
@@ -182,7 +188,7 @@ namespace Comet {
         DescriptorPoolSizes sizes;
         sizes.add_pool_size(DescriptorType::StorageBuffer, 4);
         if(dynamic)
-            sizes.add_pool_size(DescriptorType::SampledImage, 1);
+            sizes.add_pool_size(DescriptorType::SampledImage, 2);
         auto pool = DescriptorPool::create(m_device, 1, sizes);
         if(!pool)
             return Allocated::failure(pool.error());
@@ -206,8 +212,11 @@ namespace Comet {
     Result<void, GraphicsError> GpuParticleSimulation::prepare(FrameScheduler& frames,
         const ViewProjectMatrix& camera, std::span<const GpuParticleEmitter> emitters, bool sorted,
         const std::shared_ptr<ImageView>& depth, uint64_t scene_lifetime,
-        std::span<const ParticleWorldCollider> colliders) {
+        std::span<const ParticleWorldCollider> colliders,
+        std::span<const std::shared_ptr<const VectorField>> fields) {
         using Prepared = Result<void, GraphicsError>;
+        if(!fields.empty() && fields.size() != emitters.size())
+            return Prepared::failure({"Vector field bindings do not match GPU emitters"});
         if(colliders.size() > ParticleWorldCollider::MAX_COLLIDERS)
             return Prepared::failure({"Too many GPU world colliders"});
         if(!frames.is_recording_frame() || &frames.get_device() != &m_device
@@ -236,6 +245,9 @@ namespace Comet {
                 || emitter.count > ParticleSnapshot::MAX_GPU_PARTICLES - total
                 || emitter.spawns.empty())
                 return Prepared::failure({"Invalid GPU particle snapshot"});
+            const auto field = fields.empty() ? nullptr : fields[i];
+            if(emitter.settings.vector_field && (!field || !field->texture))
+                return Prepared::failure({"GPU particle vector field is unresolved"});
             const bool dynamic = emitter.settings.gpu_dynamics;
             if(dynamic && !depth)
                 return Prepared::failure({"GPU dynamics requires view depth"});
@@ -288,7 +300,7 @@ namespace Comet {
                     auto previous_settings = found->second.settings;
                     previous_settings.enabled = settings.enabled;
                     if(found->second.serial + 1 != serial || previous_settings != settings
-                        || found->second.time > emitter.time)
+                        || found->second.time > emitter.time || found->second.field != field)
                         found = m_dynamics->history.end();
                 }
                 auto previous = resources->indirect;
@@ -315,6 +327,7 @@ namespace Comet {
                 }
                 resources->previous = previous;
                 resources->depth = depth;
+                resources->field = field;
                 const auto vp = camera.projection * camera.view;
                 DynamicParameters extra{parameters, vp, Math::inverse(vp),
                     {float(emitter.time), float(elapsed), settings.collision_radius,
@@ -324,6 +337,12 @@ namespace Comet {
                 extra.wind = Math::Vec4(settings.wind, settings.vortex_strength);
                 extra.vortex_center = Math::Vec4(settings.vortex_center, settings.vortex_radius);
                 extra.vortex_axis = Math::Vec4(glm::normalize(settings.vortex_axis), 0);
+                if(field) {
+                    extra.field_minimum =
+                        Math::Vec4(field->data.bounds.minimum, settings.vector_field_strength);
+                    extra.field_size = Math::Vec4(field->data.bounds.size(), 1);
+                    extra.field_dimensions = Math::Vec4(Math::Vec3(field->data.dimensions), 0);
+                }
                 extra.world = {uint32_t(colliders.size()), settings.collision_layers,
                     settings.gpu_world_collision ? 1u : 0u, 0};
                 std::ranges::copy(colliders, extra.colliders.begin());
@@ -333,7 +352,7 @@ namespace Comet {
                 const std::array<std::shared_ptr<Buffer>, 4> buffers{
                     resources->spawns, previous, resources->instances, resources->indirect};
                 std::array<vk::DescriptorBufferInfo, 4> infos;
-                std::array<vk::WriteDescriptorSet, 5> writes;
+                std::array<vk::WriteDescriptorSet, 6> writes;
                 for(uint32_t binding = 0; binding < buffers.size(); ++binding) {
                     infos[binding] = vk::DescriptorBufferInfo(
                         buffers[binding]->get(), 0, buffers[binding]->get_size());
@@ -345,10 +364,15 @@ namespace Comet {
                     {}, depth->get(), vk::ImageLayout::eShaderReadOnlyOptimal);
                 writes[4] = vk::WriteDescriptorSet(resources->descriptors.front().get(), 4, 0, 1,
                     vk::DescriptorType::eSampledImage, &image);
+                const vk::DescriptorImageInfo field_image({},
+                    field ? field->texture->get_image_view()->get() : depth->get(),
+                    vk::ImageLayout::eShaderReadOnlyOptimal);
+                writes[5] = vk::WriteDescriptorSet(resources->descriptors.front().get(), 5, 0, 1,
+                    vk::DescriptorType::eSampledImage, &field_image);
                 m_device.get().updateDescriptorSets(writes, {});
                 m_dynamics->history.insert_or_assign(
-                    id, Dynamics::History{
-                            resources->indirect, settings, emitter.time, serial, emitter.count});
+                    id, Dynamics::History{resources->indirect, settings, field, emitter.time,
+                            serial, emitter.count});
             } else {
                 resources->spawns->write(births.data(), births.size() * sizeof(Spawn));
                 resources->parameters->write(&parameters);

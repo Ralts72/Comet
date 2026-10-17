@@ -122,6 +122,8 @@ namespace Comet {
         [[nodiscard]] Result<std::shared_ptr<GameData>, Error> load_data(AssetHandle handle);
         [[nodiscard]] Result<std::shared_ptr<NavigationData>, Error> load_navigation(
             AssetHandle handle);
+        [[nodiscard]] Result<std::shared_ptr<VectorField>, Error> load_vector_field(
+            AssetHandle handle);
         [[nodiscard]] Result<std::shared_ptr<Irradiance>, Error> load_irradiance(
             AssetHandle handle);
         [[nodiscard]] Result<std::shared_ptr<AnimationLibrary>, Error> load_animation_library(

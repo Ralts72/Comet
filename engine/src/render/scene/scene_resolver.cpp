@@ -89,8 +89,10 @@ namespace Comet {
     void SceneResolver::refresh_assets(RenderWorld& world) const {
         const auto revision = m_asset_registry.get_revision();
         const bool published = world.resolution.asset_revision != revision;
-        if(published)
+        if(published) {
             std::ranges::fill(world.particle_textures, nullptr);
+            std::ranges::fill(world.particle_fields, nullptr);
+        }
         auto& materials = world.resolution.material_sources;
         bool edited = false;
         // 每个材质身份只检查一次；参数没变时不扫描物体或复制参数。
@@ -256,6 +258,7 @@ namespace Comet {
         world.particles = scene.particles;
         world.particle_colliders = scene.particle_colliders;
         world.particle_textures.clear();
+        world.particle_fields.clear();
         for(auto& [handle, used] : m_missing_particle_textures)
             used = false;
         if(scene.particles) {
@@ -278,8 +281,11 @@ namespace Comet {
                 scene.particles->batches.size() + scene.particles->gpu_emitters.size());
             for(const auto& batch : scene.particles->batches)
                 resolve(batch.texture);
-            for(const auto& emitter : scene.particles->gpu_emitters)
+            for(const auto& emitter : scene.particles->gpu_emitters) {
                 resolve(emitter.settings.texture);
+                world.particle_fields.push_back(
+                    m_asset_registry.resolve<VectorField>(emitter.settings.vector_field));
+            }
         }
         std::erase_if(m_missing_particle_textures, [](const auto& entry) { return !entry.second; });
     }

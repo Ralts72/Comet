@@ -3,6 +3,7 @@
 #include "asset/project_prepare.h"
 #include "asset/data/game_data.h"
 #include "asset/data/irradiance_data.h"
+#include "asset/data/vector_field_data.h"
 #include "asset/serialization/animation_controller_serializer.h"
 #include "asset/data/animation_library.h"
 #include "asset/default_assets.h"
@@ -77,6 +78,12 @@ namespace Comet {
             const auto& paths = database.paths();
             const ImportService imports(paths, limits);
             switch(record.type) {
+                case AssetType::VectorField: {
+                    auto data = VectorFieldData::load(paths.assets() / record.path);
+                    if(!data)
+                        return Result<void>::failure(data.error());
+                    break;
+                }
                 case AssetType::Navigation: {
                     auto data = NavigationData::load(paths.assets() / record.path);
                     if(!data)
@@ -452,6 +459,10 @@ namespace Comet {
                     return Result<void>::failure(
                         record.path.generic_string() + ": " + prepared.error());
                 switch(record.type) {
+                    case AssetType::VectorField:
+                        product.path =
+                            ".products/" + std::to_string(record.handle.value()) + ".vfield";
+                        break;
                     case AssetType::Navigation:
                         product.path =
                             ".products/" + std::to_string(record.handle.value()) + ".nav";

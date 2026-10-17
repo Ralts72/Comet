@@ -22,6 +22,7 @@ namespace CometEditor {
     class TransformGizmo;
     class PropertyEditTransaction;
     class EditorShortcuts;
+    class TerrainEditing;
 
     class ViewportPanel final: public EditorPanel {
     public:
@@ -38,6 +39,8 @@ namespace CometEditor {
 
         // 在 UI 帧结束前，用处理完相机输入后的状态追加操作手柄。
         void draw_gizmo();
+        void set_terrain_editing(TerrainEditing* editing) { m_terrain = editing; }
+        [[nodiscard]] bool terrain_tool() const { return m_terrain_tool; }
         void cancel_interaction();
 
         void set_texture_id(ImTextureID texture_id, std::uint32_t width, std::uint32_t height);
@@ -116,6 +119,8 @@ namespace CometEditor {
         void reset_camera_interaction();
         [[nodiscard]] bool accepts_runtime_input(bool blocked) const;
 
+        TerrainEditing* m_terrain = nullptr;
+        bool m_terrain_tool = false;
         const EditorState& m_state;
         const Comet::SceneRuntime& m_runtime;
         SelectionService& m_selection;

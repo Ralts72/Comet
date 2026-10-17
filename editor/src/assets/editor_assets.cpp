@@ -67,6 +67,19 @@ namespace CometEditor {
         return Comet::Result<void, Comet::Error>::success();
     }
 
+    Comet::Result<std::shared_ptr<const Comet::ModelData>, Comet::Error> EditorAssets::
+        rebuild_terrain(Comet::AssetHandle asset) {
+        using Built = Comet::Result<std::shared_ptr<const Comet::ModelData>, Comet::Error>;
+        const auto* record = m_database.find(asset);
+        if(!record || record->path.extension() != ".terrain")
+            return Built::failure({"Expected a terrain source"});
+        if(auto imported = m_manager.import_model(asset); !imported)
+            return Built::failure(imported.error());
+        accept_scan(m_manager.scan());
+        m_pending_source_imports.erase(asset);
+        return m_manager.load_model(asset);
+    }
+
     Comet::Result<Comet::GameData> EditorAssets::read_data(const Comet::AssetTarget& target) const {
         const auto* record = m_database.find(target.handle);
         if(!record || record->type != Comet::AssetType::Data || !m_database.is_current(target))
