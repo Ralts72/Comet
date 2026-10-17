@@ -45,7 +45,8 @@ namespace Comet::Tests {
     TEST_F(ShaderCompilerTest, FixedResourceContractDetectsMemberOrderAndMatrixStorageChanges) {
         const std::string frame =
             "layout(set=0,binding=0,std140) uniform Frame {mat4 view; mat4 projection;} frame;\n";
-        const std::string object = "layout(push_constant) uniform Object {mat4 model;} object;\n";
+        const std::string object =
+            "layout(push_constant) uniform Object {mat4 model;vec4 vertex_bend;} object;\n";
         const std::string body =
             "void main(){gl_Position=frame.projection*frame.view*object.model*vec4(1);}";
         const auto original = reflect_source("#version 450\n" + frame + object + body);
@@ -66,7 +67,8 @@ namespace Comet::Tests {
         }
         const auto changed_push = reflect_source(
             "#version 450\n" + frame
-            + "layout(push_constant,row_major) uniform Object {mat4 model;} object;\n" + body);
+            + "layout(push_constant,row_major) uniform Object {mat4 model;vec4 vertex_bend;} object;\n"
+            + body);
         ASSERT_TRUE(changed_push) << changed_push.error();
         EXPECT_EQ(original.value().get_push_constants()[0].size,
             changed_push.value().get_push_constants()[0].size);
@@ -77,7 +79,8 @@ namespace Comet::Tests {
         ShaderCompilerTest, ResourceContractAllowsUnusedBindingsButRejectsAddedOrTruncatedBuffers) {
         const std::string frame =
             "layout(set=0,binding=0,std140) uniform Frame {mat4 view; mat4 projection;} frame;\n";
-        const std::string object = "layout(push_constant) uniform Object {mat4 model;} object;\n";
+        const std::string object =
+            "layout(push_constant) uniform Object {mat4 model;vec4 vertex_bend;} object;\n";
         const auto contract = reflect_source(
             "#version 450\n" + frame + object
             + "void main(){gl_Position=frame.projection*frame.view*object.model*vec4(1);}");

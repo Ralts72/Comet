@@ -1094,7 +1094,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(contents_result) << contents_result.error();
         auto contents = std::move(contents_result).value();
 
-        EXPECT_NE(contents.find(R"("version": 2)"), std::string::npos);
+        EXPECT_NE(contents.find(R"("version": 3)"), std::string::npos);
         EXPECT_NE(contents.find(R"("children":)"), std::string::npos);
         EXPECT_EQ(contents.find(R"("parent":)"), std::string::npos);
         EXPECT_EQ(contents.find("entity_id"), std::string::npos);
@@ -1558,7 +1558,7 @@ namespace Comet::Tests {
     }
 
     TEST(SceneSerializerTest, RejectsUnsupportedVersionAndNonFiniteValues) {
-        expect_scene_error(R"({"version": 3, "entities": []})", "unsupported version 3");
+        expect_scene_error(R"({"version": 4, "entities": []})", "unsupported version 4");
 
         Scene scene;
         Entity entity = scene.create_entity("Invalid");

@@ -55,6 +55,7 @@ namespace Comet {
         std::shared_ptr<const MaterialOverrides> material_overrides;
         bool contributes_to_gi = true;
         OutlineSettings outline{.enabled = false};
+        Math::Vec4 vertex_bend{0};
     };
 
     // revision 为 0 时逐项核对；局部批次只能接在 base_revision 对应的输出后。
@@ -139,6 +140,7 @@ namespace Comet {
         RenderItemChanges item_changes;
         std::shared_ptr<const ParticleSnapshot> particles;
         std::vector<ParticleWorldCollider> particle_colliders;
+        std::vector<ParticleMeshCollider> particle_meshes;
     };
 
     struct COMET_API PathTraceSettings {
@@ -164,6 +166,7 @@ namespace Comet {
         bool path_trace_enabled = false;
         std::shared_ptr<const RayScene> path_trace;
         PathTraceSettings path_trace_settings;
+        std::shared_ptr<const RayScene> particle_collisions;
         IrradianceDebugMode irradiance_debug = IrradianceDebugMode::Off;
     };
 }

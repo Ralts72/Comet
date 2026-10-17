@@ -9,7 +9,9 @@ namespace Comet::Gameplay {
             [&](Entity entity, const auto& wind, const auto& transform) {
                 if(!result)
                     return;
-                if(!wind.enabled) {
+                if(!wind.enabled || wind.flexible) {
+                    if(!wind.enabled)
+                        scene.set_vertex_bend(entity, {});
                     const auto previous = m_states.find(entity.get_id());
                     if(previous != m_states.end()) {
                         if(transform.rotation == previous->second.output)
@@ -17,10 +19,12 @@ namespace Comet::Gameplay {
                                 [&](auto& value) { value.rotation = previous->second.base; });
                         m_states.erase(previous);
                     }
-                    return;
+                    if(!wind.enabled)
+                        return;
                 }
                 if(!Math::is_finite(wind.amplitude) || !std::isfinite(wind.frequency)
-                    || wind.frequency <= 0 || wind.frequency > 10
+                    || wind.frequency <= 0 || wind.frequency > 10 || !std::isfinite(wind.height)
+                    || wind.height <= 0 || wind.height > 1000
                     || glm::any(glm::greaterThan(glm::abs(wind.amplitude), Math::Vec3(30)))) {
                     result = Result<void, Error>::failure({"Invalid wind sway settings"});
                     return;
@@ -31,14 +35,21 @@ namespace Comet::Gameplay {
                         Result<void, Error>::failure({"Wind sway is only for decorative entities"});
                     return;
                 }
+                const float phase = float(entity.get_id() % 1024) * 2.39996323f;
+                const float wave = std::sin(
+                    float(std::fmod(m_time * wind.frequency, 1.0)) * glm::two_pi<float>() + phase);
+                if(wind.flexible) {
+                    const auto angles = glm::radians(wind.amplitude * wave);
+                    scene.set_vertex_bend(
+                        entity, {std::tan(angles.z), -std::tan(angles.x), wind.height, 0});
+                    return;
+                }
+                scene.set_vertex_bend(entity, {});
                 auto [it, added] = m_states.try_emplace(
                     entity.get_id(), State{transform.rotation, transform.rotation});
                 auto& state = it->second;
                 if(transform.rotation != state.output)
                     state.base = transform.rotation;
-                const float phase = float(entity.get_id() % 1024) * 2.39996323f;
-                const float wave = std::sin(
-                    float(std::fmod(m_time * wind.frequency, 1.0)) * glm::two_pi<float>() + phase);
                 state.output = state.base + wind.amplitude * wave;
                 entity.edit_transform([&](auto& value) { value.rotation = state.output; });
             });
@@ -56,6 +67,8 @@ namespace Comet::Gameplay {
         return result;
     }
     void WindSwaySystem::on_stop(Scene& scene, RuntimeSession&, const RuntimeServices&) noexcept {
+        scene.each<const WindSwayComponent>(
+            [&](Entity entity, const auto&) { scene.set_vertex_bend(entity, {}); });
         for(const auto& [id, state] : m_states)
             if(auto entity = scene.find_entity(id))
                 entity.edit_transform([&](auto& value) {

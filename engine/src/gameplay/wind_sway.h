@@ -4,7 +4,7 @@
 #include <unordered_map>
 
 namespace Comet::Gameplay {
-    // 仅装饰物的根部摆动；真实角色／刚体不由风系统驱动。
+    // 装饰物的根部摆动或柔性顶点弯曲；不驱动角色／刚体。
     class COMET_API WindSwaySystem final: public System {
     public:
         Result<void, Error> update(Scene&, const Context&) override;

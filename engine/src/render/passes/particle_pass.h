@@ -14,6 +14,7 @@
 #include <unordered_map>
 
 namespace Comet {
+    struct RayScene;
     struct FogVolume;
     class CPUBuffer;
     class Buffer;
@@ -40,7 +41,8 @@ namespace Comet {
             SampleCount samples, TransparencyPass* transparency = nullptr);
         Result<void, GraphicsError> prepare_gpu(FrameScheduler&, const ViewProjectMatrix&,
             const RenderWorld&, bool sorted = true,
-            const std::shared_ptr<ImageView>& depth = nullptr);
+            const std::shared_ptr<ImageView>& depth = nullptr,
+            const std::shared_ptr<const RayScene>& collisions = {});
         Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> prepare(FrameScheduler& frames,
             const ViewProjectMatrix& camera, const RenderWorld& world, bool sort_for_meshes,
             std::shared_ptr<ImageView> scene_depth = {}, const FogVolume* fog = nullptr,

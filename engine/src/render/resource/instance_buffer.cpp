@@ -8,17 +8,19 @@
 #include <cstring>
 
 namespace Comet {
-    void InstanceBuffer::describe(
-        VertexInputDescription& input, uint32_t binding, uint32_t first_location) {
+    void InstanceBuffer::describe(VertexInputDescription& input, uint32_t binding,
+        uint32_t first_location, uint32_t bend_location) {
         static_assert(sizeof(Math::Mat4) == 4 * sizeof(Math::Vec4));
-        input.add_binding(binding, sizeof(Math::Mat4), VertexInputRate::Instance);
+        input.add_binding(binding, sizeof(PushConstant), VertexInputRate::Instance);
         for(uint32_t column = 0; column < 4; ++column)
             input.add_attribute(first_location + column, binding, Format::R32G32B32A32_SFLOAT,
                 column * sizeof(Math::Vec4));
+        input.add_attribute(bend_location, binding, Format::R32G32B32A32_SFLOAT,
+            offsetof(PushConstant, vertex_bend));
     }
 
     Result<size_t, GraphicsError> InstanceBuffer::upload(
-        Device& device, const std::span<const Math::Mat4> transforms) {
+        Device& device, const std::span<const PushConstant> transforms) {
         if(transforms.empty())
             return Result<size_t, GraphicsError>::success(0);
         const auto bytes = transforms.size_bytes();

@@ -15,6 +15,80 @@ namespace Comet::Tests {
             return data;
         }
     }
+    TEST(AnimationIKTest, FullBodyCouplesReachAndSupportWithoutStretchingOrChangingContent) {
+        AnimationData data;
+        data.mesh_node = 0;
+        data.nodes = {{"mesh"}, {"pelvis", 0, {.translation = {0, 1.5f, 0}}},
+            {"chest", 1, {.translation = {0, .7f, 0}}},
+            {"hip_l", 1, {.translation = {-.25f, 0, 0}}},
+            {"knee_l", 3, {.translation = {0, -.75f, 0}}},
+            {"foot_l", 4, {.translation = {0, -.75f, 0}}},
+            {"hip_r", 1, {.translation = {.25f, 0, 0}}},
+            {"knee_r", 6, {.translation = {0, -.75f, 0}}},
+            {"foot_r", 7, {.translation = {0, -.75f, 0}}},
+            {"arm_l", 2, {.translation = {-.25f, 0, 0}}},
+            {"elbow_l", 9, {.translation = {-.65f, 0, 0}}},
+            {"hand_l", 10, {.translation = {-.65f, 0, 0}}},
+            {"arm_r", 2, {.translation = {.25f, 0, 0}}},
+            {"elbow_r", 12, {.translation = {.65f, 0, 0}}},
+            {"hand_r", 13, {.translation = {.65f, 0, 0}}}};
+        for(uint32_t i = 0; i < data.nodes.size(); ++i) {
+            data.evaluation_order.push_back(i);
+            if(i)
+                data.joints.push_back({i, Math::Mat4(1), BoundingBox::from_point({0, 0, 0})});
+        }
+        ASSERT_TRUE(validate_animation(data));
+        const auto base = sample_animation(data, nullptr);
+        ASSERT_TRUE(base);
+        const std::array constraints{
+            AnimationIKConstraint{.tip = 11, .target = {-1.15f, 2.2f, 1.2f}, .pole = {-1, 2, 0}},
+            AnimationIKConstraint{.tip = 14, .target = {1.15f, 2.2f, 1.2f}, .pole = {1, 2, 0}},
+            AnimationIKConstraint{.tip = 5, .target = {-.25f, 0, 0}, .pole = {-.25f, 1, 1}},
+            AnimationIKConstraint{.tip = 8, .target = {.25f, 0, 0}, .pole = {.25f, 1, 1}}};
+        auto independent = apply_animation_constraints(data, base.value(), constraints);
+        ASSERT_TRUE(independent);
+        AnimationBodyIK body{.root = 1, .iterations = 12};
+        auto coupled =
+            apply_animation_constraints(data, base.value(), constraints, nullptr, {}, &body);
+        ASSERT_TRUE(coupled) << coupled.error();
+        const auto error = [&](const AnimationPose& pose) {
+            float sum = 0;
+            for(const auto& goal : constraints)
+                sum += glm::length(Math::Vec3(pose.bone_matrices[goal.tip - 1][3]) - goal.target);
+            return sum;
+        };
+        EXPECT_LT(error(coupled.value()), error(independent.value()));
+        EXPECT_GT(glm::length(coupled.value().local_transforms[1].translation
+                              - data.nodes[1].rest.translation),
+            .001);
+        EXPECT_LE(glm::length(coupled.value().local_transforms[1].translation
+                              - data.nodes[1].rest.translation),
+            body.max_translation + .0001);
+        for(size_t i = 2; i < data.nodes.size(); ++i)
+            EXPECT_EQ(
+                coupled.value().local_transforms[i].translation, data.nodes[i].rest.translation);
+        EXPECT_EQ(base.value().local_transforms[1].translation, data.nodes[1].rest.translation);
+        AnimationPlayback motion_frame{.root_motion = AnimationRootMotion{.node = "pelvis"}};
+        auto motion_base = sample_animation(data, &motion_frame);
+        ASSERT_TRUE(motion_base);
+        auto constrained_motion = apply_animation_constraints(
+            data, motion_base.value(), constraints, &*motion_frame.root_motion, {}, &body);
+        ASSERT_TRUE(constrained_motion) << constrained_motion.error();
+        EXPECT_LT(error(constrained_motion.value()), error(independent.value()));
+        auto presented = interpolate_animation_pose(data, constrained_motion.value(),
+            constrained_motion.value(), .5f, &*motion_frame.root_motion);
+        ASSERT_TRUE(presented);
+        EXPECT_NEAR(error(presented.value()), error(constrained_motion.value()), .0001);
+        body.weight = 0;
+        auto zero =
+            apply_animation_constraints(data, base.value(), constraints, nullptr, {}, &body);
+        ASSERT_TRUE(zero);
+        EXPECT_EQ(zero.value().matrices, independent.value().matrices);
+        body.iterations = 0;
+        EXPECT_FALSE(
+            apply_animation_constraints(data, base.value(), constraints, nullptr, {}, &body));
+    }
+
     TEST(AnimationIKTest, ReachesTargetPreservesBoneLengthsAndMatchesFootRotation) {
         const auto data = limb();
         auto pose = sample_animation(data, nullptr);

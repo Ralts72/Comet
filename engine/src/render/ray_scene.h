@@ -59,6 +59,8 @@ namespace Comet {
             std::vector<Deformation> deformations;
             std::vector<Triangle> triangles;
             std::vector<Node> nodes;
+            // 原地重排三角形；所有消费者共用相同的 escape 链布局。
+            COMET_API void build_bvh();
         };
         struct Materials {
             std::vector<Surface> surfaces;

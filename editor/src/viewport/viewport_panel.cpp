@@ -197,10 +197,16 @@ namespace CometEditor {
             m_terrain->cancel();
         }
         if(m_terrain_tool && m_terrain) {
-            constexpr const char* brushes[]{"抬升", "降低", "平滑", "整平"};
+            constexpr const char* brushes[]{"抬升", "降低", "平滑", "整平", "材质绘制"};
             int mode = int(m_terrain->brush.mode);
-            if(ImGui::Combo("笔刷", &mode, brushes, 4))
+            if(ImGui::Combo("笔刷", &mode, brushes, 5))
                 m_terrain->brush.mode = TerrainBrush::Mode(mode);
+            if(m_terrain->brush.mode == TerrainBrush::Mode::Paint) {
+                constexpr const char* layers[]{"低地", "陡坡", "高地"};
+                int layer = int(m_terrain->brush.layer);
+                if(ImGui::Combo("绘制层", &layer, layers, 3))
+                    m_terrain->brush.layer = uint32_t(layer);
+            }
             ImGui::DragFloat("半径（局部米）", &m_terrain->brush.radius, .1f, .1f, 1000);
             ImGui::DragFloat("强度", &m_terrain->brush.strength, .1f, .01f, 50);
             ImGui::TextDisabled(

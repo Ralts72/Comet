@@ -59,6 +59,11 @@ namespace CometEditor {
             }
             ImGui::PopID();
         }
+        if(!data.layer_weights.empty()) {
+            ImGui::TextDisabled("已使用手绘材质权重；坡度／高度规则仅用于重置后的自动混合。");
+            if(ImGui::Button("清除绘制，恢复自动分层"))
+                data.layer_weights.clear();
+        }
         ImGui::SliderFloat("坡度混合起点（1-normal.y）", &data.slope_start, 0, 1);
         ImGui::SliderFloat("坡度混合终点", &data.slope_end, 0, 1);
         ImGui::SliderFloat("高地混合起点", &data.height_start, 0, 1);
@@ -67,7 +72,8 @@ namespace CometEditor {
             auto& grass = data.vegetation;
             Ui::input_text("植被模型（glTF/GLB）", grass.model);
             ImGui::TextDisabled(
-                "空路径使用内置草叶；模型以地面为原点，Y 向上。风动绕实例根部摆动。");
+                "空路径使用内置草叶；模型以地面为原点，Y 向上。柔性模式固定根部并弯曲顶部；关闭后为整株摆动。");
+            ImGui::Checkbox("柔性顶点风动", &grass.flexible_wind);
             ImGui::SliderFloat("风动幅度（度）", &grass.wind_amplitude, 0, 30);
             ImGui::SliderFloat("风动频率（Hz）", &grass.wind_frequency, .1f, 10);
             int count = int(grass.count), seed = int(grass.seed);

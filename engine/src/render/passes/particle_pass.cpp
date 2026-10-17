@@ -46,11 +46,16 @@ namespace Comet {
     }
     Result<void, GraphicsError> ParticlePass::prepare_gpu(FrameScheduler& frames,
         const ViewProjectMatrix& camera, const RenderWorld& world, bool sorted,
-        const std::shared_ptr<ImageView>& depth) {
+        const std::shared_ptr<ImageView>& depth,
+        const std::shared_ptr<const RayScene>& collisions) {
+        if(!world.particle_meshes.empty() && !collisions)
+            return Result<void, GraphicsError>::failure(
+                {"GPU 粒子静态网格碰撞准备失败，请检查几何与预算"});
         return m_gpu->prepare(frames, camera,
             world.particles ? std::span(world.particles->gpu_emitters)
                             : std::span<const GpuParticleEmitter>{},
-            sorted, depth, world.scene_lifetime, world.particle_colliders, world.particle_fields);
+            sorted, depth, world.scene_lifetime, world.particle_colliders, world.particle_fields,
+            collisions);
     }
 
     Result<std::unique_ptr<ParticlePass>, GraphicsError> ParticlePass::create(Device& device,

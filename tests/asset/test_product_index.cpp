@@ -1,3 +1,4 @@
+#include "asset/runtime/prefab_loader.h"
 #include "support/asset_manager_fixture.h"
 #include "asset/default_assets.h"
 #include "asset/serialization/animation_controller_serializer.h"
@@ -519,7 +520,8 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.stop());
     }
 
-    TEST(ProductIndexTest, ExportsBothDemoLevelsAndLoadsThemAfterMovingProductsAndDeletingSource) {
+    TEST(ProductIndexTest,
+        ExportsDemoLevelsAndReferencedTerrainAfterMovingProductsAndDeletingSource) {
         const TemporaryDirectory directory;
         const ProjectPaths source(directory.path() / "source");
         const std::filesystem::path demo = COMET_SAMPLE_PROJECT_DIRECTORY;
@@ -531,14 +533,19 @@ namespace Comet::Tests {
         ASSERT_TRUE(project) << project.error();
         const auto original_id = project.value().id();
         const auto target = directory.path() / "exported";
-        const std::array<std::filesystem::path, 1> scenes{"scenes/character_second.scene"};
+        const std::array<std::filesystem::path, 2> scenes{
+            "scenes/character_second.scene", "scenes/terrain.scene"};
         const auto exported = export_project_assets(project.value(), target, scenes);
         ASSERT_TRUE(exported) << exported.error();
         const auto components = create_scene_component_registry();
         const SceneSerializer serializer(components);
+        AssetDatabase source_database(source);
+        ASSERT_TRUE(source_database.scan().succeeded());
+        const SceneSerializer source_serializer(
+            components, project_scene_sources(source_database, components));
         std::map<std::filesystem::path, std::size_t> entity_counts;
-        for(const auto& relative : {project.value().startup_scene(), scenes.front()}) {
-            const auto original = serializer.load((source.assets() / relative).string());
+        for(const auto& relative : {project.value().startup_scene(), scenes[0], scenes[1]}) {
+            const auto original = source_serializer.load((source.assets() / relative).string());
             ASSERT_TRUE(original);
             entity_counts[relative] = original.value()->get_entities().size();
         }

@@ -135,9 +135,10 @@ namespace CometEditor {
         using namespace Comet;
         if(data.resolution < 2 || data.width <= 0 || data.depth <= 0 || data.height_scale <= 0
             || data.heights.size() != size_t(data.resolution) * data.resolution
+            || (!data.layer_weights.empty() && data.layer_weights.size() != data.heights.size())
             || !Math::is_finite(center) || !std::isfinite(brush.radius) || brush.radius <= 0
             || !std::isfinite(brush.strength) || brush.strength < 0 || !std::isfinite(delta)
-            || delta <= 0)
+            || delta <= 0 || brush.layer >= data.layers.size())
             return false;
         std::vector<float> before;
         if(brush.mode == TerrainBrush::Mode::Smooth)
@@ -160,6 +161,17 @@ namespace CometEditor {
                     continue;
                 const float falloff = (1 - distance * distance) * (1 - distance * distance);
                 const auto index = size_t(z) * data.resolution + x;
+                if(brush.mode == TerrainBrush::Mode::Paint) {
+                    Comet::TerrainImporter::initialize_layer_weights(data);
+                    auto& weights = data.layer_weights[index];
+                    Math::Vec3 target(0);
+                    target[brush.layer] = 1;
+                    const auto output = glm::mix(
+                        weights, target, float(-std::expm1(-delta * brush.strength * falloff)));
+                    changed |= weights != output;
+                    weights = output;
+                    continue;
+                }
                 const float value = data.heights[index];
                 float output = value;
                 if(brush.mode == TerrainBrush::Mode::Raise

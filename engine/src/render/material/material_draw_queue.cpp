@@ -184,7 +184,8 @@ namespace Comet {
             if(draw.instance_count > 1) {
                 draw.first_instance = static_cast<uint32_t>(m_instance_transforms.size());
                 for(size_t index = first; index < end; ++index)
-                    m_instance_transforms.push_back(items[index].item->model_matrix);
+                    m_instance_transforms.push_back(
+                        {items[index].item->model_matrix, items[index].item->vertex_bend});
             }
             m_draw_queue.push_back(std::move(draw));
             first = end;

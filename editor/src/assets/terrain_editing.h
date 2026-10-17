@@ -9,9 +9,10 @@ namespace Comet {
 namespace CometEditor {
     class EditorAssets;
     struct TerrainBrush {
-        enum class Mode { Raise, Lower, Smooth, Flatten };
+        enum class Mode { Raise, Lower, Smooth, Flatten, Paint };
         Mode mode = Mode::Raise;
         float radius = 3, strength = 2;
+        uint32_t layer = 0;
     };
     // 坐标与半径使用地形局部米数；高度数据须已展开为内联样本。
     bool apply_terrain_brush(Comet::TerrainData&, Comet::Math::Vec2 center, const TerrainBrush&,

@@ -229,7 +229,7 @@
     {
       "uuid": "7e457d19-04df-4934-9c64-2ebfa38fc623",
       "components": {
-        "name": "脚部 IK + 双手持握",
+        "name": "全身 IK：双脚支撑与双手取物",
         "transform": {
           "translation": [
             0,
@@ -329,6 +329,32 @@
               ],
               "weight": 1,
               "match_rotation": false
+            },
+            "full_body_ik": {
+              "enabled": true,
+              "root": "pelvis",
+              "max_translation": 0.25,
+              "max_rotation": 25,
+              "weight": 1,
+              "iterations": 6,
+              "left_foot": "foot_l",
+              "right_foot": "foot_r",
+              "left_target": {
+                "entity": "00000000-0000-0000-0000-000000000000"
+              },
+              "right_target": {
+                "entity": "00000000-0000-0000-0000-000000000000"
+              },
+              "left_pole": [
+                -0.5,
+                0,
+                1
+              ],
+              "right_pole": [
+                0.5,
+                0,
+                1
+              ]
             }
           }
         }
@@ -502,12 +528,12 @@
     {
       "uuid": "32efabde-7783-41e4-8329-35a8606fe5b4",
       "components": {
-        "name": "持握目标（移动此物体观察双手）",
+        "name": "取物目标（移动观察身体跟随；切换全身 IK 对照）",
         "transform": {
           "translation": [
             0,
             1.25,
-            0.45
+            0.7
           ],
           "rotation": [
             0,

@@ -4,7 +4,7 @@
 #include "gameplay/navigation_system.h"
 #include "gameplay/character_animation.h"
 #include "gameplay/foot_placement.h"
-#include "gameplay/hand_placement.h"
+#include "gameplay/pose_constraints.h"
 #include "gameplay/wind_sway.h"
 #include "animation/animation_system.h"
 #include "particles/particle_system.h"
@@ -196,7 +196,7 @@ namespace Comet {
             return added;
         if(auto added = add_system(std::make_unique<Gameplay::FootPlacementSystem>()); !added)
             return added;
-        if(auto added = add_system(std::make_unique<Gameplay::HandPlacementSystem>()); !added)
+        if(auto added = add_system(std::make_unique<Gameplay::PoseConstraintSystem>()); !added)
             return added;
         if(auto added = add_system(std::make_unique<Gameplay::WindSwaySystem>()); !added)
             return added;

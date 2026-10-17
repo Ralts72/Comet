@@ -80,6 +80,8 @@ set(COMET_WORLD_SOURCES
     src/scene/prefab.cpp
     src/scene/transform_interpolation.cpp
     src/scene/transform_interpolation.h
+    src/scene/scene_format.cpp
+    src/scene/scene_format.h
     src/scene/scene_serializer.cpp
     src/scene/scene_settings.cpp
     src/scene/script_component.cpp
@@ -128,8 +130,8 @@ set(COMET_GAMEPLAY_SOURCES
     src/gameplay/root_motion.h
     src/gameplay/wind_sway.cpp
     src/gameplay/wind_sway.h
-    src/gameplay/hand_placement.cpp
-    src/gameplay/hand_placement.h
+    src/gameplay/pose_constraints.cpp
+    src/gameplay/pose_constraints.h
     src/gameplay/foot_placement.cpp
     src/gameplay/foot_placement.h
     src/gameplay/checkpoint_store.cpp
@@ -232,6 +234,8 @@ set(COMET_GRAPHICS_SOURCES
 )
 
 set(COMET_RENDER_SOURCES
+    src/render/particle_collision_scene.cpp
+    src/render/particle_collision_scene.h
     src/render/ray_scene.cpp
     src/render/passes/path_trace_pass.cpp
     src/render/passes/realtime_irradiance_pass.cpp

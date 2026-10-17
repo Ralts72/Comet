@@ -67,8 +67,13 @@ namespace Comet::Json {
         auto& scope = m_scopes.back();
         if(!scope.empty)
             m_output += ',';
-        m_output += '\n';
-        m_output.append(m_scopes.size() * 2, ' ');
+        if(scope.inline_values) {
+            if(!scope.empty)
+                m_output += ' ';
+        } else {
+            m_output += '\n';
+            m_output.append(m_scopes.size() * 2, ' ');
+        }
         scope.empty = false;
     }
 
@@ -99,11 +104,11 @@ namespace Comet::Json {
         m_scopes.push_back({.object = true});
     }
 
-    void Writer::begin_array() {
+    void Writer::begin_array(bool inline_values) {
         if(!before_value())
             return;
         m_output += '[';
-        m_scopes.push_back({.object = false});
+        m_scopes.push_back({.object = false, .inline_values = inline_values});
     }
 
     void Writer::end_scope(bool object) {
@@ -113,9 +118,9 @@ namespace Comet::Json {
             m_error = "Unbalanced JSON writer scope";
             return;
         }
-        const bool empty = m_scopes.back().empty;
+        const bool newline = !m_scopes.back().empty && !m_scopes.back().inline_values;
         m_scopes.pop_back();
-        if(!empty) {
+        if(newline) {
             m_output += '\n';
             m_output.append(m_scopes.size() * 2, ' ');
         }

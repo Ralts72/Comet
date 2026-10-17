@@ -5,6 +5,7 @@
 namespace Comet {
     struct PushConstant {
         Math::Mat4 model;
+        Math::Vec4 vertex_bend{0};
     };
 
     struct ViewProjectMatrix {

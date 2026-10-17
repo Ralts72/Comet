@@ -601,7 +601,8 @@ namespace Comet {
                 .name = std::move(node.name),
                 .parent = node.parent,
                 .transform = node.transform,
-                .wind = node.wind};
+                .wind = node.wind,
+                .wind_height = node.wind_height};
             for(const auto mesh : node.meshes) {
                 if(mesh >= parts.size())
                     return Bound::failure("Model node references an invalid mesh");

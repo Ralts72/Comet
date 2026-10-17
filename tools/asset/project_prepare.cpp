@@ -203,13 +203,15 @@ namespace Comet {
         auto path = project.paths().resolve_asset_path(project.startup_scene());
         if(!path)
             return Result<void>::failure(path.error());
-        auto scene = SceneSerializer(components).load(path.value().string());
-        if(!scene)
-            return Result<void>::failure(scene.error());
         AssetDatabase database(project.paths());
         const auto scan = database.scan();
         if(!scan.snapshot_updated)
             return Result<void>::failure("Cannot scan project assets");
+        auto scene =
+            SceneSerializer(components, project_scene_sources(database, components, limits))
+                .load(path.value().string());
+        if(!scene)
+            return Result<void>::failure(scene.error());
         if(database.is_read_only())
             return Result<void>::success();
 
@@ -307,7 +309,8 @@ namespace Comet {
             const ProjectPaths output(staging);
             const ImportService imports(paths, limits);
             const auto components = create_scene_component_registry();
-            const SceneSerializer serializer(components);
+            const SceneSerializer serializer(
+                components, project_scene_sources(database, components, limits));
             ProductIndex index;
             std::vector<AssetReference> pending;
             std::unordered_map<AssetHandle, AssetType> exported;
@@ -361,10 +364,11 @@ namespace Comet {
                         "Export scene is not indexed: " + relative.generic_string());
                 if(!exported.emplace(record->handle, record->type).second)
                     continue;
+                const AssetRecord scene_record = *record;
                 auto scene = serializer.load(path.value().string());
                 if(!scene)
                     return Result<void>::failure(scene.error());
-                AssetProduct product{record->handle, AssetType::Scene, record->path};
+                AssetProduct product{scene_record.handle, AssetType::Scene, scene_record.path};
                 if(auto collected = append_references(*scene.value(), product); !collected)
                     return collected;
                 // 来源、基线与覆盖仅供编辑器更新实例；运行实体和稳定引用保持原样。

@@ -1,9 +1,9 @@
 #include "scene/scene_serializer.h"
 #include "scene/prefab.h"
+#include "scene/scene_format.h"
 
 #include "common/file_io.h"
 #include "common/json.h"
-#include "common/serialization/parameters_json.h"
 #include "scene/component_registry.h"
 #include "scene/components.h"
 #include "scene/scene.h"
@@ -18,647 +18,7 @@
 #include <vector>
 
 namespace Comet {
-    namespace {
-        struct PropertyRecord {
-            const PropertyDescriptor* descriptor = nullptr;
-            PropertyValue value;
-        };
-
-        struct ComponentRecord {
-            const ComponentDescriptor* descriptor = nullptr;
-            std::vector<PropertyRecord> properties;
-        };
-
-        struct PrefabRecord;
-        struct EntityRecord {
-            EntityUuid uuid;
-            std::optional<EntityUuid> parent;
-            std::string name;
-            std::vector<ComponentRecord> components;
-            std::shared_ptr<PrefabRecord> prefab;
-        };
-
-        struct PrefabRecord {
-            AssetHandle asset;
-            EntityTrees::ReferenceRemap entities;
-            std::vector<EntityRecord> base;
-            AssetType source_type = AssetType::Prefab;
-        };
-
-        Result<VolumetricFogSettings> read_volumetric_fog(
-            Json::Node node, const Json::Context& context) {
-            using Read = Result<VolumetricFogSettings>;
-            constexpr std::string_view location = "environment.volumetric_fog";
-            if(auto valid = context.validate_keys(node,
-                   {"enabled", "color", "density", "base_height", "height_falloff", "anisotropy",
-                       "max_distance", "ambient"},
-                   location);
-                !valid)
-                return Read::failure(valid.error());
-            VolumetricFogSettings settings;
-            auto enabled =
-                context.read_optional_field<bool>(node, "enabled", "a boolean", location);
-            if(!enabled)
-                return Read::failure(enabled.error());
-            settings.enabled = enabled.value().value_or(false);
-            for(const auto& [key, target] : {std::pair{"density", &settings.density},
-                    std::pair{"base_height", &settings.base_height},
-                    std::pair{"height_falloff", &settings.height_falloff},
-                    std::pair{"anisotropy", &settings.anisotropy},
-                    std::pair{"max_distance", &settings.max_distance},
-                    std::pair{"ambient", &settings.ambient}}) {
-                const auto value =
-                    context.read_optional_field<float>(node, key, "a finite number", location);
-                if(!value)
-                    return Read::failure(value.error());
-                *target = value.value().value_or(*target);
-            }
-            const auto color = context.find(node, "color");
-            if(!color)
-                return Read::failure(color.error());
-            if(color.value()) {
-                auto parsed = Json::read_vector<Math::Vec3>(
-                    *color.value(), context, "environment.volumetric_fog.color");
-                if(!parsed)
-                    return Read::failure(parsed.error());
-                settings.color = parsed.value();
-            }
-            if(auto valid = settings.validate(); !valid)
-                return Read::failure(context.error(location, valid.error()));
-            return Read::success(settings);
-        }
-
-        void write_volumetric_fog(Json::Writer& writer, const VolumetricFogSettings& settings) {
-            writer.begin_object();
-            writer.field("enabled", settings.enabled);
-            writer.key("color");
-            Json::write_vector(writer, settings.color);
-            writer.field("density", settings.density);
-            writer.field("base_height", settings.base_height);
-            writer.field("height_falloff", settings.height_falloff);
-            writer.field("anisotropy", settings.anisotropy);
-            writer.field("max_distance", settings.max_distance);
-            writer.field("ambient", settings.ambient);
-            writer.end_object();
-        }
-
-        void write_entity_reference(Json::Writer& writer, const EntityUuid value) {
-            writer.begin_object();
-            writer.field("entity", value.to_string());
-            writer.end_object();
-        }
-
-        Result<Uuid> read_entity_reference(
-            Json::Node node, const Json::Context& context, const std::string_view location) {
-            if(auto valid = context.validate_keys(node, {"entity"}, location); !valid)
-                return Result<Uuid>::failure(valid.error());
-            auto text = context.read_field<std::string>(node, "entity", "a UUID string", location);
-            if(!text)
-                return Result<Uuid>::failure(text.error());
-            const auto uuid = EntityUuid::parse(text.value());
-            if(!uuid)
-                return Result<Uuid>::failure(
-                    context.error(location, "expected a canonical entity UUID"));
-            return Result<Uuid>::success(*uuid);
-        }
-
-        Result<PropertyValue> read_property_value(const PropertyDescriptor& property,
-            const Json::Node& node, const Json::Context& context, const std::string_view location) {
-            switch(property.type) {
-                case PropertyType::Parameters: {
-                    auto parameters =
-                        Json::read_parameters(node, context, location, read_entity_reference);
-                    if(!parameters)
-                        return Result<PropertyValue>::failure(parameters.error());
-                    return Result<PropertyValue>::success(std::move(parameters).value());
-                }
-                case PropertyType::Bool: {
-                    auto value = context.read_scalar<bool>(node, location, "a boolean");
-                    if(!value)
-                        return Result<PropertyValue>::failure(value.error());
-                    return Result<PropertyValue>::success(std::move(value).value());
-                }
-                case PropertyType::Enum:
-                case PropertyType::String: {
-                    auto value = context.read_scalar<std::string>(node, location, "a string");
-                    if(!value)
-                        return Result<PropertyValue>::failure(value.error());
-                    if(property.type == PropertyType::Enum
-                        && std::ranges::none_of(property.enum_options,
-                            [&](const auto& option) { return option.id == value.value(); }))
-                        return Result<PropertyValue>::failure(
-                            context.error(location, "unknown enum name: " + value.value()));
-                    return Result<PropertyValue>::success(std::move(value).value());
-                }
-                case PropertyType::UInt32: {
-                    auto value =
-                        context.read_scalar<uint32_t>(node, location, "an unsigned 32-bit integer");
-                    if(!value)
-                        return Result<PropertyValue>::failure(value.error());
-                    return Result<PropertyValue>::success(value.value());
-                }
-                case PropertyType::Float: {
-                    auto value = context.read_scalar<float>(node, location, "a finite number");
-                    if(!value)
-                        return Result<PropertyValue>::failure(value.error());
-                    if(!property.accepts_value(value.value()))
-                        return Result<PropertyValue>::failure(
-                            context.error(location, "value outside allowed bounds"));
-                    return Result<PropertyValue>::success(std::move(value).value());
-                }
-                case PropertyType::Vec3: {
-                    auto value = Json::read_vector<Math::Vec3>(node, context, location);
-                    if(!value)
-                        return Result<PropertyValue>::failure(value.error());
-                    if(!property.accepts_value(value.value()))
-                        return Result<PropertyValue>::failure(
-                            context.error(location, "value outside allowed bounds"));
-                    return Result<PropertyValue>::success(value.value());
-                }
-                case PropertyType::Vec4: {
-                    auto value = Json::read_vector<Math::Vec4>(node, context, location);
-                    if(!value)
-                        return Result<PropertyValue>::failure(value.error());
-                    if(!property.accepts_value(value.value()))
-                        return Result<PropertyValue>::failure(
-                            context.error(location, "value outside allowed bounds"));
-                    return Result<PropertyValue>::success(value.value());
-                }
-                case PropertyType::AssetHandle: {
-                    auto value = context.read_scalar<AssetHandle::ValueType>(
-                        node, location, "a non-negative integer");
-                    if(!value)
-                        return Result<PropertyValue>::failure(value.error());
-                    return Result<PropertyValue>::success(AssetHandle(value.value()));
-                }
-                case PropertyType::EntityReference: {
-                    auto reference = read_entity_reference(node, context, location);
-                    if(!reference)
-                        return Result<PropertyValue>::failure(reference.error());
-                    return Result<PropertyValue>::success(reference.value());
-                }
-            }
-            return Result<PropertyValue>::failure(
-                context.error(location, "unsupported property type"));
-        }
-
-        Result<PropertyValue> copy_property_value(const PropertyDescriptor& property,
-            const void* component, const Json::Context& context, const std::string_view location) {
-            auto value = property.copy_value(component);
-            if(!value)
-                return Result<PropertyValue>::failure(
-                    context.error(location, "property accessor returned null or unsupported type"));
-            if(!property.accepts_value(*value)) {
-                const char* message = "value violates property constraints";
-                if(property.type == PropertyType::Parameters)
-                    message = "Invalid parameters";
-                else if(property.type == PropertyType::Float || property.type == PropertyType::Vec3
-                        || property.type == PropertyType::Vec4)
-                    message = "expected a finite value within property constraints";
-                return Result<PropertyValue>::failure(context.error(location, message));
-            }
-            if(const auto* text = std::get_if<std::string>(&*value);
-                text && !simdjson::validate_utf8(*text))
-                return Result<PropertyValue>::failure(context.error(location, "invalid UTF-8"));
-            if(const auto* parameters = std::get_if<ParameterMap>(&*value)) {
-                for(const auto& [name, parameter] : *parameters) {
-                    const auto* text = std::get_if<std::string>(&parameter);
-                    if(!simdjson::validate_utf8(name) || (text && !simdjson::validate_utf8(*text)))
-                        return Result<PropertyValue>::failure(
-                            context.error(location, "invalid UTF-8"));
-                }
-            }
-            return Result<PropertyValue>::success(std::move(*value));
-        }
-
-        Result<void> write_property_value(Json::Writer& writer, const PropertyRecord& property) {
-            return std::visit(
-                [&writer](const auto& value) -> Result<void> {
-                    using T = std::remove_cvref_t<decltype(value)>;
-                    if constexpr(std::is_same_v<T, Math::Vec3> || std::is_same_v<T, Math::Vec4>)
-                        Json::write_vector(writer, value);
-                    else if constexpr(std::is_same_v<T, AssetHandle>)
-                        writer.value(value.value());
-                    else if constexpr(std::is_same_v<T, uint32_t>)
-                        writer.value(uint64_t{value});
-                    else if constexpr(std::is_same_v<T, EntityUuid>)
-                        write_entity_reference(writer, value);
-                    else if constexpr(std::is_same_v<T, ParameterMap>)
-                        return Json::write_parameters(writer, value,
-                            Json::Context("scene", "<memory>"), "parameters",
-                            write_entity_reference);
-                    else
-                        writer.value(value);
-                    return Result<void>::success();
-                },
-                property.value);
-        }
-
-        std::string entity_location(const std::size_t index) {
-            return "entities[" + std::to_string(index) + "]";
-        }
-
-        Result<void> read_entity_tree(Json::Node node, std::optional<EntityUuid> parent,
-            const std::string& location, const Json::Context& context,
-            const ComponentRegistry& component_registry, std::vector<EntityRecord>& records,
-            std::unordered_set<EntityUuid>& uuids, std::size_t depth, std::size_t prefab_depth = 0);
-
-        Result<std::shared_ptr<PrefabRecord>> read_prefab_record(Json::Node node,
-            const std::string& location, const Json::Context& context,
-            const ComponentRegistry& registry, const std::size_t prefab_depth) {
-            using Read = Result<std::shared_ptr<PrefabRecord>>;
-            if(auto valid =
-                    context.validate_keys(node, {"asset", "base", "entities", "type"}, location);
-                !valid)
-                return Read::failure(valid.error());
-            auto asset =
-                context.read_field<std::uint64_t>(node, "asset", "an asset handle", location);
-            if(!asset)
-                return Read::failure(asset.error());
-            if(!asset.value())
-                return Read::failure(context.error(location, "prefab asset must not be zero"));
-            auto result = std::make_shared<PrefabRecord>();
-            result->asset = AssetHandle(asset.value());
-            if(node["type"].error() != simdjson::NO_SUCH_FIELD) {
-                auto type =
-                    context.read_field<std::string>(node, "type", "a source type", location);
-                if(!type)
-                    return Read::failure(type.error());
-                if(type.value() == "model")
-                    result->source_type = AssetType::Model;
-                else if(type.value() != "prefab")
-                    return Read::failure(context.error(location, "invalid prefab source type"));
-            }
-            auto base = context.required_child(node, "base", location);
-            if(!base)
-                return Read::failure(base.error());
-            std::unordered_set<EntityUuid> uuids;
-            if(auto parsed = read_entity_tree(base.value(), {}, location + ".base", context,
-                   registry, result->base, uuids, 1, prefab_depth + 1);
-                !parsed)
-                return Read::failure(parsed.error());
-            auto mapping = context.required_child(node, "entities", location);
-            if(!mapping)
-                return Read::failure(mapping.error());
-            auto entries = context.array(mapping.value(), location + ".entities");
-            if(!entries)
-                return Read::failure(entries.error());
-            std::unordered_set<EntityUuid> targets;
-            for(const auto entry : entries.value()) {
-                if(auto valid = context.validate_keys(entry, {"source", "instance"}, location);
-                    !valid)
-                    return Read::failure(valid.error());
-                auto source = context.read_field<std::string>(entry, "source", "a UUID", location);
-                auto instance =
-                    context.read_field<std::string>(entry, "instance", "a UUID", location);
-                if(!source)
-                    return Read::failure(source.error());
-                if(!instance)
-                    return Read::failure(instance.error());
-                const auto from = EntityUuid::parse(source.value());
-                const auto to = EntityUuid::parse(instance.value());
-                if(!from || !*from || !to || !*to || !uuids.contains(*from)
-                    || !result->entities.emplace(*from, *to).second || !targets.insert(*to).second)
-                    return Read::failure(context.error(location, "invalid prefab entity mapping"));
-            }
-            if(result->entities.size() != result->base.size())
-                return Read::failure(context.error(location, "incomplete prefab entity mapping"));
-            return Read::success(std::move(result));
-        }
-
-        Result<EntityRecord> read_entity_record(const Json::Node& node, const std::string& location,
-            const Json::Context& context, const ComponentRegistry& component_registry,
-            const std::size_t prefab_depth) {
-            if(auto valid = context.validate_keys(
-                   node, {"uuid", "components", "children", "prefab"}, location);
-                !valid)
-                return Result<EntityRecord>::failure(valid.error());
-
-            EntityRecord record;
-            const auto uuid_text =
-                context.read_field<std::string>(node, "uuid", "a UUID string", location);
-            if(!uuid_text)
-                return Result<EntityRecord>::failure(uuid_text.error());
-            const auto uuid = EntityUuid::parse(uuid_text.value());
-            if(!uuid || !*uuid)
-                return Result<EntityRecord>::failure(
-                    context.error(location + ".uuid", "expected a non-nil canonical UUID"));
-            record.uuid = *uuid;
-            Json::Node prefab;
-            if(const auto error = node["prefab"].get(prefab); error != simdjson::NO_SUCH_FIELD) {
-                if(error || prefab_depth >= SceneSerializer::MAX_PREFAB_DEPTH)
-                    return Result<EntityRecord>::failure(context.error(
-                        location, "invalid prefab metadata or nesting depth exceeded"));
-                auto parsed = read_prefab_record(
-                    prefab, location + ".prefab", context, component_registry, prefab_depth);
-                if(!parsed)
-                    return Result<EntityRecord>::failure(parsed.error());
-                record.prefab = std::move(parsed).value();
-            }
-
-            const auto components_node = context.required_child(node, "components", location);
-            if(!components_node)
-                return Result<EntityRecord>::failure(components_node.error());
-            const Json::Node components = components_node.value();
-            std::vector<std::string_view> component_ids{"name"};
-            component_ids.reserve(component_registry.components().size() + 1);
-            for(const ComponentDescriptor& component : component_registry.components()) {
-                if(component.serializable) {
-                    component_ids.push_back(component.id);
-                }
-            }
-            if(auto valid =
-                    context.validate_keys(components, component_ids, location + ".components");
-                !valid)
-                return Result<EntityRecord>::failure(valid.error());
-
-            auto name = context.read_field<std::string>(
-                components, "name", "a string", location + ".components");
-            if(!name)
-                return Result<EntityRecord>::failure(name.error());
-            record.name = std::move(name).value();
-
-            for(const ComponentDescriptor& component_descriptor : component_registry.components()) {
-                if(!component_descriptor.serializable) {
-                    continue;
-                }
-
-                Json::Node component;
-                if(components[component_descriptor.id].get(component) || component.is_null()) {
-                    continue;
-                }
-
-                const std::string component_location =
-                    location + ".components." + component_descriptor.id;
-                std::vector<std::string_view> property_ids;
-                property_ids.reserve(component_descriptor.properties.size());
-                for(const PropertyDescriptor& property : component_descriptor.properties) {
-                    if(property.serializable && !property.transient) {
-                        property_ids.push_back(property.id);
-                    }
-                }
-                if(auto valid = context.validate_keys(component, property_ids, component_location);
-                    !valid)
-                    return Result<EntityRecord>::failure(valid.error());
-
-                ComponentRecord component_record{.descriptor = &component_descriptor};
-                component_record.properties.reserve(property_ids.size());
-                for(const PropertyDescriptor& property : component_descriptor.properties) {
-                    if(!property.serializable || property.transient) {
-                        continue;
-                    }
-                    const std::string property_location = component_location + "." + property.id;
-                    if(!property.required
-                        && component[property.id].error() == simdjson::NO_SUCH_FIELD)
-                        continue;
-                    const auto child =
-                        context.required_child(component, property.id, component_location);
-                    if(!child)
-                        return Result<EntityRecord>::failure(child.error());
-                    auto value =
-                        read_property_value(property, child.value(), context, property_location);
-                    if(!value)
-                        return Result<EntityRecord>::failure(value.error());
-                    component_record.properties.push_back(
-                        {.descriptor = &property, .value = std::move(value).value()});
-                }
-                record.components.push_back(std::move(component_record));
-            }
-
-            return Result<EntityRecord>::success(std::move(record));
-        }
-
-        Result<void> read_entity_tree(const Json::Node node, const std::optional<EntityUuid> parent,
-            const std::string& location, const Json::Context& context,
-            const ComponentRegistry& component_registry, std::vector<EntityRecord>& records,
-            std::unordered_set<EntityUuid>& uuids, const std::size_t depth,
-            const std::size_t prefab_depth) {
-            if(depth > SceneSerializer::MAX_HIERARCHY_DEPTH)
-                return Result<void>::failure(
-                    context.error(location, "maximum hierarchy depth exceeded"));
-            auto parsed =
-                read_entity_record(node, location, context, component_registry, prefab_depth);
-            if(!parsed)
-                return Result<void>::failure(parsed.error());
-            auto record = std::move(parsed).value();
-            const EntityUuid uuid = record.uuid;
-            if(!uuids.insert(uuid).second)
-                return Result<void>::failure(
-                    context.error(location + ".uuid", "duplicate UUID " + uuid.to_string()));
-            record.parent = parent;
-            records.push_back(std::move(record));
-
-            Json::Node children;
-            if(!node["children"].get(children)) {
-                const std::string children_location = location + ".children";
-                const auto array = context.array(children, children_location);
-                std::size_t index = 0;
-                if(!array)
-                    return Result<void>::failure(array.error());
-                for(const auto child : array.value()) {
-                    auto result = read_entity_tree(child, uuid,
-                        children_location + "[" + std::to_string(index++) + "]", context,
-                        component_registry, records, uuids, depth + 1, prefab_depth);
-                    if(!result)
-                        return result;
-                }
-            }
-            return Result<void>::success();
-        }
-
-        enum class RecordVisitState { Visiting, Complete };
-        struct RecordVisit {
-            RecordVisitState state = RecordVisitState::Visiting;
-            std::size_t hierarchy_depth = 0;
-        };
-
-        Result<void> visit_parent_chain(std::size_t index, std::size_t depth,
-            const std::vector<EntityRecord>& records,
-            const std::unordered_map<EntityUuid, std::size_t>& indices,
-            std::unordered_map<EntityUuid, RecordVisit>& states, const Json::Context& context) {
-            if(depth > SceneSerializer::MAX_HIERARCHY_DEPTH)
-                return Result<void>::failure(
-                    context.error(entity_location(index), "maximum hierarchy depth exceeded"));
-            const auto& record = records[index];
-            const EntityUuid uuid = record.uuid;
-            if(const auto state = states.find(uuid); state != states.end()) {
-                if(state->second.state == RecordVisitState::Visiting) {
-                    return Result<void>::failure(context.error(
-                        entity_location(index) + ".parent", "parent relationship forms a cycle"));
-                }
-                return Result<void>::success();
-            }
-
-            states.emplace(uuid, RecordVisit{});
-            std::size_t hierarchy_depth = 1;
-            if(record.parent) {
-                const EntityUuid parent = *record.parent;
-                if(auto result = visit_parent_chain(
-                       indices.at(parent), depth + 1, records, indices, states, context);
-                    !result)
-                    return result;
-                hierarchy_depth = states.at(parent).hierarchy_depth + 1;
-            }
-            if(hierarchy_depth > SceneSerializer::MAX_HIERARCHY_DEPTH)
-                return Result<void>::failure(
-                    context.error(entity_location(index), "maximum hierarchy depth exceeded"));
-            states[uuid] = {RecordVisitState::Complete, hierarchy_depth};
-            return Result<void>::success();
-        }
-
-        Result<void> validate_records(const std::vector<EntityRecord>& records,
-            const Json::Context& context, const std::size_t prefab_depth = 0) {
-            if(prefab_depth > SceneSerializer::MAX_PREFAB_DEPTH)
-                return Result<void>::failure("Maximum prefab nesting depth exceeded");
-            std::unordered_map<EntityUuid, std::size_t> indices;
-            indices.reserve(records.size());
-            for(std::size_t index = 0; index < records.size(); ++index) {
-                if(!indices.emplace(records[index].uuid, index).second) {
-                    return Result<void>::failure(context.error(entity_location(index) + ".uuid",
-                        "duplicate UUID " + records[index].uuid.to_string()));
-                }
-            }
-
-            for(std::size_t index = 0; index < records.size(); ++index) {
-                if(records[index].parent && !indices.contains(*records[index].parent))
-                    return Result<void>::failure(context.error(entity_location(index) + ".parent",
-                        "missing parent UUID " + records[index].parent->to_string()));
-            }
-            std::unordered_map<EntityUuid, RecordVisit> states;
-            for(std::size_t index = 0; index < records.size(); ++index)
-                if(auto result = visit_parent_chain(index, 1, records, indices, states, context);
-                    !result)
-                    return result;
-            const auto contains = [&](EntityUuid root, EntityUuid child) {
-                while(child) {
-                    if(child == root)
-                        return true;
-                    const auto found = indices.find(child);
-                    if(found == indices.end())
-                        return false;
-                    child = records[found->second].parent.value_or(EntityUuid{});
-                }
-                return false;
-            };
-            std::unordered_map<EntityUuid, std::vector<EntityUuid>> owners;
-            for(const auto& record : records) {
-                if(!record.prefab)
-                    continue;
-                const auto& prefab = *record.prefab;
-                if((prefab.source_type != AssetType::Prefab
-                       && prefab.source_type != AssetType::Model)
-                    || !prefab.asset || prefab.base.empty()
-                    || prefab.entities.size() != prefab.base.size())
-                    return Result<void>::failure(
-                        context.error(record.uuid.to_string(), "incomplete prefab identity"));
-                std::size_t roots = 0;
-                std::unordered_set<EntityUuid> members;
-                if(auto valid = validate_records(prefab.base, context, prefab_depth + 1); !valid)
-                    return valid;
-                for(const auto& source : prefab.base) {
-                    const auto found = prefab.entities.find(source.uuid);
-                    if(found == prefab.entities.end() || !found->second
-                        || !members.insert(found->second).second)
-                        return Result<void>::failure(context.error(
-                            record.uuid.to_string(), "invalid or overlapping prefab identity"));
-                    auto& previous_owners = owners[found->second];
-                    for(const auto owner : previous_owners) {
-                        if((!contains(owner, record.uuid) && !contains(record.uuid, owner))
-                            || (indices.contains(found->second)
-                                && (!contains(owner, found->second)
-                                    || !contains(record.uuid, found->second))))
-                            return Result<void>::failure(context.error(record.uuid.to_string(),
-                                "prefab identity overlap must follow nested subtrees"));
-                    }
-                    previous_owners.push_back(record.uuid);
-                    if(!source.parent) {
-                        ++roots;
-                        if(found->second != record.uuid || source.prefab)
-                            return Result<void>::failure(context.error(
-                                record.uuid.to_string(), "prefab root identity mismatch"));
-                    }
-                }
-                if(roots != 1)
-                    return Result<void>::failure(
-                        context.error(record.uuid.to_string(), "prefab must have one root"));
-            }
-
-            return Result<void>::success();
-        }
-
-        using ChildrenIndex = std::unordered_map<EntityUuid, std::vector<std::size_t>>;
-
-        Result<void> write_entity_tree(Json::Writer& writer, const EntityRecord& record,
-            const std::vector<EntityRecord>& records, const ChildrenIndex& children,
-            const std::size_t depth) {
-            const Json::Context context("scene", "<memory>");
-            if(depth > SceneSerializer::MAX_HIERARCHY_DEPTH)
-                return Result<void>::failure(
-                    context.error(record.uuid.to_string(), "maximum hierarchy depth exceeded"));
-            writer.begin_object();
-            writer.field("uuid", record.uuid.to_string());
-            if(record.prefab) {
-                writer.key("prefab");
-                writer.begin_object();
-                writer.field("asset", record.prefab->asset.value());
-                if(record.prefab->source_type != AssetType::Prefab)
-                    writer.field("type", to_string(record.prefab->source_type));
-                writer.key("base");
-                ChildrenIndex base_children;
-                const auto& base = record.prefab->base;
-                for(std::size_t index = 0; index < base.size(); ++index)
-                    base_children[base[index].parent.value_or(INVALID_ENTITY_UUID)].push_back(
-                        index);
-                const auto& roots = base_children[INVALID_ENTITY_UUID];
-                if(roots.size() != 1)
-                    return Result<void>::failure("Prefab baseline must have exactly one root");
-                if(auto written =
-                        write_entity_tree(writer, base[roots.front()], base, base_children, 1);
-                    !written)
-                    return written;
-                writer.key("entities");
-                writer.begin_array();
-                std::map<EntityUuid, EntityUuid> mapping(
-                    record.prefab->entities.begin(), record.prefab->entities.end());
-                for(const auto& [source, instance] : mapping) {
-                    writer.begin_object();
-                    writer.field("source", source.to_string());
-                    writer.field("instance", instance.to_string());
-                    writer.end_object();
-                }
-                writer.end_array();
-                writer.end_object();
-            }
-
-            writer.key("components");
-            writer.begin_object();
-            writer.field("name", record.name);
-            for(const ComponentRecord& component_record : record.components) {
-                writer.key(component_record.descriptor->id);
-                writer.begin_object();
-                for(const PropertyRecord& property : component_record.properties) {
-                    writer.key(property.descriptor->id);
-                    if(auto written = write_property_value(writer, property); !written)
-                        return written;
-                }
-                writer.end_object();
-            }
-            writer.end_object();
-            if(const auto found = children.find(record.uuid); found != children.end()) {
-                writer.key("children");
-                writer.begin_array();
-                for(const auto index : found->second) {
-                    if(auto result =
-                            write_entity_tree(writer, records[index], records, children, depth + 1);
-                        !result)
-                        return result;
-                }
-                writer.end_array();
-            }
-            writer.end_object();
-            return Result<void>::success();
-        }
-    }
+    using namespace SceneFormat;
 
     struct SceneSerializer::ContentSnapshot {
         SceneEnvironment environment;
@@ -666,8 +26,8 @@ namespace Comet {
         std::vector<EntityRecord> entities;
     };
 
-    SceneSerializer::SceneSerializer(const ComponentRegistry& component_registry)
-        : m_component_registry(component_registry) {}
+    SceneSerializer::SceneSerializer(const ComponentRegistry& component_registry, Sources sources)
+        : m_component_registry(component_registry), m_sources(std::move(sources)) {}
 
     Result<SceneSerializer::ContentSnapshot> SceneSerializer::capture_content(
         const Scene& scene, const std::size_t prefab_depth) const {
@@ -859,7 +219,8 @@ namespace Comet {
         writer.key("entities");
         writer.begin_array();
         for(const auto index : children[INVALID_ENTITY_UUID]) {
-            if(auto result = write_entity_tree(writer, records[index], records, children, 1);
+            if(auto result =
+                    write_scene_tree(writer, records[index], records, children, 1, bool(m_sources));
                 !result)
                 return Result<std::string>::failure(result.error());
         }
@@ -886,7 +247,7 @@ namespace Comet {
             context.read_field<std::uint32_t>(root, "version", "a non-negative integer");
         if(!version)
             return LoadResult::failure(version.error());
-        if(version.value() != FORMAT_VERSION) {
+        if(version.value() != 2 && version.value() != FORMAT_VERSION) {
             return LoadResult::failure(
                 context.error("version", "unsupported version " + std::to_string(version.value())
                                              + "; expected " + std::to_string(FORMAT_VERSION)));
@@ -1086,7 +447,176 @@ namespace Comet {
             }
             content.post_process = settings;
         }
+        if(auto expanded = expand_instances(content, source); !expanded)
+            return LoadResult::failure(expanded.error());
         return restore_content(content, source);
+    }
+
+    Result<void> SceneSerializer::expand_instances(
+        ContentSnapshot& content, std::string_view source) const {
+        const Json::Context context("scene", source);
+        std::map<std::pair<AssetHandle, AssetType>, std::shared_ptr<const Prefab>> sources;
+        std::unordered_set<EntityUuid> removed_by_source;
+        const auto expand = [&](auto&& self, std::vector<EntityRecord>& records,
+                                size_t depth) -> Result<void> {
+            if(depth > MAX_PREFAB_DEPTH)
+                return Result<void>::failure(
+                    context.error("prefab", "maximum nesting depth exceeded"));
+            std::vector<EntityRecord> expanded;
+            for(const auto& record : records) {
+                if(!record.prefab || !record.prefab->compact) {
+                    expanded.push_back(record);
+                    continue;
+                }
+                const auto& saved = *record.prefab;
+                std::shared_ptr<const Prefab> incoming;
+                if(!saved.base.empty()) {
+                    auto scene =
+                        restore_content(ContentSnapshot{.entities = saved.base}, source, depth + 1);
+                    if(!scene)
+                        return Result<void>::failure(scene.error());
+                    auto snapshot = EntityTrees::capture(*scene.value(), m_component_registry,
+                        scene.value()->get_root_entities().front());
+                    if(!snapshot)
+                        return Result<void>::failure("Cannot capture embedded prefab source");
+                    incoming = std::shared_ptr<const Prefab>(new Prefab(std::move(*snapshot)));
+                } else {
+                    const auto key = std::pair{saved.asset, saved.source_type};
+                    auto found = sources.find(key);
+                    if(found == sources.end()) {
+                        if(!m_sources)
+                            return Result<void>::failure(
+                                context.error("prefab", "project source reader is required"));
+                        auto loaded = m_sources(saved.asset, saved.source_type);
+                        if(!loaded || !loaded.value())
+                            return Result<void>::failure(context.error("prefab",
+                                loaded ? "source reader returned no content" : loaded.error()));
+                        found = sources.emplace(key, std::move(loaded).value()).first;
+                    }
+                    incoming = found->second;
+                }
+                auto mapping = saved.entities;
+                const auto root_mapping = mapping.find(incoming->root_uuid());
+                if(root_mapping == mapping.end() || root_mapping->second != record.uuid
+                    || saved.removed.contains(incoming->root_uuid()))
+                    return Result<void>::failure(
+                        context.error("prefab", "source root identity changed"));
+                Scene fresh_scene;
+                if(!EntityTrees::restore(fresh_scene, m_component_registry, incoming->m_entities))
+                    return Result<void>::failure("Cannot restore incoming prefab source");
+                auto fresh = capture_content(fresh_scene, depth + 1);
+                if(!fresh)
+                    return Result<void>::failure(fresh.error());
+                auto before = fresh.value().entities;
+                std::unordered_set<EntityUuid> source_ids, targets;
+                for(const auto& [id, target] : mapping)
+                    targets.insert(target);
+                for(const auto& entity : before) {
+                    source_ids.insert(entity.uuid);
+                    if(!mapping.contains(entity.uuid)) {
+                        const auto target = Prefab::member_uuid(record.uuid, entity.uuid);
+                        if(!targets.insert(target).second)
+                            return Result<void>::failure(
+                                "New prefab entity identity conflicts with the instance");
+                        mapping.emplace(entity.uuid, target);
+                    }
+                }
+                // 只为源已删除且未编辑的旧成员构造占位，沿既有合并检查引用后移除。
+                for(const auto& [id, target] : saved.entities)
+                    if(!source_ids.contains(id)) {
+                        before.push_back({.uuid = id, .parent = incoming->root_uuid()});
+                        if(!saved.removed.contains(id))
+                            removed_by_source.insert(target);
+                    }
+                for(const auto& [original, value, inherit_prefab] : saved.changes) {
+                    const auto found =
+                        std::ranges::find(before, original.uuid, &EntityRecord::uuid);
+                    if(found == before.end())
+                        return Result<void>::failure("Override source identity is missing");
+                    auto link = found->prefab;
+                    *found = original;
+                    if(inherit_prefab)
+                        found->prefab = std::move(link);
+                }
+                auto baseline_scene =
+                    restore_content(ContentSnapshot{.entities = before}, source, depth + 1);
+                if(!baseline_scene)
+                    return Result<void>::failure(baseline_scene.error());
+                auto baseline = EntityTrees::capture(*baseline_scene.value(), m_component_registry,
+                    baseline_scene.value()->get_root_entities().front());
+                if(!baseline)
+                    return Result<void>::failure("Cannot capture prefab merge baseline");
+                std::unordered_set<EntityUuid> deleted = saved.removed;
+                bool changed = true;
+                while(changed) {
+                    changed = false;
+                    for(const auto& entity : before)
+                        if(entity.parent && deleted.contains(*entity.parent))
+                            changed |= deleted.insert(entity.uuid).second;
+                }
+                std::vector<EntityRecord> actual;
+                for(const auto& entity : before)
+                    if(!deleted.contains(entity.uuid))
+                        actual.push_back(remap_record(entity, mapping));
+                for(const auto& [original, value, inherit_prefab] : saved.changes) {
+                    const auto found = std::ranges::find(actual, value.uuid, &EntityRecord::uuid);
+                    if(found == actual.end())
+                        return Result<void>::failure("Override targets a removed entity");
+                    auto link = found->prefab;
+                    *found = value;
+                    if(inherit_prefab)
+                        found->prefab = std::move(link);
+                }
+                auto additions = saved.added;
+                if(auto ready = self(self, additions, depth + 1); !ready)
+                    return ready;
+                actual.insert(actual.end(), additions.begin(), additions.end());
+                auto candidate = restore_content(
+                    ContentSnapshot{.entities = std::move(actual)}, source, depth + 1);
+                if(!candidate)
+                    return Result<void>::failure(candidate.error());
+                auto root = candidate.value()->find_entity(record.uuid);
+                root.add_component<PrefabInstanceComponent>(PrefabInstanceComponent{saved.asset,
+                    std::shared_ptr<const Prefab>(new Prefab(std::move(*baseline))), mapping,
+                    saved.source_type});
+                // 属性与结构的来源更新继续由 Prefab 领域处理，不另造一套 JSON 合并规则。
+                auto merged =
+                    incoming->update_candidate(*candidate.value(), m_component_registry, root);
+                if(!merged)
+                    return Result<void>::failure(context.error("prefab", merged.error()));
+                Scene resolved;
+                if(!EntityTrees::restore(resolved, m_component_registry, merged.value()))
+                    return Result<void>::failure("Cannot restore merged prefab instance");
+                resolved.find_entity(record.uuid).get_component<NameComponent>().name = record.name;
+                auto captured = capture_content(resolved, depth + 1);
+                if(!captured)
+                    return Result<void>::failure(captured.error());
+                for(auto& entity : captured.value().entities) {
+                    if(entity.uuid == record.uuid)
+                        entity.parent = record.parent;
+                    expanded.push_back(std::move(entity));
+                }
+            }
+            records = std::move(expanded);
+            return Result<void>::success();
+        };
+        if(auto ready = expand(expand, content.entities, 0); !ready)
+            return ready;
+        std::unordered_set<EntityUuid> present;
+        for(const auto& entity : content.entities)
+            present.insert(entity.uuid);
+        for(const auto& entity : content.entities)
+            for(const auto& component : entity.components)
+                for(const auto& property : component.properties) {
+                    bool invalid = false;
+                    visit_entity_references(property.value, [&](EntityUuid id) {
+                        invalid |= removed_by_source.contains(id) && !present.contains(id);
+                    });
+                    if(invalid)
+                        return Result<void>::failure(context.error(entity.uuid.to_string(),
+                            "source removed an entity referenced by the scene"));
+                }
+        return Result<void>::success();
     }
 
     Result<std::unique_ptr<Scene>> SceneSerializer::restore_content(const ContentSnapshot& content,

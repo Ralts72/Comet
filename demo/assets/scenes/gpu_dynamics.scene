@@ -114,9 +114,11 @@
             0.5,
             0.5
           ],
-          "shape": "box",
+          "shape": "triangle_mesh",
           "radius": 0.5,
-          "is_trigger": false
+          "is_trigger": false,
+          "mesh": 7535385251553858160,
+          "collision_layer": 1
         }
       }
     },
@@ -178,7 +180,7 @@
     {
       "uuid": "b30039ee-0757-48b6-b915-8b95f0e889b1",
       "components": {
-        "name": "GPU 火花（世界盒／球反弹，转动相机对照）",
+        "name": "GPU 火花（世界形状／网格反弹，转动相机对照）",
         "transform": {
           "translation": [
             3,
@@ -370,7 +372,7 @@
     {
       "uuid": "f3c5a44a-e11a-4dba-88d7-f7036efed1ea",
       "components": {
-        "name": "GPU 火花（世界盒／球反弹，转动相机对照）",
+        "name": "GPU 火花（世界形状／网格反弹，转动相机对照）",
         "transform": {
           "translation": [
             0,

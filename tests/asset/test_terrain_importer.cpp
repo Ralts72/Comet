@@ -36,6 +36,7 @@ namespace Comet::Tests {
             data.height_scale = 2;
             data.vegetation.count = 20;
             data.vegetation.wind_amplitude = 7;
+            data.vegetation.flexible_wind = false;
             data.vegetation.max_slope = 70;
             data.heights.resize(81);
             for(uint32_t z = 0; z < 9; ++z)
@@ -71,6 +72,25 @@ namespace Comet::Tests {
         EXPECT_EQ(texture.value().pixels, rgba.pixels);
         rgba.pixels.pop_back();
         EXPECT_FALSE(encode_png_rgba(rgba));
+    }
+    TEST(TerrainImporterTest, PaintedLayersBakeIntoTheSamePortablePbrProducts) {
+        TemporaryDirectory temporary;
+        auto data = terrain();
+        data.vegetation.count = 0;
+        data.layer_weights.assign(data.heights.size(), {0, 1, 0});
+        data.layers[1].color = {1, 0, 0};
+        data.layers[1].roughness = .4f;
+        const auto path = temporary.path() / "paint.terrain";
+        ASSERT_TRUE(data.save(path));
+        const auto imported = TerrainImporter{}.import(path, 128 * 1024 * 1024);
+        ASSERT_TRUE(imported) << imported.error();
+        ASSERT_GE(imported.value().images.size(), 3u);
+        const auto albedo =
+            TextureImporter{}.import(std::span(imported.value().images[0].encoded), {});
+        ASSERT_TRUE(albedo);
+        EXPECT_EQ(albedo.value().pixels[0], 255);
+        EXPECT_EQ(albedo.value().pixels[1], 0);
+        EXPECT_EQ(albedo.value().pixels[2], 0);
     }
     TEST(
         TerrainImporterTest, ChunksShareEdgesAndNormalsWhileLodsReduceTrianglesAndScatterIsStable) {
@@ -254,6 +274,30 @@ namespace Comet::Tests {
             AssetMetadata{.handle = AssetHandle{31841}, .type = AssetType::Model});
         ASSERT_TRUE(bound) << bound.error();
         EXPECT_EQ(bound.value().model.nodes[4].parts.size(), parts);
+    }
+
+    TEST(TerrainImporterTest, FlexibleWindPublishesPresentationWithoutChangingTransforms) {
+        Scene scene;
+        auto root = scene.create_entity("Plant");
+        auto part = scene.create_entity("Blade");
+        ASSERT_TRUE(scene.set_parent(part, root));
+        root.add_component<WindSwayComponent>(WindSwayComponent{.flexible = true, .height = 2});
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.add_system(std::make_unique<Gameplay::WindSwaySystem>()));
+        ASSERT_TRUE(runtime.start(scene));
+        const auto original = root.get_component<TransformComponent>().rotation;
+        ASSERT_TRUE(runtime.advance(.1));
+        const auto bend = scene.get_vertex_bend(part);
+        EXPECT_EQ(root.get_component<TransformComponent>().rotation, original);
+        EXPECT_EQ(bend.z, 2);
+        EXPECT_GT(glm::length(Math::Vec2(bend)), 0);
+        ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
+        ASSERT_TRUE(runtime.advance(.2));
+        EXPECT_EQ(scene.get_vertex_bend(part), bend);
+        root.remove_component<WindSwayComponent>();
+        EXPECT_EQ(scene.get_vertex_bend(part), Math::Vec4(0));
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_EQ(scene.get_vertex_bend(part), Math::Vec4(0));
     }
 
     TEST(TerrainImporterTest, HierarchicalStaticChunksSupportFallingBodiesAndFollowRootPlacement) {

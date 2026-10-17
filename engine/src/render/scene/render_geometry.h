@@ -56,6 +56,7 @@ namespace Comet {
             uint64_t mesh_revision = 0;
             std::optional<BoundingBox> bounds;
             bool had_lod = false;
+            float bend_height = 0;
         };
 
         struct LodHistory {

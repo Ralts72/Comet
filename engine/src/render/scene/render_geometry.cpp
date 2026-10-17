@@ -40,15 +40,23 @@ namespace Comet {
                 || cached.entity_id != item.entity_id
                 || cached.transform_revision != item.transform_revision || !item.mesh_handle
                 || item.mesh_revision == 0 || cached.mesh_revision != item.mesh_revision || item.lod
-                || cached.had_lod) {
+                || cached.had_lod || cached.bend_height != item.vertex_bend.z) {
                 cached.bounds.reset();
+                const auto transformed_bounds = [&](const Mesh& mesh) {
+                    auto local = mesh.get_local_bounds();
+                    // 最多 30 度；所有 LOD 使用完整风动包络，波形变化不重建界限。
+                    const float extent = item.vertex_bend.z * .577351f;
+                    local.minimum -= Math::Vec3(extent, 0, extent);
+                    local.maximum += Math::Vec3(extent, 0, extent);
+                    return transform_box(local, item.model_matrix);
+                };
                 if(item.mesh)
-                    cached.bounds = transform_box(item.mesh->get_local_bounds(), item.model_matrix);
+                    cached.bounds = transformed_bounds(*item.mesh);
+                cached.bend_height = item.vertex_bend.z;
                 if(item.lod)
                     for(const auto& mesh : item.lod->meshes)
                         if(mesh)
-                            include_bounds(cached.bounds,
-                                transform_box(mesh->get_local_bounds(), item.model_matrix));
+                            include_bounds(cached.bounds, transformed_bounds(*mesh));
                 cached.had_lod = bool(item.lod);
                 cached.entity_id = item.entity_id;
                 cached.transform_revision = item.transform_revision;

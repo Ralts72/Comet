@@ -118,6 +118,10 @@ namespace CometEditor {
             Comet::Renderer& renderer, Comet::RenderResourceFactory& factory) {
             m_thumbnails.enable_rendered_previews(renderer, factory);
         }
+        [[nodiscard]] Comet::SceneSerializer::Sources scene_sources(
+            const Comet::ComponentRegistry& registry) {
+            return m_manager.scene_sources(registry);
+        }
         [[nodiscard]] const Comet::AssetDatabase& database() const { return m_database; }
         [[nodiscard]] const Comet::AssetImportLimits& import_limits() const { return m_limits; }
         [[nodiscard]] uint64_t mesh_data_revision(Comet::AssetHandle handle) const {

@@ -180,7 +180,8 @@ namespace Comet {
             });
             if(glm::length(Math::Vec3(node.wind)) > 0)
                 entity.add_component<WindSwayComponent>(
-                    WindSwayComponent{true, Math::Vec3(node.wind), node.wind.w});
+                    WindSwayComponent{true, Math::Vec3(node.wind), node.wind.w,
+                        node.wind_height > 0, node.wind_height > 0 ? node.wind_height : 1});
             if(node.parent != ModelData::NO_PARENT && !set_parent(entity, entities[node.parent]))
                 return Result<Entity>::failure("Cannot attach model hierarchy");
             for(size_t part = 0; part < node.parts.size(); ++part) {
@@ -240,6 +241,7 @@ namespace Comet {
             if(m_registry.any_of<PointJointComponent, HingeJointComponent, SliderJointComponent>(
                    *it))
                 m_physics_joints_changed = true;
+            m_vertex_bends.erase(*it);
             m_animation_playbacks.erase(*it);
             m_animation_sources.erase(*it);
             if(m_registry.any_of<ParticleEmitterComponent, TrailComponent>(*it))
@@ -310,7 +312,7 @@ namespace Comet {
                         auto base = *frame;
                         base.ik = previous.ik;
                         base.offsets = previous.offsets;
-                        if(base == previous && prefix
+                        if(!frame->body_ik && base == previous && prefix
                             && (unconstrained || frame->offsets == previous.offsets)) {
                             // 追加手部约束直接消费已解出的脚部姿态，骨盆偏移只应用一次。
                             const auto offsets =
@@ -347,12 +349,13 @@ namespace Comet {
         const auto* root = m_registry.try_get<RootMotionComponent>(entity.m_handle);
         const auto* feet = m_registry.try_get<FootPlacementComponent>(entity.m_handle);
         const auto* hands = m_registry.try_get<HandIKComponent>(entity.m_handle);
+        const auto* body = m_registry.try_get<FullBodyIKComponent>(entity.m_handle);
         const bool attachments = children != m_children_by_parent.end()
                                  && std::ranges::any_of(children->second, [&](auto child) {
                                         return m_registry.any_of<BoneAttachmentComponent>(child);
                                     });
         if(!attachments && !(root && root->enabled) && !(feet && feet->enabled)
-            && !(hands && hands->enabled))
+            && !(hands && hands->enabled) && !(body && body->enabled))
             source.reset();
         const auto found = m_animation_sources.find(entity.m_handle);
         if(found == m_animation_sources.end() && !source)
@@ -415,6 +418,38 @@ namespace Comet {
         return true;
     }
 
+    void Scene::set_vertex_bend(Entity entity, Math::Vec4 bend) {
+        if(!is_valid(entity) || !Math::is_finite(bend))
+            return;
+        const auto found = m_vertex_bends.find(entity.m_handle);
+        if(found != m_vertex_bends.end() && found->second == bend)
+            return;
+        if(bend.z > 0)
+            m_vertex_bends.insert_or_assign(entity.m_handle, bend);
+        else if(!m_vertex_bends.erase(entity.m_handle))
+            return;
+        std::vector<Entity> affected{entity};
+        for(size_t i = 0; i < affected.size(); ++i) {
+            mark_render_entity_changed(affected[i].m_handle);
+            const auto children = get_children(affected[i]);
+            affected.insert(affected.end(), children.begin(), children.end());
+        }
+    }
+    Math::Vec4 Scene::get_vertex_bend(Entity entity) const {
+        if(!is_valid(entity))
+            return {};
+        auto handle = entity.m_handle;
+        while(m_registry.valid(handle)) {
+            if(const auto found = m_vertex_bends.find(handle); found != m_vertex_bends.end())
+                return found->second;
+            const auto parent =
+                m_entities_by_id.find(m_registry.get<RelationshipComponent>(handle).parent);
+            if(parent == m_entities_by_id.end())
+                break;
+            handle = parent->second;
+        }
+        return {};
+    }
     void Scene::set_particles(std::shared_ptr<const ParticleSnapshot> particles) {
         if(m_particles == particles)
             return;
@@ -593,11 +628,13 @@ namespace Comet {
         m_dirty_physics_entities.clear();
         m_physics_structure_changed = false;
         m_physics_joints_changed = false;
-        if(!m_material_overrides.empty() || !m_animation_playbacks.empty()) {
+        if(!m_material_overrides.empty() || !m_animation_playbacks.empty()
+            || !m_vertex_bends.empty()) {
             mark_render_dirty();
             m_render_full_update = true;
         }
         m_material_overrides.clear();
+        m_vertex_bends.clear();
         for(const auto& [handle, playback] : m_animation_playbacks)
             mark_attachments_dirty(handle);
         m_animation_playbacks.clear();

@@ -1,4 +1,5 @@
 #include "asset/default_assets.h"
+#include "asset/runtime/prefab_loader.h"
 #include "asset/database.h"
 #include "asset/import/environment_importer.h"
 #include "asset/import/mesh_importer.h"
@@ -48,11 +49,13 @@ namespace Comet::Tests {
             ADD_FAILURE() << issue.message;
         ASSERT_TRUE(scan.succeeded());
         const auto registry = create_scene_component_registry();
-        for(const auto& asset : database.get_assets()) {
+        const auto scene_assets = database.get_assets();
+        for(const auto& asset : scene_assets) {
             if(asset.type != AssetType::Scene)
                 continue;
             SCOPED_TRACE(asset.path.string());
-            const auto scene = SceneSerializer(registry).load((root / asset.path).string());
+            const auto scene = SceneSerializer(registry, project_scene_sources(database, registry))
+                                   .load((root / asset.path).string());
             ASSERT_TRUE(scene) << scene.error();
             for(const auto& reference : registry.collect_asset_references(*scene.value())) {
                 if(const auto* builtin = find_default_asset(reference.handle)) {

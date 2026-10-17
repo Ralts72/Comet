@@ -8,21 +8,6 @@
 
 namespace Comet {
     namespace {
-        EntityUuid member_uuid(EntityUuid instance, EntityUuid source) {
-            std::array<std::byte, 32> input;
-            for(size_t i = 0; i < 16; ++i) {
-                input[i] = std::byte(instance.bytes()[i]);
-                input[i + 16] = std::byte(source.bytes()[i]);
-            }
-            const std::array hashes{Binary::hash_bytes(input),
-                Binary::hash_bytes(input, Binary::HASH_SEED ^ 0x9e3779b97f4a7c15ull)};
-            Uuid::Bytes bytes;
-            for(size_t i = 0; i < bytes.size(); ++i)
-                bytes[i] = static_cast<uint8_t>(hashes[i / 8] >> ((i % 8) * 8));
-            bytes[6] = (bytes[6] & 0x0f) | 0x80;
-            bytes[8] = (bytes[8] & 0x3f) | 0x80;
-            return EntityUuid(bytes);
-        }
         Entity single_root(Scene& scene) {
             Entity root;
             for(const auto entity : scene.get_entities()) {
@@ -171,6 +156,22 @@ namespace Comet {
             }
             return false;
         }
+    }
+
+    EntityUuid Prefab::member_uuid(EntityUuid instance, EntityUuid source) {
+        std::array<std::byte, 32> input;
+        for(size_t i = 0; i < 16; ++i) {
+            input[i] = std::byte(instance.bytes()[i]);
+            input[i + 16] = std::byte(source.bytes()[i]);
+        }
+        const std::array hashes{Binary::hash_bytes(input),
+            Binary::hash_bytes(input, Binary::HASH_SEED ^ 0x9e3779b97f4a7c15ull)};
+        Uuid::Bytes bytes;
+        for(size_t i = 0; i < bytes.size(); ++i)
+            bytes[i] = static_cast<uint8_t>(hashes[i / 8] >> ((i % 8) * 8));
+        bytes[6] = (bytes[6] & 0x0f) | 0x80;
+        bytes[8] = (bytes[8] & 0x3f) | 0x80;
+        return EntityUuid(bytes);
     }
 
     Result<Prefab> Prefab::capture(Scene& scene, const ComponentRegistry& registry, Entity root) {

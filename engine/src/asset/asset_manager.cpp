@@ -5,6 +5,7 @@
 #include "animation/animation_controller.h"
 #include "asset/default_assets.h"
 #include "scene/component_registry.h"
+#include "scene/prefab.h"
 #include "asset/runtime/asset_loader.h"
 #include "asset/runtime/render_asset_factory.h"
 #include "graphics/error.h"
@@ -323,6 +324,34 @@ namespace Comet {
 
     Result<std::shared_ptr<Irradiance>, Error> AssetManager::load_irradiance(AssetHandle handle) {
         return m_loader->load_irradiance(handle);
+    }
+
+    SceneSerializer::Sources AssetManager::scene_sources(const ComponentRegistry& components) {
+        return [this, &components](
+                   AssetHandle handle, AssetType type) -> Result<std::shared_ptr<const Prefab>> {
+            using Loaded = Result<std::shared_ptr<const Prefab>>;
+            if(type == AssetType::Prefab) {
+                auto prefab = load_prefab(handle, components);
+                if(!prefab)
+                    return Loaded::failure(prefab.error().message);
+                return Loaded::success(std::move(prefab).value());
+            }
+            const auto* record = m_database.find(handle);
+            if(type != AssetType::Model || !record || record->type != type)
+                return Loaded::failure("Scene model source is missing or mistyped");
+            const auto name = record->path.stem().string();
+            if(!m_database.is_read_only() && !m_loader->model_is_loaded(handle)
+                && !m_import_service->find_current_model_artifact(*record))
+                if(auto imported = import_model(handle); !imported)
+                    return Loaded::failure(imported.error().message);
+            auto model = load_model(handle);
+            if(!model)
+                return Loaded::failure(model.error().message);
+            auto prefab = Prefab::from_model(*model.value(), handle, components, name);
+            if(!prefab)
+                return Loaded::failure(prefab.error());
+            return Loaded::success(std::make_shared<const Prefab>(std::move(prefab).value()));
+        };
     }
 
     Result<std::shared_ptr<Prefab>, Error> AssetManager::load_prefab(

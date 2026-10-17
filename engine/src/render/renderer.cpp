@@ -366,8 +366,23 @@ namespace Comet {
     }
 
     void Renderer::prepare_scene_views(RenderFrame& frame) {
+        std::shared_ptr<const RayScene> particle_collisions;
+        if(frame.world && !frame.world->particle_meshes.empty()) {
+            auto built = m_particle_collision_builder.update(frame.world->scene_lifetime,
+                frame.world->particle_meshes, m_ray_read, m_ray_revision);
+            const auto error = built ? std::string{} : built.error().message;
+            if(error != m_particle_collision_error && !error.empty())
+                LOG_ERROR("GPU particle collision: {}", error);
+            m_particle_collision_error = error;
+            if(built)
+                particle_collisions = std::move(built).value();
+        } else {
+            m_particle_collision_builder.reset();
+            m_particle_collision_error.clear();
+        }
         for(auto& input : frame.views) {
             auto& view = get_view(input.id);
+            input.parameters.particle_collisions = particle_collisions;
             view.path_trace_error.clear();
             if(!input.draw || !input.parameters.path_trace_enabled || !frame.world) {
                 view.path_trace_builder.reset();
@@ -517,7 +532,7 @@ namespace Comet {
         const RenderSubmission submission{world,
             has_scene ? view.camera.resolve(world, frame_view) : std::nullopt,
             frame_view.path_trace, frame_view.path_trace_settings, irradiance,
-            frame_view.irradiance_debug};
+            frame_view.irradiance_debug, input.parameters.particle_collisions};
         if(auto prepared = view.scene->prepare_post_process(world.post_process); !prepared)
             return prepared;
         const auto& pick_request = input.pick;

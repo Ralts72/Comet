@@ -510,10 +510,40 @@ namespace Comet {
                     {.numeric = {.minimum = 0, .maximum = 1, .enforce_bounds = true}}),
                 make_property_descriptor(
                     "match_rotation", "匹配目标朝向", &HandIKComponent::match_rotation)}));
+        register_component(make_component_descriptor<FullBodyIKComponent>("full_body_ik", "全身 IK",
+            {make_property_descriptor("enabled", "启用", &FullBodyIKComponent::enabled),
+                make_property_descriptor("root", "骨盆／躯干根骨骼", &FullBodyIKComponent::root),
+                make_property_descriptor("left_foot", "左脚骨骼", &FullBodyIKComponent::left_foot),
+                make_property_descriptor(
+                    "right_foot", "右脚骨骼", &FullBodyIKComponent::right_foot),
+                make_property_descriptor(
+                    "left_target", "左脚目标（空时沿用贴地）", &FullBodyIKComponent::left_target),
+                make_property_descriptor(
+                    "right_target", "右脚目标（空时沿用贴地）", &FullBodyIKComponent::right_target),
+                make_property_descriptor(
+                    "left_pole", "左膝提示点", &FullBodyIKComponent::left_pole),
+                make_property_descriptor(
+                    "right_pole", "右膝提示点", &FullBodyIKComponent::right_pole),
+                make_property_descriptor("weight", "身体跟随权重", &FullBodyIKComponent::weight,
+                    {.numeric = {.minimum = 0, .maximum = 1, .enforce_bounds = true}}),
+                make_property_descriptor("max_translation", "骨盆最大位移（米）",
+                    &FullBodyIKComponent::max_translation,
+                    {.numeric = {.minimum = 0, .maximum = 2, .enforce_bounds = true}}),
+                make_property_descriptor("max_rotation", "躯干最大转角（度）",
+                    &FullBodyIKComponent::max_rotation,
+                    {.numeric = {.minimum = 0, .maximum = 60, .enforce_bounds = true}}),
+                make_property_descriptor("iterations", "求解迭代数",
+                    &FullBodyIKComponent::iterations,
+                    {.numeric = {.minimum = 1, .maximum = 12, .enforce_bounds = true}})}));
         register_component(make_component_descriptor<WindSwayComponent>("wind_sway", "风动摆动",
             {make_property_descriptor("enabled", "启用", &WindSwayComponent::enabled),
                 make_property_descriptor(
-                    "amplitude", "根部摆角（度）", &WindSwayComponent::amplitude),
+                    "amplitude", "摆动幅度（度）", &WindSwayComponent::amplitude),
+                make_property_descriptor(
+                    "flexible", "柔性顶点风动", &WindSwayComponent::flexible, {.required = false}),
+                make_property_descriptor("height", "弯曲高度（本地米）", &WindSwayComponent::height,
+                    {.required = false,
+                        .numeric = {.minimum = .01f, .maximum = 1000, .enforce_bounds = true}}),
                 make_property_descriptor("frequency", "频率（Hz）", &WindSwayComponent::frequency,
                     {.numeric = {.minimum = .01f, .maximum = 10, .enforce_bounds = true}})}));
         register_component(make_component_descriptor<MotionWarpComponent>("motion_warp", "动作对位",
@@ -661,8 +691,13 @@ namespace Comet {
                  {.required = false}),
                 make_property_descriptor("gpu_dynamics", "GPU 有状态模拟／深度碰撞",
                     &ParticleEmitterComponent::gpu_dynamics, {.required = false}),
-                make_property_descriptor("gpu_world_collision", "GPU 世界碰撞（盒／球／胶囊）",
+                make_property_descriptor("gpu_world_collision",
+                    "GPU 世界碰撞（基础形状／静态网格）",
                     &ParticleEmitterComponent::gpu_world_collision, {.required = false}),
+                make_property_descriptor("mesh_collision_budget", "网格碰撞查询预算",
+                    &ParticleEmitterComponent::mesh_collision_budget,
+                    {.required = false,
+                        .numeric = {.minimum = 16, .maximum = 2048, .enforce_bounds = true}}),
                 make_property_descriptor("vector_field", "GPU 三维向量场",
                     &ParticleEmitterComponent::vector_field,
                     {.required = false, .asset_type = AssetType::VectorField}),

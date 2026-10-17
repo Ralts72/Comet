@@ -46,6 +46,25 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(apply_terrain_brush(data, {0, 0}, brush, 10, 0));
         EXPECT_FLOAT_EQ(data.heights[40], 1);
     }
+    TEST(TerrainEditingTest, PaintNormalizesWeightsAndLeavesHeightsAndOutsideSamplesUnchanged) {
+        auto data = ground();
+        const auto heights = data.heights;
+        TerrainBrush brush{
+            .mode = TerrainBrush::Mode::Paint, .radius = 2, .strength = 10, .layer = 1};
+        ASSERT_TRUE(apply_terrain_brush(data, {0, 0}, brush, .1, 0));
+        ASSERT_EQ(data.layer_weights.size(), data.heights.size());
+        EXPECT_EQ(data.heights, heights);
+        EXPECT_GT(data.layer_weights[40].y, .6f);
+        EXPECT_EQ(data.layer_weights[0], Comet::Math::Vec3(1, 0, 0));
+        ASSERT_TRUE(data.validate());
+        auto encoded = data.serialize();
+        ASSERT_TRUE(encoded);
+        auto decoded = Comet::TerrainData::deserialize(encoded.value());
+        ASSERT_TRUE(decoded);
+        EXPECT_EQ(decoded.value(), data);
+        data.layer_weights[0] = {1, 1, 0};
+        EXPECT_FALSE(data.validate());
+    }
     TEST(TerrainEditingTest, PickingTraversesCellsAndMatchesTriangleHeights) {
         auto data = ground();
         data.heights[40] = .75f;
@@ -95,13 +114,17 @@ namespace CometEditor::Tests {
         tool.cancel();
         EXPECT_FALSE(history.can_undo());
         EXPECT_EQ(TerrainData::load(paths.assets() / "ground.terrain").value(), original);
+        tool.brush.mode = TerrainBrush::Mode::Paint;
+        tool.brush.layer = 2;
         tool.update(ray, true, true, false, .1);
         tool.update(ray, false, false, true, 0);
         EXPECT_TRUE(tool.error().empty()) << tool.error();
         ASSERT_TRUE(history.can_undo());
         const auto saved = TerrainData::load(paths.assets() / "ground.terrain");
         ASSERT_TRUE(saved);
-        EXPECT_GT(saved.value().heights[40], original.heights[40]);
+        EXPECT_EQ(saved.value().heights, original.heights);
+        ASSERT_EQ(saved.value().layer_weights.size(), original.heights.size());
+        EXPECT_GT(saved.value().layer_weights[40].z, 0);
         EXPECT_EQ(scene.entity_count(), count);
         EXPECT_TRUE(scene.find_entity(first_id));
         EXPECT_EQ(scene.get_world_matrix(scene.find_entity(second_id))[3].x, 20);

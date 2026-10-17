@@ -136,7 +136,7 @@ namespace Comet::Tests {
         ASSERT_EQ(vertex.get_push_constants().size(), 1u);
         EXPECT_TRUE(vertex.get_push_constants()[0].stages == ShaderStage::Vertex);
         EXPECT_EQ(vertex.get_push_constants()[0].offset, 0u);
-        EXPECT_EQ(vertex.get_push_constants()[0].size, 64u);
+        EXPECT_EQ(vertex.get_push_constants()[0].size, sizeof(PushConstant));
 
         auto fragment_result = ShaderInterface::reflect(PBR_FRAG);
         ASSERT_TRUE(fragment_result) << fragment_result.error();
@@ -327,7 +327,8 @@ namespace Comet::Tests {
         auto set_layout = DescriptorSetLayout::create(device, bindings);
         ASSERT_TRUE(set_layout) << set_layout.error();
         layout.descriptor_set_layouts = {set_layout.value()};
-        layout.push_constants = {std::make_shared<PushConstantRange>(ShaderStage::Vertex, 0, 64)};
+        layout.push_constants = {
+            std::make_shared<PushConstantRange>(ShaderStage::Vertex, 0, sizeof(PushConstant))};
         EXPECT_TRUE(layout.validate(shader));
     }
 

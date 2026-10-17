@@ -10,6 +10,7 @@ namespace Comet {
     namespace {
         void extract_particle_colliders(Scene& scene, RenderScene& output, bool interpolating) {
             output.particle_colliders.clear();
+            output.particle_meshes.clear();
             if(!output.particles
                 || !std::ranges::any_of(output.particles->gpu_emitters, [](const auto& emitter) {
                        return emitter.settings.gpu_dynamics && emitter.settings.gpu_world_collision;
@@ -18,7 +19,15 @@ namespace Comet {
             std::vector<std::pair<EntityId, ParticleWorldCollider>> candidates;
             scene.each<const ColliderComponent, const RigidBodyComponent>([&](Entity entity,
                                                                               const auto& collider,
-                                                                              const auto&) {
+                                                                              const auto& body) {
+                if(collider.shape == ColliderShape::TriangleMesh && !collider.is_trigger
+                    && body.motion == BodyMotion::Static && collider.mesh) {
+                    const auto matrix = scene.get_world_matrix(entity);
+                    if(Math::positive_trs_scale(matrix))
+                        output.particle_meshes.push_back(
+                            {entity.get_id(), collider.mesh, matrix, collider.collision_layer});
+                    return;
+                }
                 if(collider.is_trigger
                     || (collider.shape != ColliderShape::Box
                         && collider.shape != ColliderShape::Sphere
@@ -57,6 +66,7 @@ namespace Comet {
                 result.layers[0] = collider.collision_layer;
                 candidates.emplace_back(entity.get_id(), result);
             });
+            std::ranges::sort(output.particle_meshes, {}, &ParticleMeshCollider::entity_id);
             std::ranges::sort(candidates, {}, &std::pair<EntityId, ParticleWorldCollider>::first);
             for(size_t i = 0;
                 i < std::min(candidates.size(), size_t(ParticleWorldCollider::MAX_COLLIDERS)); ++i)
@@ -169,12 +179,13 @@ namespace Comet {
             if(!same_scene || item.entity_id != id || item.transform_revision != world.revision)
                 item.model_matrix = world.world_matrix;
             item.animation = scene.get_render_animation_playback(entity);
+            item.vertex_bend = scene.get_vertex_bend(entity);
             item.entity_id = id;
             item.transform_revision = world.revision;
             item.lod.reset();
             if(entity.has_component<MeshLodComponent>())
                 item.lod = entity.get_component<MeshLodComponent>();
-            item.contributes_to_gi = mesh.contributes_to_gi;
+            item.contributes_to_gi = mesh.contributes_to_gi && item.vertex_bend.z <= 0;
             item.outline = entity.has_component<OutlineComponent>()
                                ? entity.get_component<OutlineComponent>()
                                : OutlineSettings{.enabled = false};

@@ -156,10 +156,23 @@ namespace Comet {
         bool operator==(const HandIKComponent&) const = default;
     };
 
+    struct COMET_API FullBodyIKComponent {
+        bool enabled = true;
+        std::string root = "pelvis";
+        std::string left_foot = "foot_l", right_foot = "foot_r";
+        EntityUuid left_target, right_target;
+        Math::Vec3 left_pole{-.5f, 0, 1}, right_pole{.5f, 0, 1};
+        float weight = 1, max_translation = .35f, max_rotation = 25;
+        uint32_t iterations = 6;
+        bool operator==(const FullBodyIKComponent&) const = default;
+    };
+
     struct COMET_API WindSwayComponent {
         bool enabled = true;
         Math::Vec3 amplitude{5, 0, 3};
         float frequency = 1;
+        bool flexible = false;
+        float height = 1; // 本地米数；底部 Y=0 固定。
         bool operator==(const WindSwayComponent&) const = default;
     };
 
@@ -264,6 +277,8 @@ namespace Comet {
         || std::is_same_v<std::remove_cvref_t<T>, MotionWarpComponent>
         || std::is_same_v<std::remove_cvref_t<T>, FootPlacementComponent>
         || std::is_same_v<std::remove_cvref_t<T>, HandIKComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, FullBodyIKComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, WindSwayComponent>
         || std::is_same_v<std::remove_cvref_t<T>, MeshRendererComponent>
         || std::is_same_v<std::remove_cvref_t<T>, MeshLodComponent>
         || std::is_same_v<std::remove_cvref_t<T>, OutlineComponent>

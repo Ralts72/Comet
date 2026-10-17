@@ -44,6 +44,7 @@ namespace Comet {
 
     private:
         friend class SceneSerializer;
+        static EntityUuid member_uuid(EntityUuid instance, EntityUuid source);
         explicit Prefab(EntityTrees::Snapshot entities) : m_entities(std::move(entities)) {}
         EntityTrees::Snapshot m_entities;
     };

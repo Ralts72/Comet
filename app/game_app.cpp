@@ -57,19 +57,6 @@ namespace {
 
         Comet::Result<void, Comet::Error> on_init() override {
             using Init = Comet::Result<void, Comet::Error>;
-            const auto& components = m_components;
-            const auto path = m_project.paths().resolve_asset_path(m_project.startup_scene());
-            if(!path)
-                return Init::failure({path.error()});
-            auto loaded = Comet::SceneSerializer(components).load(path.value().string());
-            if(!loaded)
-                return Init::failure({loaded.error()});
-            m_game.begin(std::move(loaded).value(), m_project.startup_scene().generic_string());
-            auto initial = m_game.prepare({});
-            if(!initial)
-                return Init::failure({initial.error()});
-            auto scene = std::move(initial).value().scene;
-
             auto& engine = get_engine();
             m_player_settings.bind_app(engine);
             m_asset_manager = std::make_unique<Comet::AssetManager>(m_project.paths(),
@@ -101,6 +88,19 @@ namespace {
                 && std::filesystem::exists(
                     m_project.paths().root() / Comet::ProductIndex::FILENAME))
                 return Init::failure({"Cannot open project asset index"});
+
+            const auto& components = m_components;
+            const auto path = m_project.paths().resolve_asset_path(m_project.startup_scene());
+            if(!path)
+                return Init::failure({path.error()});
+            auto loaded = m_scene_serializer.load(path.value().string());
+            if(!loaded)
+                return Init::failure({loaded.error()});
+            m_game.begin(std::move(loaded).value(), m_project.startup_scene().generic_string());
+            auto initial = m_game.prepare({});
+            if(!initial)
+                return Init::failure({initial.error()});
+            auto scene = std::move(initial).value().scene;
 
             auto save_path = Comet::CheckpointStore::default_path(m_project.id());
             if(!save_path)
@@ -343,7 +343,10 @@ namespace {
         std::unique_ptr<Comet::AssetManager> m_asset_manager;
         std::unique_ptr<Comet::Scene> m_pending_scene;
         Comet::ComponentRegistry m_components = Comet::create_scene_component_registry();
-        Comet::SceneSerializer m_scene_serializer{m_components};
+        Comet::SceneSerializer m_scene_serializer{
+            m_components, [this](Comet::AssetHandle handle, Comet::AssetType type) {
+                return m_asset_manager->scene_sources(m_components)(handle, type);
+            }};
         Comet::GameSession m_game{m_scene_serializer};
         std::optional<Comet::CheckpointStore> m_checkpoints;
         std::optional<Comet::GameSession::Transition> m_pending_transition;

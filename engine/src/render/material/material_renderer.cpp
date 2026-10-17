@@ -910,7 +910,8 @@ namespace Comet {
             if(instanced)
                 ++m_statistics.instanced_draw_calls;
             else {
-                const PushConstant push{.model = draw.item->model_matrix};
+                const PushConstant push{
+                    .model = draw.item->model_matrix, .vertex_bend = draw.item->vertex_bend};
                 command.push_constants(*pipeline->get_layout(),
                     Flags<ShaderStage>(ShaderStage::Vertex), 0, &push, sizeof(push));
             }

@@ -11,6 +11,178 @@
 #include <gtest/gtest.h>
 
 namespace Comet::Tests {
+    TEST(PrefabTest, ReferencedScenesStoreOnlyEditsAndKeepSourceInheritanceAndStableReferences) {
+        const auto registry = create_scene_component_registry();
+        const AssetHandle handle(730);
+        Scene source;
+        const auto source_root = source.create_entity("Source");
+        auto source_child = source.create_entity("Child");
+        ASSERT_TRUE(source.set_parent(source_child, source_root));
+        source_child.edit_transform([](auto& value) { value.translation.x = 1; });
+        source_child.add_component<ScriptComponent>().parameters = {
+            {"local", 1.f}, {"source", 1.f}};
+        const auto source_deleted = source.create_entity("Deleted locally");
+        ASSERT_TRUE(source.set_parent(source_deleted, source_root));
+        for(int i = 0; i < 40; ++i)
+            ASSERT_TRUE(
+                source.set_parent(source.create_entity("Untouched source member"), source_root));
+        auto captured = Prefab::capture(source, registry, source_root);
+        ASSERT_TRUE(captured);
+        auto incoming = std::make_shared<const Prefab>(std::move(captured).value());
+        unsigned reads = 0;
+        const SceneSerializer serializer(registry,
+            [&](AssetHandle asset, AssetType type) -> Result<std::shared_ptr<const Prefab>> {
+                ++reads;
+                EXPECT_EQ(asset, handle);
+                EXPECT_EQ(type, AssetType::Prefab);
+                return Result<std::shared_ptr<const Prefab>>::success(incoming);
+            });
+        Scene scene;
+        auto placed = incoming->instantiate(scene, registry, Math::Vec3(5, 0, 0), {}, handle);
+        auto second = incoming->instantiate(scene, registry, Math::Vec3(-5, 0, 0), {}, handle);
+        ASSERT_TRUE(placed && second);
+        placed.value().get_component<NameComponent>().name = "Placed name";
+        const auto link = placed.value().get_component<PrefabInstanceComponent>();
+        auto child = scene.find_entity(link.entities.at(source_child.get_uuid()));
+        child.edit_transform([](auto& value) { value.translation.y = 2; });
+        child.get_component<ScriptComponent>().parameters["local"] = 9.f;
+        auto local = scene.create_entity("Local parent");
+        ASSERT_TRUE(scene.set_parent(local, placed.value()));
+        ASSERT_TRUE(scene.set_parent(child, local));
+        const auto nested =
+            incoming->instantiate(scene, registry, std::nullopt, local.get_uuid(), handle);
+        ASSERT_TRUE(nested);
+        scene.destroy_entity(scene.find_entity(link.entities.at(source_deleted.get_uuid())));
+        auto outside = scene.create_entity("Outside reference");
+        outside.add_component<ScriptComponent>().parameters = {{"target", child.get_uuid()}};
+        auto text = serializer.serialize(scene);
+        ASSERT_TRUE(text) << text.error();
+        EXPECT_EQ(text.value().find("Untouched source member"), std::string::npos);
+        EXPECT_EQ(reads, 0u);
+        EXPECT_FALSE(SceneSerializer(registry).deserialize(text.value()));
+        source_child.edit_transform([](auto& value) {
+            value.translation.x = 3;
+            value.rotation.y = 15;
+        });
+        source_child.get_component<ScriptComponent>().parameters["source"] = 4.f;
+        const auto added = source.create_entity("Added by source");
+        ASSERT_TRUE(source.set_parent(added, source_root));
+        const auto hidden_child = source.create_entity("Added under local deletion");
+        ASSERT_TRUE(source.set_parent(hidden_child, source_deleted));
+        captured = Prefab::capture(source, registry, source_root);
+        ASSERT_TRUE(captured);
+        incoming = std::make_shared<const Prefab>(std::move(captured).value());
+        auto loaded = serializer.deserialize(text.value());
+        ASSERT_TRUE(loaded) << loaded.error();
+        EXPECT_EQ(reads, 1u); // 两个实例共用本次读取，不长期缓存来源版本。
+        const auto restored = loaded.value()->find_entity(child.get_uuid());
+        EXPECT_EQ(restored.get_component<TransformComponent>().translation, Math::Vec3(1, 2, 0));
+        EXPECT_EQ(restored.get_component<TransformComponent>().rotation.y, 15);
+        EXPECT_EQ(
+            restored.get_component<ScriptComponent>().parameters.at("local"), ParameterValue(9.f));
+        EXPECT_EQ(
+            restored.get_component<ScriptComponent>().parameters.at("source"), ParameterValue(4.f));
+        EXPECT_EQ(loaded.value()->get_parent(restored).get_uuid(), local.get_uuid());
+        const auto root = loaded.value()->find_entity(placed.value().get_uuid());
+        EXPECT_EQ(root.get_component<NameComponent>().name, "Placed name");
+        EXPECT_EQ(root.get_component<TransformComponent>().translation, Math::Vec3(5, 0, 0));
+        const auto& updated = root.get_component<PrefabInstanceComponent>();
+        EXPECT_TRUE(loaded.value()->find_entity(updated.entities.at(added.get_uuid())));
+        EXPECT_FALSE(loaded.value()->find_entity(updated.entities.at(hidden_child.get_uuid())));
+        EXPECT_FALSE(loaded.value()->find_entity(link.entities.at(source_deleted.get_uuid())));
+        EXPECT_EQ(loaded.value()
+                      ->find_entity(outside.get_uuid())
+                      .get_component<ScriptComponent>()
+                      .parameters.at("target"),
+            ParameterValue(child.get_uuid()));
+        auto saved = serializer.serialize(*loaded.value());
+        ASSERT_TRUE(saved);
+        auto reopened = serializer.deserialize(saved.value());
+        ASSERT_TRUE(reopened) << reopened.error();
+        EXPECT_EQ(serializer.serialize(*reopened.value()).value(), saved.value());
+    }
+
+    TEST(PrefabTest, ReferencedNestedTransformEditsDoNotEmbedUnchangedDefinitions) {
+        const auto registry = create_scene_component_registry();
+        const AssetHandle inner_handle(732), outer_handle(733);
+        Scene inner_scene;
+        const auto inner_root = inner_scene.create_entity("Inner");
+        for(int i = 0; i < 30; ++i)
+            ASSERT_TRUE(inner_scene.set_parent(
+                inner_scene.create_entity("Unchanged nested definition"), inner_root));
+        const auto inner = Prefab::capture(inner_scene, registry, inner_root);
+        ASSERT_TRUE(inner);
+        Scene outer_scene;
+        const auto outer_root = outer_scene.create_entity("Outer");
+        auto member = inner.value().instantiate(
+            outer_scene, registry, Math::Vec3(1, 0, 0), outer_root.get_uuid(), inner_handle);
+        ASSERT_TRUE(member);
+        const auto outer = Prefab::capture(outer_scene, registry, outer_root);
+        ASSERT_TRUE(outer);
+        Scene scene;
+        auto placed = outer.value().instantiate(scene, registry, std::nullopt, {}, outer_handle);
+        ASSERT_TRUE(placed);
+        const auto nested_id = placed.value().get_component<PrefabInstanceComponent>().entities.at(
+            member.value().get_uuid());
+        scene.find_entity(nested_id).edit_transform([](auto& value) { value.translation.y = 2; });
+        const SceneSerializer serializer(
+            registry, [&](AssetHandle handle, AssetType) -> Result<std::shared_ptr<const Prefab>> {
+                return Result<std::shared_ptr<const Prefab>>::success(
+                    std::make_shared<const Prefab>(
+                        handle == outer_handle ? outer.value() : inner.value()));
+            });
+        auto text = serializer.serialize(scene);
+        ASSERT_TRUE(text) << text.error();
+        EXPECT_EQ(text.value().find("Unchanged nested definition"), std::string::npos);
+        auto loaded = serializer.deserialize(text.value());
+        ASSERT_TRUE(loaded) << loaded.error();
+        EXPECT_EQ(loaded.value()->entity_count(), scene.entity_count());
+        const auto nested = loaded.value()->find_entity(nested_id);
+        EXPECT_EQ(nested.get_component<TransformComponent>().translation, Math::Vec3(1, 2, 0));
+        EXPECT_TRUE(nested.has_component<PrefabInstanceComponent>());
+        EXPECT_EQ(serializer.serialize(*loaded.value()).value(), text.value());
+    }
+
+    TEST(PrefabTest, ReferencedSceneRejectsSourceRemovalOfEditedOrExternallyReferencedMembers) {
+        const auto registry = create_scene_component_registry();
+        Scene source;
+        const auto root = source.create_entity("Root");
+        auto child = source.create_entity("Child");
+        ASSERT_TRUE(source.set_parent(child, root));
+        auto captured = Prefab::capture(source, registry, root);
+        ASSERT_TRUE(captured);
+        auto incoming = std::make_shared<const Prefab>(std::move(captured).value());
+        Scene scene;
+        auto placed = incoming->instantiate(scene, registry, std::nullopt, {}, AssetHandle(731));
+        ASSERT_TRUE(placed);
+        const auto child_id =
+            placed.value().get_component<PrefabInstanceComponent>().entities.at(child.get_uuid());
+        auto outside = scene.create_entity("Outside");
+        outside.add_component<ScriptComponent>().parameters = {{"target", child_id}};
+        const SceneSerializer serializer(
+            registry, [&](AssetHandle, AssetType) -> Result<std::shared_ptr<const Prefab>> {
+                return Result<std::shared_ptr<const Prefab>>::success(incoming);
+            });
+        const auto referenced = serializer.serialize(scene);
+        ASSERT_TRUE(referenced);
+        outside.get_component<ScriptComponent>().parameters.clear();
+        const auto unedited = serializer.serialize(scene);
+        ASSERT_TRUE(unedited);
+        scene.find_entity(child_id).edit_transform([](auto& value) { value.translation.x = 2; });
+        const auto edited = serializer.serialize(scene);
+        ASSERT_TRUE(edited);
+        source.destroy_entity(child);
+        captured = Prefab::capture(source, registry, root);
+        ASSERT_TRUE(captured);
+        incoming = std::make_shared<const Prefab>(std::move(captured).value());
+        EXPECT_FALSE(serializer.deserialize(referenced.value()));
+        EXPECT_FALSE(serializer.deserialize(edited.value()));
+        auto removed = serializer.deserialize(unedited.value());
+        ASSERT_TRUE(removed) << removed.error();
+        EXPECT_FALSE(removed.value()->find_entity(child_id));
+        EXPECT_EQ(scene.find_entity(child_id).get_component<TransformComponent>().translation.x, 2);
+    }
+
     TEST(PrefabTest, NestedBlockSampleLoadsThroughTheProjectIndex) {
         const auto registry = create_scene_component_registry();
         AssetDatabase database(ProjectPaths(std::filesystem::path(PROJECT_ROOT_DIR) / "demo"));

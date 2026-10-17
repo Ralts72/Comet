@@ -14,7 +14,7 @@
 namespace Comet {
     namespace {
         constexpr std::string_view MAGIC = "COMETMOD";
-        constexpr uint32_t FORMAT_VERSION = 3;
+        constexpr uint32_t FORMAT_VERSION = 4;
         constexpr size_t MAX_INDEX_BYTES = 32 * 1024 * 1024;
         constexpr size_t MAX_STRING = 64 * 1024;
 
@@ -60,7 +60,9 @@ namespace Comet {
                 if(node.key.empty() || !keys.insert(node.key).second
                     || (node.parent != ModelData::NO_PARENT && node.parent >= nodes.size())
                     || !Math::is_finite(node.wind) || node.wind.w <= 0
-                    || !Math::is_finite(transform.translation) || !Math::is_finite(transform.scale)
+                    || !std::isfinite(node.wind_height) || node.wind_height < 0
+                    || node.wind_height > 1000 || !Math::is_finite(transform.translation)
+                    || !Math::is_finite(transform.scale)
                     || !Math::is_finite(Math::Vec4(rotation.x, rotation.y, rotation.z, rotation.w))
                     || std::abs(glm::length(rotation) - 1.f) > 1e-3f)
                     return false;
@@ -139,6 +141,7 @@ namespace Comet {
                     writer.write_float(value);
                 for(int i = 0; i < 4; ++i)
                     writer.write_float(node.wind[i]);
+                writer.write_float(node.wind_height);
                 writer.write_u32(uint32_t(node.parts.size()));
                 for(const auto& part : node.parts) {
                     writer.write_u64(part.mesh.value());
@@ -219,7 +222,7 @@ namespace Comet {
                 for(int i = 0; i < 4; ++i)
                     if(!reader.read_float(node.wind[i]))
                         return std::nullopt;
-                if(!read_count(reader, count, 48))
+                if(!reader.read_float(node.wind_height) || !read_count(reader, count, 48))
                     return std::nullopt;
                 node.parts.resize(count);
                 for(auto& part : node.parts) {

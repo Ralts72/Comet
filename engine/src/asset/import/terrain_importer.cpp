@@ -19,7 +19,7 @@ namespace Comet {
         Result<TerrainData> read_source(
             const std::filesystem::path& path, const AssetImportLimits& limits) {
             auto bytes =
-                read_binary_file(path, std::min(limits.source_bytes, size_t(16 * 1024 * 1024)));
+                read_binary_file(path, std::min(limits.source_bytes, size_t(128 * 1024 * 1024)));
             if(!bytes)
                 return Result<TerrainData>::failure(bytes.error());
             return TerrainData::deserialize(
@@ -35,7 +35,7 @@ namespace Comet {
             return t * t * (3 - 2 * t);
         }
         struct HeightField {
-            TerrainData data;
+            const TerrainData& data;
             float height(float x, float z) const {
                 x = std::clamp(x, 0.f, float(data.resolution - 1));
                 z = std::clamp(z, 0.f, float(data.resolution - 1));
@@ -59,36 +59,52 @@ namespace Comet {
                                  / ((far - near) * data.depth / (data.resolution - 1));
                 return glm::normalize(Math::Vec3(-dx, 1, -dz));
             }
+            Math::Vec3 weights(float x, float z) const {
+                if(data.layer_weights.empty()) {
+                    const float rock = smooth(data.slope_start, data.slope_end, 1 - normal(x, z).y);
+                    const float high = smooth(data.height_start, data.height_end, height(x, z));
+                    return {(1 - rock) * (1 - high), rock, (1 - rock) * high};
+                }
+                const auto grid =
+                    glm::clamp(Math::Vec2(x, z), Math::Vec2(0), Math::Vec2(data.resolution - 1));
+                const auto first = glm::min(Math::Vec2u(grid), Math::Vec2u(data.resolution - 2));
+                const auto blend = grid - Math::Vec2(first);
+                const auto at = [&](uint32_t a, uint32_t b) {
+                    return data.layer_weights[size_t(b) * data.resolution + a];
+                };
+                return glm::mix(glm::mix(at(first.x, first.y), at(first.x + 1, first.y), blend.x),
+                    glm::mix(at(first.x, first.y + 1), at(first.x + 1, first.y + 1), blend.x),
+                    blend.y);
+            }
         };
-        Result<HeightField> load_heights(TerrainData config, const std::filesystem::path& source,
+        Result<TerrainData> load_heights(TerrainData config, const std::filesystem::path& source,
             const AssetImportLimits& limits) {
-            HeightField field{std::move(config)};
-            auto& data = field.data;
+            auto& data = config;
             if(data.heightmap.empty()) {
                 if(data.heights.empty())
                     data.heights.resize(size_t(data.resolution) * data.resolution);
-                return Result<HeightField>::success(std::move(field));
+                return Result<TerrainData>::success(std::move(config));
             }
             auto bytes = read_binary_file(
                 dependency(source, data.heightmap), std::min(limits.source_bytes, size_t(INT_MAX)));
             if(!bytes)
-                return Result<HeightField>::failure(bytes.error());
+                return Result<TerrainData>::failure(bytes.error());
             const auto* encoded = reinterpret_cast<const stbi_uc*>(bytes.value().data());
             const int length = int(bytes.value().size());
             int width = 0, height = 0, channels = 0;
             if(!stbi_info_from_memory(encoded, length, &width, &height, &channels)
                 || width != int(data.resolution) || height != width)
-                return Result<HeightField>::failure(
+                return Result<TerrainData>::failure(
                     "高度图尺寸必须与地形分辨率相同（正方形 2^n+1）");
             std::unique_ptr<stbi_us, decltype(&stbi_image_free)> pixels(
                 stbi_load_16_from_memory(encoded, length, &width, &height, &channels, 1),
                 stbi_image_free);
             if(!pixels)
-                return Result<HeightField>::failure("无法解码地形高度图");
+                return Result<TerrainData>::failure("无法解码地形高度图");
             data.heights.resize(size_t(width) * height);
             for(size_t i = 0; i < data.heights.size(); ++i)
                 data.heights[i] = pixels.get()[i] / 65535.f;
-            return Result<HeightField>::success(std::move(field));
+            return Result<TerrainData>::success(std::move(config));
         }
         MeshData chunk_mesh(
             const HeightField& field, uint32_t start_x, uint32_t start_z, uint32_t stride) {
@@ -197,11 +213,7 @@ namespace Comet {
                     const Math::Vec2 uv(
                         float(x) / (image.width - 1), float(y) / (image.height - 1));
                     const auto grid = uv * float(data.resolution - 1);
-                    const float rock = smooth(
-                        data.slope_start, data.slope_end, 1 - field.normal(grid.x, grid.y).y);
-                    const float high =
-                        smooth(data.height_start, data.height_end, field.height(grid.x, grid.y));
-                    const std::array weights{(1 - rock) * (1 - high), rock, (1 - rock) * high};
+                    const auto weights = field.weights(grid.x, grid.y);
                     Math::Vec3 color(0), normal(0);
                     float rough = 0;
                     for(size_t i = 0; i < textures.size(); ++i) {
@@ -397,6 +409,11 @@ namespace Comet {
                 return Result<void>::failure(meshes.error());
             if(config.count * meshes.value().size() * sizeof(uint32_t) > budget)
                 return Result<void>::failure("植被实例超过内存预算");
+            float wind_height = 0;
+            if(config.flexible_wind)
+                for(const auto mesh : meshes.value())
+                    for(const auto& vertex : model.meshes[mesh].data.vertices)
+                        wind_height = std::max(wind_height, vertex.position.y);
             std::mt19937 random(config.seed);
             // 使用确定的整数转换，不依赖不同标准库的 uniform_real_distribution 实现。
             const auto unit = [&] { return float(random() >> 8) / 16777216.f; };
@@ -419,6 +436,7 @@ namespace Comet {
                 node.transform.scale =
                     Math::Vec3(std::lerp(config.min_height, config.max_height, unit()));
                 node.meshes = meshes.value();
+                node.wind_height = wind_height;
                 node.wind = {
                     config.wind_amplitude, 0, config.wind_amplitude * .6f, config.wind_frequency};
                 model.scenes[0].roots.push_back(uint32_t(model.nodes.size()));
@@ -433,7 +451,9 @@ namespace Comet {
             const size_t chunks = (data.resolution - 1) / data.chunk_cells;
             // 包含候选、PNG 临时缓冲、所有高度及最坏的节点字符串开销；纹理解码另行预留。
             size_t bytes =
-                16 * 1024 * 1024 + size_t(data.resolution) * data.resolution * sizeof(float)
+                std::filesystem::file_size(source)
+                + size_t(data.resolution) * data.resolution * sizeof(float)
+                + data.layer_weights.size() * sizeof(Math::Vec3)
                 + chunks * chunks
                       * (size_t(data.chunk_cells + 1) * (data.chunk_cells + 1)
                           + 4 * data.chunk_cells)
@@ -494,6 +514,17 @@ namespace Comet {
             return Info::success(std::move(info));
         }
     }
+    void TerrainImporter::initialize_layer_weights(TerrainData& data) {
+        if(!data.layer_weights.empty())
+            return;
+        const HeightField field{data};
+        std::vector<Math::Vec3> weights;
+        weights.reserve(size_t(data.resolution) * data.resolution);
+        for(uint32_t z = 0; z < data.resolution; ++z)
+            for(uint32_t x = 0; x < data.resolution; ++x)
+                weights.push_back(field.weights(float(x), float(z)));
+        data.layer_weights = std::move(weights);
+    }
     Result<TerrainData> TerrainImporter::load_heightfield(
         const std::filesystem::path& source, const AssetImportLimits& limits) {
         auto config = read_source(source, limits);
@@ -502,7 +533,7 @@ namespace Comet {
         auto field = load_heights(std::move(config).value(), source, limits);
         if(!field)
             return Result<TerrainData>::failure(field.error());
-        auto data = std::move(field.value().data);
+        auto data = std::move(field).value();
         data.heightmap.clear();
         return Result<TerrainData>::success(std::move(data));
     }
@@ -527,7 +558,7 @@ namespace Comet {
         auto heights = load_heights(std::move(data).value(), source, limits);
         if(!heights)
             return Imported::failure(heights.error());
-        const auto& field = heights.value();
+        const HeightField field{heights.value()};
         const auto& config = field.data;
         ModelImportData model;
         model.source_dependencies = info.value().dependencies;

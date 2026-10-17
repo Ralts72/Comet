@@ -566,7 +566,7 @@ namespace {
                                        + (material < options.objects % options.materials)
                                        + (material == 0); // 地面使用第一个材质。
                 if(instances > 1)
-                    m_expected_instance_bytes += instances * sizeof(Comet::Math::Mat4);
+                    m_expected_instance_bytes += instances * sizeof(Comet::PushConstant);
             }
             if(m_quality.render_path == Comet::RenderPath::Deferred)
                 m_passes = {"shadow", "G-buffer", "deferred lighting and Forward"};
@@ -901,7 +901,7 @@ namespace {
                 const auto& renderer = m_engine.get_renderer().get_scene_renderer();
                 if(m_options.workload == Workload::Moving) {
                     const auto shadow = renderer.get_shadow_statistics();
-                    const auto bytes = shadow.drawn_instances * sizeof(Comet::Math::Mat4);
+                    const auto bytes = shadow.drawn_instances * sizeof(Comet::PushConstant);
                     if(renderer.get_material_statistics().instance_upload_bytes
                             != m_expected_instance_bytes
                         || shadow.instance_upload_bytes != bytes)

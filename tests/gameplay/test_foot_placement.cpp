@@ -1,7 +1,7 @@
 #include "animation/animation_system.h"
 #include "asset/import/mesh_importer.h"
 #include "gameplay/foot_placement.h"
-#include "gameplay/hand_placement.h"
+#include "gameplay/pose_constraints.h"
 #include "physics/physics_service.h"
 #include "scene/scene.h"
 #include "scene/component_registry.h"
@@ -79,7 +79,7 @@ namespace Comet::Tests {
             std::make_unique<AnimationSystem>([data](AssetHandle) { return data; })));
         ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         ASSERT_TRUE(runtime.add_system(std::make_unique<Gameplay::FootPlacementSystem>()));
-        ASSERT_TRUE(runtime.add_system(std::make_unique<Gameplay::HandPlacementSystem>()));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<Gameplay::PoseConstraintSystem>()));
         ASSERT_TRUE(runtime.start(scene));
         const auto initial = scene.get_animation_playback(model);
         ASSERT_TRUE(initial && initial->pose);
@@ -235,6 +235,60 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.stop());
     }
 
+    TEST(FullBodyIKTest, RuntimeCombinesFourGoalsAndPersistsOnlyAuthoringSettings) {
+        const auto data = biped();
+        Scene scene;
+        auto model = scene.create_entity("model");
+        model.add_component<MeshRendererComponent>();
+        model.add_component<AnimatorComponent>();
+        auto left = scene.create_entity("left hand"), right = scene.create_entity("right hand");
+        auto left_foot = scene.create_entity("left foot"),
+             right_foot = scene.create_entity("right foot");
+        left.edit_transform([](auto& t) { t.translation = {-.7f, 1.5f, .8f}; });
+        right.edit_transform([](auto& t) { t.translation = {.7f, 1.5f, .8f}; });
+        left_foot.edit_transform([](auto& t) { t.translation = {-.2f, .2f, 0}; });
+        right_foot.edit_transform([](auto& t) { t.translation = {.2f, .2f, 0}; });
+        model.add_component<HandIKComponent>(HandIKComponent{.left_target = left.get_uuid(),
+            .right_target = right.get_uuid(),
+            .match_rotation = false});
+        model.add_component<FullBodyIKComponent>(FullBodyIKComponent{.root = "body",
+            .left_target = left_foot.get_uuid(),
+            .right_target = right_foot.get_uuid()});
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.add_system(
+            std::make_unique<AnimationSystem>([data](AssetHandle) { return data; })));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<Gameplay::PoseConstraintSystem>()));
+        const auto components = create_scene_component_registry();
+        SceneSerializer serializer(components);
+        const auto content = serializer.serialize(scene);
+        ASSERT_TRUE(content);
+        auto started = runtime.start(scene);
+        ASSERT_TRUE(started) << started.error().message;
+        const auto first = scene.get_animation_playback(model);
+        ASSERT_TRUE(first && first->pose && first->body_ik);
+        EXPECT_EQ(first->ik.size(), 4u);
+        ASSERT_TRUE(runtime.advance(1.0 / 30));
+        const auto current = scene.get_animation_playback(model);
+        ASSERT_TRUE(current && current->pose && current->body_ik);
+        EXPECT_TRUE(current->pose_error.empty());
+        EXPECT_EQ(model.get_component<TransformComponent>().translation, Math::Vec3(0));
+        EXPECT_EQ(serializer.serialize(scene).value(), content.value());
+        auto restored = serializer.deserialize(content.value());
+        ASSERT_TRUE(restored);
+        EXPECT_EQ(
+            restored.value()->find_entity(model.get_uuid()).get_component<FullBodyIKComponent>(),
+            model.get_component<FullBodyIKComponent>());
+        ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
+        ASSERT_TRUE(runtime.advance(.2));
+        EXPECT_EQ(scene.get_animation_playback(model), current);
+        ASSERT_TRUE(runtime.request_step());
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_TRUE(scene.get_animation_playback(model)->body_ik);
+        EXPECT_EQ(first->ik.size(), 4u);
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_FALSE(scene.get_animation_playback(model));
+    }
+
     TEST(HandPlacementTest, RejectsNamedNodesOutsideTheSkin) {
         const auto data = biped();
         Scene scene;
@@ -247,7 +301,7 @@ namespace Comet::Tests {
         SceneRuntime runtime;
         ASSERT_TRUE(runtime.add_system(
             std::make_unique<AnimationSystem>([data](AssetHandle) { return data; })));
-        ASSERT_TRUE(runtime.add_system(std::make_unique<Gameplay::HandPlacementSystem>()));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<Gameplay::PoseConstraintSystem>()));
         const auto started = runtime.start(scene);
         ASSERT_FALSE(started);
         EXPECT_NE(started.error().message.find("not part of the skin"), std::string::npos);
@@ -279,7 +333,7 @@ namespace Comet::Tests {
         SceneRuntime runtime;
         ASSERT_TRUE(runtime.add_system(
             std::make_unique<AnimationSystem>([data](AssetHandle) { return data; })));
-        ASSERT_TRUE(runtime.add_system(std::make_unique<Gameplay::HandPlacementSystem>()));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<Gameplay::PoseConstraintSystem>()));
         auto started = runtime.start(scene);
         ASSERT_TRUE(started) << started.error().message;
         const auto first = scene.get_animation_playback(model);

@@ -29,6 +29,8 @@ namespace Comet {
             JointTransform transform;
             // XYZ 根部摆角（度），W 频率（Hz）；零摆角关闭。
             Math::Vec4 wind{0, 0, 0, 1};
+            float wind_height = 0; // 0 为整株摆动，正值为根部固定的弯曲高度。
+
             std::vector<uint32_t> meshes;
         };
         struct Scene {

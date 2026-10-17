@@ -13,6 +13,7 @@ namespace Comet {
     class ImageView;
     class FrameScheduler;
     struct COMET_API VectorField;
+    struct RayScene;
 
     // 每 View／帧槽独立输出；重复呈现同一快照不会推进模拟时钟。
     class COMET_API GpuParticleSimulation {
@@ -27,7 +28,8 @@ namespace Comet {
             std::span<const GpuParticleEmitter>, bool sorted = true,
             const std::shared_ptr<ImageView>& depth = nullptr, uint64_t scene_lifetime = 0,
             std::span<const ParticleWorldCollider> colliders = {},
-            std::span<const std::shared_ptr<const VectorField>> fields = {});
+            std::span<const std::shared_ptr<const VectorField>> fields = {},
+            const std::shared_ptr<const RayScene>& collisions = {});
         [[nodiscard]] std::span<const Output> outputs() const { return m_outputs; }
         void reset();
 
@@ -35,6 +37,10 @@ namespace Comet {
         struct Program;
         struct Resources;
         struct Dynamics;
+        struct Collision;
+        Result<std::shared_ptr<Collision>, GraphicsError> prepare_collision(
+            const std::shared_ptr<const RayScene>&);
+        std::shared_ptr<Collision> m_collision;
         Result<void, GraphicsError> initialize(bool dynamic, bool sorted);
         Result<std::shared_ptr<Resources>, GraphicsError> allocate(
             uint32_t count, size_t batches, bool dynamic = false);

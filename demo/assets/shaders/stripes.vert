@@ -15,6 +15,7 @@ layout(location = 0) out vec3 world_position;
 
 layout(push_constant) uniform ObjectData {
     mat4 model;
+    vec4 vertex_bend;
 } object;
 
 void main() {

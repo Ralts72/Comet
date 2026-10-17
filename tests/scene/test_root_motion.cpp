@@ -58,6 +58,31 @@ namespace Comet::Tests {
         }
     }
 
+    TEST(RootMotionTest, PresentationPreservesCorrectionAndOffsetsInScaledMeshSpace) {
+        auto data = motion_data();
+        data.nodes[0].rest.scale = {2, 1, .5f};
+        data.nodes[0].rest.rotation = Math::angle_axis(.4f, Math::Vec3(0, 1, 0));
+        std::vector<JointTransform> local{data.nodes[0].rest, data.nodes[1].rest};
+        local[1].translation = {.5f, .2f, .3f};
+        local[1].rotation = Math::angle_axis(.7f, Math::Vec3(0, 1, 0));
+        AnimationRootMotion motion;
+        auto base = build_animation_pose(data, local, &motion);
+        ASSERT_TRUE(base) << base.error();
+        const std::array offsets{AnimationPoseOffset{.node = 1, .translation = {.2f, .1f, 0}}};
+        auto constrained = apply_animation_constraints(data, base.value(), {}, &motion, offsets);
+        ASSERT_TRUE(constrained) << constrained.error();
+        for(const auto* pose : {&base.value(), &constrained.value()})
+            for(float alpha : {0.f, .5f, 1.f}) {
+                SCOPED_TRACE(alpha);
+                auto presented = interpolate_animation_pose(data, *pose, *pose, alpha, &motion);
+                ASSERT_TRUE(presented) << presented.error();
+                for(int column = 0; column < 4; ++column)
+                    for(int row = 0; row < 4; ++row)
+                        EXPECT_NEAR(presented.value().matrices[0][column][row],
+                            pose->matrices[0][column][row], .0001f);
+            }
+    }
+
     TEST(RootMotionTest, WarpsNonLoopingWindowToTargetAndRespectsRangeAndPause) {
         for(bool in_range : {true, false}) {
             SCOPED_TRACE(in_range);

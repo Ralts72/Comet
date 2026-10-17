@@ -949,7 +949,8 @@ namespace {
                 get_engine().get_material_parameters(), &get_engine().get_scene_runtime(),
                 m_reflection_bake.get(), m_irradiance_bake.get(), m_navigation_bake.get(),
                 preview_meshes);
-            m_inspector_panel->asset_inspector().set_retarget_preview(m_viewport->retarget_preview());
+            m_inspector_panel->asset_inspector().set_retarget_preview(
+                m_viewport->retarget_preview());
             m_project_panel = std::make_unique<CometEditor::ProjectPanel>(m_assets->database(),
                 m_project.paths().assets(), std::move(initial_asset_scan), *m_selection,
                 m_command_history);
@@ -1491,7 +1492,10 @@ namespace {
         CometEditor::PropertyEditTransaction m_property_edit{
             m_command_history, m_component_registry};
         CometEditor::PropertyEditorRegistry m_property_editor_registry;
-        Comet::SceneSerializer m_scene_serializer{m_component_registry};
+        Comet::SceneSerializer m_scene_serializer{
+            m_component_registry, [this](Comet::AssetHandle handle, Comet::AssetType type) {
+                return m_assets->scene_sources(m_component_registry)(handle, type);
+            }};
         CometEditor::EditorState m_editor_state;
         CometEditor::EditorShortcuts m_shortcuts;
         std::filesystem::path m_shortcut_settings_path;

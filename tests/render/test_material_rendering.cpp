@@ -203,7 +203,7 @@ namespace Comet::Tests {
                 ASSERT_TRUE(write_text_file_atomic(path,
                     "#version 450\n#extension GL_GOOGLE_include_directive : require\n"
                     "#include \"frame.glsl\"\nlayout(location=0) in vec3 position;\n"
-                    "layout(push_constant) uniform ObjectData {mat4 model;} object;\n"
+                    "layout(push_constant) uniform ObjectData {mat4 model;vec4 vertex_bend;} object;\n"
                     "void main(){vec4 world=object.model*vec4(position,1);world.x+=0.01;"
                     "gl_Position=frame.projection*frame.view*world;}\n"));
                 auto vertex = ShaderCompiler::compile({.source = path,
@@ -241,7 +241,7 @@ namespace Comet::Tests {
             EXPECT_EQ(stats.draw_calls, expected_draws);
             EXPECT_EQ(stats.drawn_instances, 96u);
             EXPECT_EQ(stats.instanced_draw_calls, frame == 4 ? 0u : stats.draw_calls);
-            EXPECT_EQ(stats.instance_upload_bytes, frame >= 2 ? 0u : 96u * sizeof(Math::Mat4));
+            EXPECT_EQ(stats.instance_upload_bytes, frame >= 2 ? 0u : 96u * sizeof(PushConstant));
             EXPECT_EQ(stats.material_preparations, 3u);
             EXPECT_EQ(stats.material_binds, 3u);
             EXPECT_EQ(stats.cached_material_versions, 3u);
@@ -394,7 +394,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(write_text_file_atomic(source,
             "#version 450\n#extension GL_GOOGLE_include_directive : require\n"
             "#include \"frame.glsl\"\nlayout(location=0) in vec3 position;\n"
-            "layout(push_constant) uniform ObjectData {mat4 model;} object;\n"
+            "layout(push_constant) uniform ObjectData {mat4 model;vec4 vertex_bend;} object;\n"
             "void main(){vec4 world=object.model*vec4(position,1);world.x-=1000;"
             "gl_Position=frame.projection*frame.view*world;}\n"));
         const auto compiled = ShaderCompiler::compile({.source = source,
@@ -1339,6 +1339,13 @@ namespace Comet::Tests {
         const auto include_offset = source.value().find(include);
         ASSERT_NE(include_offset, std::string::npos);
         source.value().replace(include_offset, include.size(), frame.value());
+        const auto bend = read_text_file(
+            std::filesystem::path(PROJECT_ROOT_DIR) / "engine/shaders/common/vertex_bend.glsl");
+        ASSERT_TRUE(bend) << bend.error();
+        const std::string bend_include = "#include \"vertex_bend.glsl\"";
+        const auto bend_offset = source.value().find(bend_include);
+        ASSERT_NE(bend_offset, std::string::npos);
+        source.value().replace(bend_offset, bend_include.size(), bend.value());
         TemporaryDirectory directory;
         for(const auto& [from, to] :
             {std::pair{"mat4 view;\n    mat4 projection;", "mat4 projection;\n    mat4 view;"},

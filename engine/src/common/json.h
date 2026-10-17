@@ -133,7 +133,7 @@ namespace Comet::Json {
     public:
         void begin_object();
         void end_object();
-        void begin_array();
+        void begin_array(bool inline_values = false);
         void end_array();
         void key(std::string_view name);
         void value(std::string_view value);
@@ -157,6 +157,7 @@ namespace Comet::Json {
             bool object;
             bool empty = true;
             bool awaiting_value = false;
+            bool inline_values = false;
         };
         bool before_value();
         void separator();
@@ -191,7 +192,7 @@ namespace Comet::Json {
     }
 
     template<typename Vector> void write_vector(Writer& writer, const Vector& value) {
-        writer.begin_array();
+        writer.begin_array(true);
         for(typename Vector::length_type index = 0; index < Vector::length(); ++index)
             writer.value(value[index]);
         writer.end_array();

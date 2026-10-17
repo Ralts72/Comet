@@ -92,6 +92,9 @@ namespace Comet {
             return m_particles;
         }
         // Main 发布 Runtime／编辑预览的瞬时数据，不进入场景保存或克隆。
+        // 仅呈现输出，不进入场景内容；共享坐标系的子网格继承此弯曲。
+        void set_vertex_bend(Entity entity, Math::Vec4 bend);
+        [[nodiscard]] Math::Vec4 get_vertex_bend(Entity entity) const;
         void set_particles(std::shared_ptr<const ParticleSnapshot> particles);
 
         // 场景通知不序列化；交付期间发出的新通知留至下一次有效更新。
@@ -337,6 +340,7 @@ namespace Comet {
         PostProcessSettings m_post_process;
         std::unordered_map<entt::entity, std::shared_ptr<const MaterialOverrides>>
             m_material_overrides;
+        std::unordered_map<entt::entity, Math::Vec4> m_vertex_bends;
         std::unordered_map<entt::entity, std::shared_ptr<const AnimationPlayback>>
             m_animation_playbacks;
         struct AnimationSource {
@@ -423,6 +427,8 @@ namespace Comet {
     void Entity::remove_component() const {
         if(has_component<T>())
             m_scene->component_changed<T>(m_handle, true);
+        if constexpr(std::is_same_v<T, WindSwayComponent>)
+            m_scene->set_vertex_bend(*this, {});
         m_scene->m_registry.remove<T>(m_handle);
     }
 }

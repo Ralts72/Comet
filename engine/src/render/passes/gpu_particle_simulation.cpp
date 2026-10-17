@@ -1,5 +1,6 @@
 #include "render/passes/gpu_particle_simulation.h"
 #include "render/resource/vector_field.h"
+#include "render/ray_scene.h"
 #include "render/resource/texture.h"
 #include "graphics/device.h"
 #include "graphics/creation.h"
@@ -51,12 +52,18 @@ namespace Comet {
         vk::UniquePipelineLayout layout;
         vk::UniquePipeline simulate, sort, initialize;
     };
+    struct GpuParticleSimulation::Collision {
+        std::shared_ptr<const RayScene> source;
+        std::shared_ptr<CPUBuffer> triangles, nodes;
+        uint32_t node_count = 0;
+    };
     struct GpuParticleSimulation::Resources {
         std::shared_ptr<Program> program;
         std::shared_ptr<CPUBuffer> spawns, parameters;
         std::shared_ptr<Buffer> instances, indirect, alternate, previous;
         std::shared_ptr<ImageView> depth;
         std::shared_ptr<const VectorField> field;
+        std::shared_ptr<Collision> collision;
         std::unique_ptr<DescriptorPool> pool;
         std::vector<DescriptorSet> descriptors;
         uint32_t capacity = 0;
@@ -82,9 +89,17 @@ namespace Comet {
             frame.clear();
         m_outputs.clear();
         m_dynamics->history.clear();
+        m_collision.reset();
     }
     Result<void, GraphicsError> GpuParticleSimulation::initialize(bool dynamic, bool sorted) {
         using Initialized = Result<void, GraphicsError>;
+        if(dynamic
+            && m_device.get_capability()
+                       .physical_device.getProperties()
+                       .limits.maxPerStageDescriptorStorageBuffers
+                   < 6)
+            return Initialized::failure(
+                {"GPU particle dynamics requires six compute storage buffers"});
         auto& program = dynamic ? m_dynamic_program : m_program;
         if(program && (!sorted || program->sort))
             return Initialized::success();
@@ -97,6 +112,10 @@ namespace Comet {
             if(dynamic)
                 for(uint32_t binding : {4u, 5u})
                     bindings.add_binding(binding, DescriptorType::SampledImage,
+                        Flags<ShaderStage>(ShaderStage::Compute));
+            if(dynamic)
+                for(uint32_t binding : {6u, 7u})
+                    bindings.add_binding(binding, DescriptorType::StorageBuffer,
                         Flags<ShaderStage>(ShaderStage::Compute));
             auto descriptors = DescriptorSetLayout::create(m_device, bindings);
             if(!descriptors)
@@ -186,7 +205,7 @@ namespace Comet {
         next->instances = std::move(instances).value();
         next->indirect = std::move(indirect).value();
         DescriptorPoolSizes sizes;
-        sizes.add_pool_size(DescriptorType::StorageBuffer, 4);
+        sizes.add_pool_size(DescriptorType::StorageBuffer, dynamic ? 6 : 4);
         if(dynamic)
             sizes.add_pool_size(DescriptorType::SampledImage, 2);
         auto pool = DescriptorPool::create(m_device, 1, sizes);
@@ -209,11 +228,53 @@ namespace Comet {
         m_device.get().updateDescriptorSets(writes, {});
         return Allocated::success(std::move(next));
     }
+    Result<std::shared_ptr<GpuParticleSimulation::Collision>, GraphicsError> GpuParticleSimulation::
+        prepare_collision(const std::shared_ptr<const RayScene>& source) {
+        using Prepared = Result<std::shared_ptr<Collision>, GraphicsError>;
+        if(m_collision && m_collision->source == source)
+            return Prepared::success(m_collision);
+        struct Triangle {
+            Math::Vec4 positions[3];
+            std::array<uint32_t, 4> layers;
+        };
+        static_assert(sizeof(Triangle) == 64 && sizeof(RayScene::Node) == 48);
+        std::vector<Triangle> triangles;
+        std::span<const RayScene::Node> nodes;
+        if(source && source->geometry) {
+            nodes = source->geometry->nodes;
+            triangles.reserve(source->geometry->triangles.size());
+            for(const auto& input : source->geometry->triangles)
+                triangles.push_back({{input.positions[0], input.positions[1], input.positions[2]},
+                    {input.surface[0], 0, 0, 0}});
+        }
+        auto next = std::make_shared<Collision>();
+        next->source = source;
+        next->node_count = uint32_t(nodes.size());
+        const auto upload = [&](auto data,
+                                std::shared_ptr<CPUBuffer>& output) -> Result<void, GraphicsError> {
+            auto buffer = Buffer::try_create_cpu_buffer(m_device,
+                Flags<BufferUsage>(BufferUsage::Storage), std::max(data.size_bytes(), size_t(64)),
+                true, nullptr, "particle collision geometry");
+            if(!buffer)
+                return Result<void, GraphicsError>::failure(buffer.error());
+            output = std::move(buffer).value();
+            if(!data.empty())
+                output->write(data.data(), data.size_bytes());
+            return Result<void, GraphicsError>::success();
+        };
+        if(auto ready = upload(std::span(triangles), next->triangles); !ready)
+            return Prepared::failure(ready.error());
+        if(auto ready = upload(nodes, next->nodes); !ready)
+            return Prepared::failure(ready.error());
+        m_collision = std::move(next);
+        return Prepared::success(m_collision);
+    }
     Result<void, GraphicsError> GpuParticleSimulation::prepare(FrameScheduler& frames,
         const ViewProjectMatrix& camera, std::span<const GpuParticleEmitter> emitters, bool sorted,
         const std::shared_ptr<ImageView>& depth, uint64_t scene_lifetime,
         std::span<const ParticleWorldCollider> colliders,
-        std::span<const std::shared_ptr<const VectorField>> fields) {
+        std::span<const std::shared_ptr<const VectorField>> fields,
+        const std::shared_ptr<const RayScene>& collisions) {
         using Prepared = Result<void, GraphicsError>;
         if(!fields.empty() && fields.size() != emitters.size())
             return Prepared::failure({"Vector field bindings do not match GPU emitters"});
@@ -328,12 +389,17 @@ namespace Comet {
                 resources->previous = previous;
                 resources->depth = depth;
                 resources->field = field;
+                auto collision = prepare_collision(collisions);
+                if(!collision)
+                    return Prepared::failure(collision.error());
+                resources->collision = std::move(collision).value();
                 const auto vp = camera.projection * camera.view;
                 DynamicParameters extra{parameters, vp, Math::inverse(vp),
                     {float(emitter.time), float(elapsed), settings.collision_radius,
                         settings.restitution},
                     {settings.turbulence, settings.turbulence_frequency, settings.friction, 0},
-                    {previous_count, static_cast<uint32_t>(settings.collision), 0, 0}};
+                    {previous_count, static_cast<uint32_t>(settings.collision),
+                        resources->collision->node_count, 0}};
                 extra.wind = Math::Vec4(settings.wind, settings.vortex_strength);
                 extra.vortex_center = Math::Vec4(settings.vortex_center, settings.vortex_radius);
                 extra.vortex_axis = Math::Vec4(glm::normalize(settings.vortex_axis), 0);
@@ -344,7 +410,7 @@ namespace Comet {
                     extra.field_dimensions = Math::Vec4(Math::Vec3(field->data.dimensions), 0);
                 }
                 extra.world = {uint32_t(colliders.size()), settings.collision_layers,
-                    settings.gpu_world_collision ? 1u : 0u, 0};
+                    settings.gpu_world_collision ? 1u : 0u, settings.mesh_collision_budget};
                 std::ranges::copy(colliders, extra.colliders.begin());
                 resources->spawns->write(&extra, sizeof(extra));
                 resources->spawns->write(
@@ -352,7 +418,7 @@ namespace Comet {
                 const std::array<std::shared_ptr<Buffer>, 4> buffers{
                     resources->spawns, previous, resources->instances, resources->indirect};
                 std::array<vk::DescriptorBufferInfo, 4> infos;
-                std::array<vk::WriteDescriptorSet, 6> writes;
+                std::array<vk::WriteDescriptorSet, 8> writes;
                 for(uint32_t binding = 0; binding < buffers.size(); ++binding) {
                     infos[binding] = vk::DescriptorBufferInfo(
                         buffers[binding]->get(), 0, buffers[binding]->get_size());
@@ -369,6 +435,15 @@ namespace Comet {
                     vk::ImageLayout::eShaderReadOnlyOptimal);
                 writes[5] = vk::WriteDescriptorSet(resources->descriptors.front().get(), 5, 0, 1,
                     vk::DescriptorType::eSampledImage, &field_image);
+                const std::array collision_infos{
+                    vk::DescriptorBufferInfo(resources->collision->nodes->get(), 0,
+                        resources->collision->nodes->get_size()),
+                    vk::DescriptorBufferInfo(resources->collision->triangles->get(), 0,
+                        resources->collision->triangles->get_size())};
+                for(uint32_t binding = 6; binding < 8; ++binding)
+                    writes[binding] = vk::WriteDescriptorSet(resources->descriptors.front().get(),
+                        binding, 0, 1, vk::DescriptorType::eStorageBuffer, nullptr,
+                        &collision_infos[binding - 6]);
                 m_device.get().updateDescriptorSets(writes, {});
                 m_dynamics->history.insert_or_assign(
                     id, Dynamics::History{resources->indirect, settings, field, emitter.time,

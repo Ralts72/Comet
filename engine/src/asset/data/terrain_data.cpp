@@ -17,6 +17,13 @@ namespace Comet {
             || (!heightmap.empty() && !heights.empty()))
             return Result<void>::failure(
                 "高度图与内联高度只能选一种；内联高度数量须等于分辨率平方");
+        if(!layer_weights.empty() && layer_weights.size() != size_t(resolution) * resolution)
+            return Result<void>::failure("材质权重数量须与高度网格一致");
+        for(const auto value : layer_weights)
+            if(!Math::is_finite(value) || glm::any(glm::lessThan(value, Math::Vec3(0)))
+                || glm::any(glm::greaterThan(value, Math::Vec3(1)))
+                || std::abs(value.x + value.y + value.z - 1) > .0001f)
+                return Result<void>::failure("三层材质权重须为有限的 0～1 数值且合计为 1");
         for(float value : heights)
             if(!std::isfinite(value) || value < 0 || value > 1)
                 return Result<void>::failure("地形高度样本须为 0～1");
@@ -64,8 +71,8 @@ namespace Comet {
             [](Json::Node root, const Json::Context& context) -> Result<TerrainData> {
                 using Read = Result<TerrainData>;
                 if(auto valid = context.validate_keys(
-                       root, {"resolution", "heightmap", "heights", "width", "depth",
-                                 "height_scale", "chunk_cells", "skirt_depth", "collision",
+                       root, {"resolution", "heightmap", "heights", "layer_weights", "width",
+                                 "depth", "height_scale", "chunk_cells", "skirt_depth", "collision",
                                  "albedo_resolution", "layers", "slope_start", "slope_end",
                                  "height_start", "height_end", "roughness", "vegetation"});
                     !valid)
@@ -111,6 +118,24 @@ namespace Comet {
                         if(!height)
                             return Read::failure(height.error());
                         result.heights.push_back(height.value());
+                    }
+                }
+                auto weights = context.find(root, "layer_weights");
+                if(!weights)
+                    return Read::failure(weights.error());
+                if(weights.value()) {
+                    auto values = context.array(*weights.value(), "layer_weights");
+                    if(!values
+                        || values.value().size() != size_t(result.resolution) * result.resolution
+                        || values.value().size() > 1025 * 1025)
+                        return Read::failure("材质权重数量须与高度网格一致");
+                    result.layer_weights.reserve(values.value().size());
+                    for(auto value : values.value()) {
+                        auto parsed =
+                            Json::read_vector<Math::Vec3>(value, context, "layer_weights");
+                        if(!parsed)
+                            return Read::failure(parsed.error());
+                        result.layer_weights.push_back(parsed.value());
                     }
                 }
                 auto layers = context.find(root, "layers");
@@ -162,10 +187,12 @@ namespace Comet {
                     if(auto valid = context.validate_keys(
                            node, {"count", "seed", "min_height", "max_height", "max_slope",
                                      "min_elevation", "max_elevation", "model", "wind_amplitude",
-                                     "wind_frequency"});
+                                     "wind_frequency", "flexible_wind"});
                         !valid)
                         return Read::failure(valid.error());
                     auto& value = result.vegetation;
+                    if(auto read = field(node, "flexible_wind", value.flexible_wind); !read)
+                        return Read::failure(read.error());
                     if(auto read = field(node, "model", value.model); !read)
                         return Read::failure(read.error());
                     if(auto read = field(node, "wind_amplitude", value.wind_amplitude); !read)
@@ -203,6 +230,13 @@ namespace Comet {
             out.begin_array();
             for(float value : heights)
                 out.value(value);
+            out.end_array();
+        }
+        if(!layer_weights.empty()) {
+            out.key("layer_weights");
+            out.begin_array();
+            for(const auto weights : layer_weights)
+                Json::write_vector(out, weights);
             out.end_array();
         }
         out.field("width", width);
@@ -243,6 +277,7 @@ namespace Comet {
         out.field("model", vegetation.model);
         out.field("wind_amplitude", vegetation.wind_amplitude);
         out.field("wind_frequency", vegetation.wind_frequency);
+        out.field("flexible_wind", vegetation.flexible_wind);
         out.field("min_height", vegetation.min_height);
         out.field("max_height", vegetation.max_height);
         out.field("max_slope", vegetation.max_slope);

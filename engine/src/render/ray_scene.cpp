@@ -485,8 +485,7 @@ namespace Comet {
                 result->transforms.push_back(item.model_matrix);
             }
             result->topology = std::move(topology);
-            if(!result->triangles.empty())
-                build_node(*result, 0, static_cast<uint32_t>(result->triangles.size()));
+            result->build_bvh();
             return Built::success(std::move(result));
         }
 
@@ -660,6 +659,12 @@ namespace Comet {
         return result;
     }
 
+    void RayScene::Geometry::build_bvh() {
+        nodes.clear();
+        nodes.reserve(triangles.size());
+        if(!triangles.empty())
+            build_node(*this, 0, uint32_t(triangles.size()));
+    }
     void RaySceneBuilder::reset() {
         m_settings_key.clear();
         m_geometry_key.clear();

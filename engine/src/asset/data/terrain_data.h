@@ -23,6 +23,7 @@ namespace Comet {
             uint32_t seed = 37;
             std::string model;
             float wind_amplitude = 0, wind_frequency = 1;
+            bool flexible_wind = true;
             float min_height = .6f, max_height = 1.4f;
             float max_slope = 35;
             float min_elevation = 0, max_elevation = .8f;
@@ -31,6 +32,8 @@ namespace Comet {
         uint32_t resolution = 65;
         std::string heightmap;
         std::vector<float> heights;
+        // 与高度网格同序；空数组使用坡度／海拔规则，否则为归一化的三层权重。
+        std::vector<Math::Vec3> layer_weights;
         float width = 64, depth = 64, height_scale = 12;
         uint32_t chunk_cells = 16;
         float skirt_depth = 2;

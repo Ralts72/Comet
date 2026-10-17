@@ -1,6 +1,7 @@
 #pragma once
 
 #include "asset/content_fwd.h"
+#include "scene/scene_serializer.h"
 
 #include "animation/animation_controller.h"
 #include "asset/database.h"
@@ -135,6 +136,7 @@ namespace Comet {
         // prepare_references 后只读查询；临时环境预览不算完整资源就绪。
         [[nodiscard]] Result<bool, Error> references_ready(
             std::span<const AssetReference> references, MissingAssetPolicy policy) const;
+        [[nodiscard]] SceneSerializer::Sources scene_sources(const ComponentRegistry& components);
         [[nodiscard]] Result<void, Error> import_model(AssetHandle handle);
         [[nodiscard]] bool import_model_async(
             AssetHandle handle, AssetImportMode mode = AssetImportMode::IfNeeded);

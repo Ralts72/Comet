@@ -48,6 +48,7 @@ namespace Comet {
         std::shared_ptr<const ResolvedMeshLod> lod;
         bool contributes_to_gi = true;
         OutlineSettings outline{.enabled = false};
+        Math::Vec4 vertex_bend{0};
     };
 
     struct ResolvedReflectionProbe {
@@ -86,6 +87,7 @@ namespace Comet {
         RenderItemChanges item_changes;
         std::shared_ptr<const ParticleSnapshot> particles;
         std::vector<ParticleWorldCollider> particle_colliders;
+        std::vector<ParticleMeshCollider> particle_meshes;
         // 与快照的 CPU batches、GPU emitters 顺序对应。
         std::vector<std::shared_ptr<Texture>> particle_textures;
         std::vector<std::shared_ptr<const VectorField>> particle_fields;
@@ -115,6 +117,7 @@ namespace Comet {
             decals.clear();
             particles.reset();
             particle_colliders.clear();
+            particle_meshes.clear();
             particle_textures.clear();
             particle_fields.clear();
             environment = {};
@@ -139,5 +142,6 @@ namespace Comet {
         PathTraceSettings path_trace_settings;
         std::span<const ResolvedIrradianceVolume> realtime_irradiance;
         IrradianceDebugMode irradiance_debug = IrradianceDebugMode::Off;
+        std::shared_ptr<const RayScene> particle_collisions;
     };
 }

@@ -11,6 +11,7 @@
 #include "render/scene/render_geometry.h"
 #include "render/scene/scene_resolver.h"
 #include "render/ray_scene.h"
+#include "render/particle_collision_scene.h"
 #include "render/passes/skinning_pass.h"
 #include "render/passes/realtime_irradiance_pass.h"
 #include "render/scene/scene_picking.h"
@@ -241,6 +242,8 @@ namespace Comet {
         std::unique_ptr<MaterialPrograms> m_programs;
         std::map<ViewId, ViewState> m_views;
         ViewId m_next_view_id = 1;
+        ParticleCollisionBuilder m_particle_collision_builder;
+        std::string m_particle_collision_error;
         RaySceneBuilder::MeshReader m_ray_read;
         RaySceneBuilder::MeshRevision m_ray_revision;
         RaySceneBuilder::Images m_ray_images;

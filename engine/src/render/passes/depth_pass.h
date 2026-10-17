@@ -93,9 +93,10 @@ namespace Comet {
         std::map<const Texture*, CachedMask> m_masks;
         std::vector<InstanceBuffer> m_instances;
         std::vector<InstanceBuffer> m_previous_instances;
-        std::vector<Math::Mat4> m_previous_transforms;
+        std::vector<PushConstant> m_previous_transforms;
         struct MotionHistory {
             Math::Mat4 model{1};
+            Math::Vec4 vertex_bend{0};
             AssetHandle handle;
             uint64_t revision = 0;
             std::shared_ptr<Mesh> mesh;
@@ -107,7 +108,7 @@ namespace Comet {
         bool m_motion_vectors = false;
         bool m_outline = false;
         std::vector<DrawItem> m_draw_queue;
-        std::vector<Math::Mat4> m_transforms;
+        std::vector<PushConstant> m_transforms;
         std::vector<RenderGeometry> m_view_geometry;
         Statistics m_statistics;
     };

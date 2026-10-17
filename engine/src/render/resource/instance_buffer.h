@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/math_utils.h"
+#include "render/scene/render_types.h"
 #include "graphics/result.h"
 
 #include <memory>
@@ -16,15 +16,15 @@ namespace Comet {
     // 每个飞行帧槽位独占；槽位回收后才能再次上传。
     class InstanceBuffer {
     public:
-        static void describe(
-            VertexInputDescription& input, uint32_t binding = 1, uint32_t first_location = 3);
+        static void describe(VertexInputDescription& input, uint32_t binding = 1,
+            uint32_t first_location = 3, uint32_t bend_location = 12);
         Result<size_t, GraphicsError> upload(
-            Device& device, std::span<const Math::Mat4> transforms);
+            Device& device, std::span<const PushConstant> transforms);
         void bind(const CommandBuffer& command, uint32_t binding = 1) const;
         [[nodiscard]] const std::shared_ptr<CPUBuffer>& get_buffer() const { return m_buffer; }
 
     private:
         std::shared_ptr<CPUBuffer> m_buffer;
-        std::vector<Math::Mat4> m_uploaded_transforms;
+        std::vector<PushConstant> m_uploaded_transforms;
     };
 }

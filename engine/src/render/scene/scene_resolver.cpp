@@ -34,6 +34,7 @@ namespace Comet {
             resolved.animation = item.animation;
             resolved.contributes_to_gi = item.contributes_to_gi;
             resolved.outline = item.outline;
+            resolved.vertex_bend = item.vertex_bend;
             resolved.entity_id = item.entity_id;
             resolved.transform_revision = item.transform_revision;
             if(resolved.material.overrides != item.material_overrides)
@@ -257,6 +258,7 @@ namespace Comet {
     void SceneResolver::resolve_particles(const RenderScene& scene, RenderWorld& world) {
         world.particles = scene.particles;
         world.particle_colliders = scene.particle_colliders;
+        world.particle_meshes = scene.particle_meshes;
         world.particle_textures.clear();
         world.particle_fields.clear();
         for(auto& [handle, used] : m_missing_particle_textures)

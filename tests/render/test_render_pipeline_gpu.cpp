@@ -653,9 +653,11 @@ void main() { color = texture(unsupported_view_resource, vec2(0.5)); }
             uint64_t upload_bytes;
         };
         const std::array samples{Sample{false, 1, -0.5f, false, 0},
-            Sample{true, 1, -0.5f, true, 320}, Sample{true, 1, -0.5f, true, 320},
-            Sample{true, -1, -0.5f, false, 320}, Sample{true, 1, -0.5f, true, 0},
-            Sample{true, -1, 0.5f, true, 320}, Sample{true, 1, 0.5f, false, 320},
+            Sample{true, 1, -0.5f, true, 5 * sizeof(PushConstant)},
+            Sample{true, 1, -0.5f, true, 5 * sizeof(PushConstant)},
+            Sample{true, -1, -0.5f, false, 5 * sizeof(PushConstant)},
+            Sample{true, 1, -0.5f, true, 0}, Sample{true, -1, 0.5f, true, 5 * sizeof(PushConstant)},
+            Sample{true, 1, 0.5f, false, 5 * sizeof(PushConstant)},
             Sample{true, -1, 0.5f, true, 0}};
         std::array<std::vector<std::byte>, samples.size()> pixels;
         for(size_t index = 0; index < samples.size(); ++index) {

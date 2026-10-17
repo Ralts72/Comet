@@ -860,7 +860,8 @@ namespace Comet::Tests {
         reference_frames.initialize_swapchain_images(2);
         FrameWait batch_wait{device, batch_frames}, reference_wait{device, reference_frames};
         std::vector<std::shared_ptr<Readback>> actual, expected;
-        const std::array counts{2u, 32u, 2u, 64u, 64u, 64u, 64u, 2u, 2u, 2u, 8u, 8u, 8u, 8u};
+        const std::array counts{
+            2u, 32u, 2u, 64u, 64u, 64u, 64u, 2u, 2u, 2u, 8u, 8u, 8u, 8u, 8u, 8u};
         for(size_t frame = 0; frame < counts.size(); ++frame) {
             SCOPED_TRACE(frame);
             if(frame == 2) {
@@ -901,7 +902,8 @@ namespace Comet::Tests {
                     world.render_items.push_back({.entity_id = group * counts[frame] + index + 1,
                         .model_matrix = model,
                         .mesh = frame >= 10 && index % 2 ? other_mesh : mesh,
-                        .material = {material_handle, material->snapshot(), overrides}});
+                        .material = {material_handle, material->snapshot(), overrides},
+                        .vertex_bend = frame >= 12 ? Math::Vec4(.3f, -.2f, 1, 0) : Math::Vec4(0)});
                 }
             }
             // 同一内容覆盖材质有序、Mesh 有序、倒序与循环移位提交。
@@ -932,7 +934,9 @@ namespace Comet::Tests {
                 EXPECT_EQ(
                     shadow.draw_calls, (frame == 2 || frame >= 10 ? 2u : 1u) * shadow.cascades);
                 // 每组的一半物体落在三个级联内，其余落在四个级联内。
-                EXPECT_EQ(shadow.drawn_instances, 3 * counts[frame] / 2 * 7);
+                // 柔性包络还覆盖一组额外的半组物体。
+                EXPECT_EQ(shadow.drawn_instances,
+                    3 * counts[frame] / 2 * 7 + (frame >= 12 ? counts[frame] / 2 : 0));
                 auto output = std::make_shared<Readback>(
                     device, context.get_context().get_physical_device(), 65 * 65 * 4);
                 copy_output(frames,
@@ -946,8 +950,8 @@ namespace Comet::Tests {
             const auto stats = batched.value()->get_material_statistics();
             EXPECT_EQ(stats.draw_calls, frame >= 10 ? 6u : 3u);
             EXPECT_EQ(stats.drawn_instances, 3 * counts[frame]);
-            auto expected_upload = 3 * counts[frame] * sizeof(Math::Mat4);
-            if(frame == 5 || frame == 9 || frame >= 12)
+            auto expected_upload = 3 * counts[frame] * sizeof(PushConstant);
+            if(frame == 5 || frame == 9 || frame >= 14)
                 expected_upload = 0;
             EXPECT_EQ(stats.instance_upload_bytes, expected_upload);
             for(auto& item : world.render_items) {

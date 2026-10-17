@@ -326,7 +326,7 @@ namespace Comet {
         std::vector<DrawCandidate> m_draw_candidates;
         std::vector<DrawItem> m_draw_queue;
         std::vector<float> m_transparent_depths;
-        std::vector<Math::Mat4> m_instance_transforms;
+        std::vector<PushConstant> m_instance_transforms;
         Statistics m_statistics;
         uint64_t m_warmup_pipeline_creations = 0;
         bool m_has_runtime_instances = false;

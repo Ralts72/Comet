@@ -1,8 +1,152 @@
 #include "support/render_graph_gpu_fixture.h"
 #include "render/passes/gpu_particle_simulation.h"
 #include "render/resource/vector_field.h"
+#include "render/particle_collision_scene.h"
 
 namespace Comet::Tests {
+    TEST(ParticleCollisionTest, StaticGeometryCachesVersionsAndUsesTheSharedBvhLayout) {
+        ParticleCollisionBuilder builder;
+        MeshData mesh;
+        mesh.vertices = {{{-2, 0, -2}}, {{2, 0, -2}}, {{0, 0, 2}}};
+        const ParticleMeshCollider collider{
+            1, AssetHandle{77}, Math::translate(Math::Mat4(1), {0, 2, 0}), 4};
+        uint32_t reads = 0;
+        uint64_t revision = 1;
+        const auto read = [&](AssetHandle) {
+            ++reads;
+            return Result<MeshData, Error>::success(mesh);
+        };
+        auto first =
+            builder.update(1, std::span(&collider, 1), read, [&](AssetHandle) { return revision; });
+        ASSERT_TRUE(first) << first.error().message;
+        ASSERT_EQ(first.value()->geometry->triangles.size(), 1u);
+        EXPECT_EQ(first.value()->geometry->triangles[0].surface[0], 4u);
+        EXPECT_EQ(first.value()->geometry->triangles[0].positions[0].y, 2);
+        EXPECT_EQ(first.value()->geometry->nodes[0].links[3], 1u);
+        auto stable =
+            builder.update(1, std::span(&collider, 1), read, [&](AssetHandle) { return revision; });
+        ASSERT_TRUE(stable);
+        EXPECT_EQ(stable.value(), first.value());
+        EXPECT_EQ(reads, 1u);
+        ++revision;
+        mesh.vertices[0].position.y = 1;
+        auto changed =
+            builder.update(1, std::span(&collider, 1), read, [&](AssetHandle) { return revision; });
+        ASSERT_TRUE(changed);
+        EXPECT_NE(changed.value(), first.value());
+        EXPECT_EQ(changed.value()->geometry->triangles[0].positions[0].y, 3);
+        EXPECT_EQ(first.value()->geometry->triangles[0].positions[0].y, 2);
+        EXPECT_EQ(reads, 2u);
+        mesh.indices = {0, 1, 9};
+        ++revision;
+        EXPECT_FALSE(builder.update(
+            1, std::span(&collider, 1), read, [&](AssetHandle) { return revision; }));
+    }
+
+    TEST_F(RenderGraphGpuTest, GpuMeshSweepHitsFacesEdgesAndVerticesAndPreservesPausedState) {
+        auto& context = engine->get_renderer().get_render_context();
+        auto& device = context.get_device();
+        const ViewProjectMatrix camera{Math::look_at({100, 100, 100}, {101, 100, 100}, {0, 1, 0}),
+            Math::ortho(-1, 1, -1, 1, .1f, 10)};
+        auto depth = engine->get_render_resources().try_create_texture(
+            TextureData{.width = 1, .height = 1, .pixels = {255, 255, 255, 255}});
+        ASSERT_TRUE(depth);
+        MeshData mesh;
+        mesh.vertices = {{{-2, 0, -2}}, {{2, 0, -2}}, {{0, 0, 2}}};
+        ParticleCollisionBuilder builder;
+        const ParticleMeshCollider collider{1, AssetHandle{77}, Math::Mat4(1), 4};
+        auto collision = builder.update(1, std::span(&collider, 1),
+            [&](AssetHandle) { return Result<MeshData, Error>::success(mesh); });
+        ASSERT_TRUE(collision);
+        auto crowded_mesh = mesh;
+        crowded_mesh.indices.clear();
+        for(int i = 0; i < 128; ++i)
+            crowded_mesh.indices.insert(crowded_mesh.indices.end(), {0, 1, 2});
+        ParticleCollisionBuilder crowded_builder;
+        auto crowded_collision = crowded_builder.update(1, std::span(&collider, 1),
+            [&](AssetHandle) { return Result<MeshData, Error>::success(crowded_mesh); });
+        ASSERT_TRUE(crowded_collision);
+        struct State {
+            Math::Vec4 position_age, velocity;
+            std::array<uint32_t, 4> metadata;
+        };
+        for(auto position :
+            {Math::Vec3(0, 1, 0), Math::Vec3(0, 1, -2.04f), Math::Vec3(2.04f, 1, -2.04f)})
+            for(auto mode : {ParticleCollision::Bounce, ParticleCollision::Kill})
+                for(bool layers : {true, false})
+                    for(bool crowded : {false, true}) {
+                        SCOPED_TRACE(position.x);
+                        SCOPED_TRACE(position.z);
+                        SCOPED_TRACE(int(mode));
+                        SCOPED_TRACE(layers);
+                        SCOPED_TRACE(crowded);
+                        GpuParticleSimulation simulation(device, 2);
+                        FrameScheduler frames(device, 2);
+                        frames.initialize_swapchain_images(2);
+                        FrameWait wait{device, frames};
+                        GpuParticleEmitter emitter;
+                        emitter.id = 21;
+                        emitter.count = 1;
+                        emitter.time = .15;
+                        emitter.settings.simulation = ParticleSimulation::GPU;
+                        emitter.settings.gpu_dynamics = true;
+                        emitter.settings.gpu_world_collision = true;
+                        emitter.settings.collision = mode;
+                        emitter.settings.collision_layers = layers ? 4 : 2;
+                        emitter.settings.collision_radius = .08f;
+                        emitter.settings.mesh_collision_budget = crowded ? 16 : 256;
+                        emitter.settings.restitution = 1;
+                        emitter.settings.speed = 0;
+                        emitter.settings.lifetime = 2;
+                        emitter.settings.acceleration = {0, -200, 0};
+                        emitter.spawns = {{Math::translate(Math::Mat4(1), position), 0, 0, 0, 1}};
+                        std::vector<std::byte> previous;
+                        for(int frame = 0; frame < 2; ++frame) {
+                            begin_frame(frames);
+                            const auto ready = simulation.prepare(frames, camera,
+                                std::span(&emitter, 1), false, depth.value()->get_image_view(), 1,
+                                {}, {}, crowded ? crowded_collision.value() : collision.value());
+                            ASSERT_TRUE(ready) << ready.error();
+                            auto readback = std::make_shared<Readback>(device,
+                                context.get_context().get_physical_device(),
+                                sizeof(vk::DrawIndirectCommand) + sizeof(State));
+                            auto command = frames.get_current_command_buffer().get();
+                            const vk::MemoryBarrier readable(vk::AccessFlagBits::eShaderWrite,
+                                vk::AccessFlagBits::eTransferRead);
+                            command.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
+                                vk::PipelineStageFlagBits::eTransfer, {}, readable, {}, {});
+                            command.copyBuffer(simulation.outputs().front().indirect->get(),
+                                readback->get(), vk::BufferCopy(0, 0, readback->get_size()));
+                            frames.retain_current_frame_resource(readback);
+                            std::vector<QueueSemaphoreSubmit> waits;
+                            if(const auto upload = depth.value()->get_ready_completion();
+                                upload.is_valid())
+                                waits.emplace_back(
+                                    upload, Flags<PipelineStage>(PipelineStage::ComputeShader));
+                            submit(device, frames, waits);
+                            frames.wait_for_all_slots();
+                            const auto bytes = readback->read();
+                            State state;
+                            vk::DrawIndirectCommand draw;
+                            std::memcpy(&draw, bytes.data(), sizeof(draw));
+                            std::memcpy(&state, bytes.data() + sizeof(draw), sizeof(state));
+                            EXPECT_TRUE(Math::is_finite(state.position_age));
+                            if(layers && (mode == ParticleCollision::Kill || crowded))
+                                EXPECT_EQ(draw.instanceCount, 0u);
+                            else {
+                                EXPECT_EQ(draw.instanceCount, 1u);
+                                if(layers)
+                                    EXPECT_GT(state.position_age.y, -.2f);
+                                else
+                                    EXPECT_NEAR(state.position_age.y, -1.25f, .001);
+                            }
+                            if(frame)
+                                EXPECT_EQ(bytes, previous);
+                            previous = bytes;
+                        }
+                    }
+    }
+
     TEST_F(RenderGraphGpuTest, GpuDynamicsKeepsVelocityPauseAndScreenCollisionAcrossFrameSlots) {
         auto& context = engine->get_renderer().get_render_context();
         auto& device = context.get_device();

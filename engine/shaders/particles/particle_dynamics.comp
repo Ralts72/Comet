@@ -149,6 +149,7 @@ bool intersect_capsule(vec3 origin, vec3 direction, float radius, float half_hei
     return hit.fraction <= 1;
 }
 
+#include "particle_mesh_collision.glsl"
 void bounce_velocity(vec3 normal, inout vec3 velocity) {
     float speed = dot(velocity, normal);
     if(speed < 0)
@@ -184,6 +185,18 @@ bool collide_world(vec3 old_position, inout vec3 position, inout vec3 velocity) 
         hit_position = hit.inside
             ? (inverse(collider.world_to_local) * vec4(hit.position, 1)).xyz
             : mix(old_position, position, hit.fraction);
+    }
+    if(history.z > 0) {
+        ColliderHit mesh_hit;
+        bool exhausted;
+        bool found = mesh_contact(old_position, position - old_position, nearest, mesh_hit, exhausted);
+        // 查询耗尽时终止这一视觉粒子，避免未完成查询却穿过地表。
+        if(exhausted) return true;
+        if(found) {
+            nearest = mesh_hit.fraction;
+            hit_normal = mesh_hit.normal;
+            hit_position = mesh_hit.position;
+        }
     }
     if(nearest > 1) return false;
     if(history.y == 2) return true;

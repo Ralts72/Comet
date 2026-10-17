@@ -22,6 +22,7 @@ namespace Comet {
         float turbulence = 0;
         float turbulence_frequency = 1;
         bool gpu_world_collision = false;
+        uint32_t mesh_collision_budget = 256; // 每粒子、每积分子步的 BVH 节点／三角形访问上限。
         // 向量场的范围与方向均为世界空间；强度只缩放加速度。
         AssetHandle vector_field;
         float vector_field_strength = 1;
@@ -91,6 +92,12 @@ namespace Comet {
         double spacing = 0;
         uint64_t first = 0;
         uint32_t count = 0;
+    };
+    struct ParticleMeshCollider {
+        uint64_t entity_id = 0;
+        AssetHandle mesh;
+        Math::Mat4 model{1};
+        uint32_t layers = 1;
     };
     struct ParticleWorldCollider {
         static constexpr uint32_t MAX_COLLIDERS = 64;

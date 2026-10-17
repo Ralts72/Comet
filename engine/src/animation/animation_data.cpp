@@ -508,11 +508,11 @@ namespace Comet {
     }
     Result<AnimationPose> build_animation_pose(const AnimationData& data,
         std::vector<JointTransform> local, const AnimationRootMotion* root_motion,
-        bool include_bones) {
+        bool include_bones, const Math::Mat4* supplied_correction) {
         if(local.size() != data.nodes.size() || data.mesh_node >= data.nodes.size())
             return Result<AnimationPose>::failure("Invalid local animation pose");
-        Math::Mat4 motion_correction(1);
-        if(root_motion) {
+        Math::Mat4 motion_correction = supplied_correction ? *supplied_correction : Math::Mat4(1);
+        if(root_motion && !supplied_correction) {
             const auto& settings = *root_motion;
             auto root = motion_node(data, settings.node);
             if(!root)
@@ -535,6 +535,7 @@ namespace Comet {
         }
         const auto mesh_inverse = glm::affineInverse(world[data.mesh_node]);
         AnimationPose output;
+        output.motion_correction = motion_correction;
         std::optional<BoundingBox> bounds;
         output.matrices.reserve(data.joints.size());
         if(include_bones)
@@ -595,8 +596,8 @@ namespace Comet {
             include_bones || (playback && !playback->ik.empty()));
         if(!pose || !playback || (playback->ik.empty() && playback->offsets.empty()))
             return pose;
-        return apply_animation_constraints(
-            data, std::move(pose).value(), playback->ik, root, playback->offsets);
+        return apply_animation_constraints(data, std::move(pose).value(), playback->ik, root,
+            playback->offsets, playback->body_ik ? &*playback->body_ik : nullptr);
     }
     Result<AnimationPose> interpolate_animation_pose(const AnimationData& data,
         const AnimationPose& previous, const AnimationPose& current, float alpha,
@@ -604,11 +605,26 @@ namespace Comet {
         PROFILE_SCOPE("Animation::interpolate");
         if(!std::isfinite(alpha) || alpha < 0 || alpha > 1
             || previous.local_transforms.size() != data.nodes.size()
-            || current.local_transforms.size() != data.nodes.size())
+            || current.local_transforms.size() != data.nodes.size()
+            || data.mesh_node >= data.nodes.size())
             return Result<AnimationPose>::failure("Invalid animation interpolation inputs");
         auto local = previous.local_transforms;
         blend_pose(local, current.local_transforms, alpha);
-        return build_animation_pose(data, std::move(local), root_motion, true);
+        auto correction = Math::Mat4(1);
+        if(root_motion) {
+            // 修正值保存在网格空间；先回到根运动空间，避免分解带缩放的共轭矩阵。
+            const auto basis = node_world(data, rest_pose(data), data.mesh_node);
+            const auto inverse = glm::affineInverse(basis);
+            const auto from = basis * previous.motion_correction * inverse;
+            const auto to = basis * current.motion_correction * inverse;
+            const auto rotation = glm::slerp(glm::normalize(glm::quat_cast(Math::Mat3(from))),
+                glm::normalize(glm::quat_cast(Math::Mat3(to))), alpha);
+            correction = inverse
+                         * Math::translate(
+                             Math::Mat4(1), glm::mix(Math::Vec3(from[3]), Math::Vec3(to[3]), alpha))
+                         * glm::mat4_cast(rotation) * basis;
+        }
+        return build_animation_pose(data, std::move(local), root_motion, true, &correction);
     }
     Result<AnimationPose> resolve_animation_pose(const AnimationData& data,
         const AnimationPlayback* playback, std::string& error, bool include_bones) {

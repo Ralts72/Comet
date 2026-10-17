@@ -1121,7 +1121,8 @@ namespace Comet {
             return m_state->particles->prepare_gpu(frames, *submission.view_project_matrix,
                 submission.world, !m_state->requirements.weighted_transparency,
                 m_state->requirements.gpu_dynamics ? m_state->view_depth->get_depth_view(slot)
-                                                   : nullptr);
+                                                   : nullptr,
+                submission.particle_collisions);
         if(m_state->outline_composite_pass && pass == *m_state->outline_composite_pass)
             return m_state->outline->composite(frames, m_state->outline_resources, resolved_hdr,
                 m_state->view_depth->get_depth_view(slot), m_state->output_target->get_size());

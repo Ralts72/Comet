@@ -100,7 +100,7 @@ namespace Comet {
         input.add_attribute(1, 0, Format::R32G32_SFLOAT, offsetof(MeshVertex, texcoord));
         InstanceBuffer::describe(input);
         if(motion_vectors) {
-            InstanceBuffer::describe(input, 2, 7);
+            InstanceBuffer::describe(input, 2, 7, 13);
             input.add_binding(3, sizeof(MeshVertex), VertexInputRate::Vertex);
             input.add_attribute(11, 3, Format::R32G32B32_SFLOAT, offsetof(MeshVertex, position));
             layout.push_constants = {
@@ -290,7 +290,8 @@ namespace Comet {
         });
         m_transforms.reserve(m_draw_queue.size());
         for(const auto& draw : m_draw_queue)
-            m_transforms.push_back(views[draw.view].view_projection * draw.item->model_matrix);
+            m_transforms.push_back({views[draw.view].view_projection * draw.item->model_matrix,
+                draw.item->vertex_bend});
         if(m_motion_vectors) {
             m_previous_transforms.clear();
             for(auto& [id, history] : m_motion_history)
@@ -304,7 +305,8 @@ namespace Comet {
                                    && found->second.revision == item.mesh_revision
                                    && (item.mesh->m_deformed || found->second.mesh == item.mesh);
                 m_previous_transforms.push_back(
-                    valid ? *previous * found->second.model : Math::Mat4(0));
+                    {valid ? *previous * found->second.model : Math::Mat4(0),
+                        valid ? found->second.vertex_bend : Math::Vec4(0)});
             }
         }
         return Preparation::success();
@@ -479,6 +481,7 @@ namespace Comet {
                     frames.retain_current_frame_resource(history.vertices);
                 }
                 history.model = item.model_matrix;
+                history.vertex_bend = item.vertex_bend;
                 history.handle = item.mesh_handle;
                 history.revision = item.mesh_revision;
                 history.mesh = item.mesh;
