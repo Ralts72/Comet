@@ -33,6 +33,7 @@ namespace Comet {
                 resolved.model_matrix = item.model_matrix;
             resolved.animation = item.animation;
             resolved.contributes_to_gi = item.contributes_to_gi;
+            resolved.outline = item.outline;
             resolved.entity_id = item.entity_id;
             resolved.transform_revision = item.transform_revision;
             if(resolved.material.overrides != item.material_overrides)
@@ -257,22 +258,27 @@ namespace Comet {
         for(auto& [handle, used] : m_missing_particle_textures)
             used = false;
         if(scene.particles) {
-            world.particle_textures.reserve(scene.particles->batches.size());
-            for(const auto& batch : scene.particles->batches) {
+            const auto resolve = [&](AssetHandle handle) {
                 std::shared_ptr<Texture> texture;
-                if(batch.texture) {
-                    texture = m_asset_registry.resolve<Texture>(batch.texture);
+                if(handle) {
+                    texture = m_asset_registry.resolve<Texture>(handle);
                     if(!texture) {
                         const auto [entry, inserted] =
-                            m_missing_particle_textures.try_emplace(batch.texture, true);
+                            m_missing_particle_textures.try_emplace(handle, true);
                         entry->second = true;
                         if(inserted)
                             LOG_ERROR("Particle emitter references missing texture handle {}",
-                                batch.texture.value());
+                                handle.value());
                     }
                 }
                 world.particle_textures.push_back(std::move(texture));
-            }
+            };
+            world.particle_textures.reserve(
+                scene.particles->batches.size() + scene.particles->gpu_emitters.size());
+            for(const auto& batch : scene.particles->batches)
+                resolve(batch.texture);
+            for(const auto& emitter : scene.particles->gpu_emitters)
+                resolve(emitter.settings.texture);
         }
         std::erase_if(m_missing_particle_textures, [](const auto& entry) { return !entry.second; });
     }

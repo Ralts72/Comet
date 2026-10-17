@@ -6,6 +6,24 @@
 #include "common/result.h"
 
 namespace Comet {
+    struct COMET_API OutlineSettings {
+        bool enabled = true;
+        Math::Vec4 color{1, .6f, .1f, 1};
+        float width = 3;
+        float fill = 0;
+        bool through_walls = false;
+        [[nodiscard]] Result<void> validate() const {
+            if(!Math::is_finite(color) || !std::isfinite(width) || width < 0 || width > 8
+                || !std::isfinite(fill) || fill < 0 || fill > 1 || color.a < 0 || color.a > 1)
+                return Result<void>::failure("描边宽度应为 0～8 像素，颜色透明度和填充应为 0～1");
+            return Result<void>::success();
+        }
+        [[nodiscard]] bool active() const {
+            return enabled && color.a > 0 && (width > 0 || fill > 0) && bool(validate());
+        }
+        bool operator==(const OutlineSettings&) const = default;
+    };
+
     enum class LightType { Directional = 0, Point = 1, Spot = 2 };
 
     struct COMET_API VolumetricFogSettings {

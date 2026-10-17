@@ -23,7 +23,7 @@ namespace Comet::Tests {
             .target = {.3f, -1.5f, .2f},
             .pole = {0, 0, 2},
             .rotation = Math::angle_axis(.2f, {0, 0, 1})};
-        auto result = apply_animation_ik(data, pose.value(), std::span(&constraint, 1));
+        auto result = apply_animation_constraints(data, pose.value(), std::span(&constraint, 1));
         ASSERT_TRUE(result) << result.error();
         const auto& bones = result.value().bone_matrices;
         EXPECT_LT(Math::length(Math::Vec3(bones[2][3]) - constraint.target), .0001);
@@ -46,7 +46,8 @@ namespace Comet::Tests {
         for(const auto target : {Math::Vec3(0, -10, 0), Math::Vec3(0), Math::Vec3(0, 1, 0)}) {
             SCOPED_TRACE(target.y);
             const AnimationIKConstraint constraint{.tip = 3, .target = target, .pole = target};
-            auto solved = apply_animation_ik(data, pose.value(), std::span(&constraint, 1));
+            auto solved =
+                apply_animation_constraints(data, pose.value(), std::span(&constraint, 1));
             ASSERT_TRUE(solved) << solved.error();
             const auto foot = Math::Vec3(solved.value().bone_matrices[2][3]);
             EXPECT_TRUE(Math::is_finite(foot));
@@ -60,28 +61,29 @@ namespace Comet::Tests {
         const auto pose = sample_animation(data, nullptr);
         ASSERT_TRUE(pose);
         AnimationIKConstraint constraint{.tip = 3, .target = {0, -1.5f, .2f}, .pole = {0, 0, 1}};
-        auto full = apply_animation_ik(data, pose.value(), std::span(&constraint, 1));
+        auto full = apply_animation_constraints(data, pose.value(), std::span(&constraint, 1));
         ASSERT_TRUE(full);
         constraint.weight = .5f;
-        auto half = apply_animation_ik(data, pose.value(), std::span(&constraint, 1));
+        auto half = apply_animation_constraints(data, pose.value(), std::span(&constraint, 1));
         ASSERT_TRUE(half);
         EXPECT_NEAR(std::abs(glm::dot(half.value().local_transforms[1].rotation,
                         glm::slerp(data.nodes[1].rest.rotation,
                             full.value().local_transforms[1].rotation, .5f))),
             1, .0001);
         constraint.weight = 0;
-        EXPECT_EQ(
-            apply_animation_ik(data, pose.value(), std::span(&constraint, 1)).value().matrices,
+        EXPECT_EQ(apply_animation_constraints(data, pose.value(), std::span(&constraint, 1))
+                      .value()
+                      .matrices,
             pose.value().matrices);
         constraint.weight = 1;
         constraint.tip = 1;
-        EXPECT_FALSE(apply_animation_ik(data, pose.value(), std::span(&constraint, 1)));
+        EXPECT_FALSE(apply_animation_constraints(data, pose.value(), std::span(&constraint, 1)));
         constraint.tip = 3;
         constraint.target.x = NAN;
-        EXPECT_FALSE(apply_animation_ik(data, pose.value(), std::span(&constraint, 1)));
+        EXPECT_FALSE(apply_animation_constraints(data, pose.value(), std::span(&constraint, 1)));
         constraint.target.x = 0;
         constraint.rotation = Math::Quat(0, 0, 0, 0);
-        EXPECT_FALSE(apply_animation_ik(data, pose.value(), std::span(&constraint, 1)));
+        EXPECT_FALSE(apply_animation_constraints(data, pose.value(), std::span(&constraint, 1)));
         constraint.rotation.reset();
         auto foreign = std::make_shared<AnimationData>(data);
         AnimationPlayback frame{.ik = {constraint}, .pose_source = foreign};
@@ -91,7 +93,7 @@ namespace Comet::Tests {
         data.nodes[1].rest.scale.x = 2;
         const auto scaled = sample_animation(data, nullptr);
         ASSERT_TRUE(scaled);
-        EXPECT_FALSE(apply_animation_ik(data, scaled.value(), std::span(&constraint, 1)));
+        EXPECT_FALSE(apply_animation_constraints(data, scaled.value(), std::span(&constraint, 1)));
     }
 
     TEST(AnimationIKTest, SceneReusesOnlyUnconstrainedPoseWithIdenticalSamplingInputs) {

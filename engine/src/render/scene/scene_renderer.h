@@ -31,6 +31,7 @@ namespace Comet {
     class ImageView;
     class Swapchain;
     class BloomPass;
+    class OutlinePass;
     class VolumetricFogPass;
     class ScreenSpaceReflectionPass;
     struct SwapchainCompatibility;
@@ -90,9 +91,11 @@ namespace Comet {
             bool soft_particles = false;
             bool decals = false;
             bool fog = false;
+            bool outline = false;
+            bool gpu_particles = false;
             [[nodiscard]] bool needs_depth(
                 const PostProcessSettings& settings, bool temporal) const {
-                return settings.uses_ao() || temporal || soft_particles || decals;
+                return settings.uses_ao() || temporal || soft_particles || decals || outline;
             }
             bool operator==(const ViewRequirements&) const = default;
         };
@@ -118,6 +121,7 @@ namespace Comet {
             BloomPass* bloom;
             VolumetricFogPass* fog;
             ScreenSpaceReflectionPass* reflections;
+            OutlinePass* outline;
         };
         Result<void, GraphicsError> rebuild_graph(RenderState& state,
             const PostProcessSettings& settings, const ViewRequirements& requirements,

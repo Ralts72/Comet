@@ -206,6 +206,8 @@ set(INTEGRATION_SOURCES
         render/test_scene_preview.cpp
         render/test_instanced_rendering.cpp
         render/test_decals.cpp
+        render/test_outline.cpp
+        render/test_gpu_particles.cpp
         render/test_deferred.cpp
         render/test_screen_space_reflections.cpp
         render/test_volumetric_fog.cpp

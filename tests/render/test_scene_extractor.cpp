@@ -29,9 +29,39 @@ namespace Comet::Tests {
                 EXPECT_EQ(found->material_handle, item.material_handle);
                 EXPECT_EQ(found->transform_revision, item.transform_revision);
                 EXPECT_EQ(found->material_overrides, item.material_overrides);
+                EXPECT_EQ(found->outline, item.outline);
                 EXPECT_TRUE(TestUtils::Mat4Equal(found->model_matrix, item.model_matrix));
             }
         }
+    }
+
+    TEST(SceneExtractorTest, OutlineEditsPublishNewSnapshotsAndSurviveSaving) {
+        Scene scene;
+        auto entity = scene.create_entity("enemy");
+        entity.add_component<MeshRendererComponent>(AssetHandle(10), AssetHandle(20));
+        SceneExtractor extractor;
+        EXPECT_FALSE(extractor.update(scene)->render_items.front().outline.enabled);
+        entity.add_component<OutlineComponent>();
+        auto first = extractor.update(scene);
+        ASSERT_TRUE(first->render_items.front().outline.active());
+        entity.edit_component<OutlineComponent>([](auto& outline) {
+            outline.through_walls = true;
+            outline.fill = .25f;
+        });
+        auto second = extractor.update(scene);
+        EXPECT_FALSE(first->render_items.front().outline.through_walls);
+        EXPECT_TRUE(second->render_items.front().outline.through_walls);
+        const auto components = create_scene_component_registry();
+        const SceneSerializer serializer(components);
+        const auto saved = serializer.serialize(scene);
+        ASSERT_TRUE(saved);
+        auto copy = serializer.deserialize(saved.value());
+        ASSERT_TRUE(copy) << copy.error();
+        EXPECT_EQ(copy.value()->find_entity(entity.get_uuid()).get_component<OutlineComponent>(),
+            entity.get_component<OutlineComponent>());
+        entity.remove_component<OutlineComponent>();
+        EXPECT_FALSE(extractor.update(scene)->render_items.front().outline.enabled);
+        EXPECT_TRUE(second->render_items.front().outline.active());
     }
 
     TEST(SceneExtractorTest, ProjectorSnapshotsOwnTransformsAndFollowEditsAndSceneContentCopies) {

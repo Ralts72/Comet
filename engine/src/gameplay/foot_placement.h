@@ -27,6 +27,7 @@ namespace Comet::Gameplay {
         struct State {
             std::shared_ptr<const AnimationData> source;
             std::array<Foot, 2> feet;
+            float pelvis_offset = 0;
         };
         Result<void, Error> place(
             Scene&, Entity, const FootPlacementComponent&, const Context&, State&);

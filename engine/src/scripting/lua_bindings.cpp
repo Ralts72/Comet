@@ -438,7 +438,7 @@ namespace Comet::LuaBindings {
             const auto count = luaL_checkinteger(state, 1);
             const auto entity =
                 lua_isnoneornil(state, 2) ? context.entity : require_entity(state, 2);
-            if(count <= 0 || count > ParticleEmitterComponent::MAX_CAPACITY || !context.scene
+            if(count <= 0 || count > ParticleEmitterComponent::MAX_GPU_CAPACITY || !context.scene
                 || !context.scene->request_particle_burst(entity, uint32_t(count)))
                 return luaL_error(
                     state, "Cannot emit particles: invalid emitter, count or request limit");

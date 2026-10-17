@@ -40,7 +40,10 @@ namespace Comet::Tests {
         model.add_component<MeshRendererComponent>();
         model.add_component<AnimatorComponent>();
         model.add_component<FootPlacementComponent>(
-            FootPlacementComponent{.character = actor.get_uuid()});
+            FootPlacementComponent{.character = actor.get_uuid(),
+                .pelvis = "body",
+                .pelvis_weight = 1,
+                .max_pelvis_offset = .08f});
         auto floor = scene.create_entity("floor");
         floor.add_component<RigidBodyComponent>(RigidBodyComponent{.motion = BodyMotion::Static});
         floor.add_component<ColliderComponent>();
@@ -75,6 +78,8 @@ namespace Comet::Tests {
         EXPECT_GT(scene.get_animation_statistics().ik_pose_reuses, 0u);
         EXPECT_NEAR(planted->pose->bone_matrices[3][3].y, .18, .001);
         EXPECT_NEAR(planted->pose->bone_matrices[6][3].y, .08, .001);
+        ASSERT_EQ(planted->offsets.size(), 1u);
+        EXPECT_NEAR(planted->pose->bone_matrices[0][3].y, 1.32, .001);
         EXPECT_NEAR(initial->pose->bone_matrices[3][3].y, .2, .0001);
         EXPECT_EQ(actor.get_component<TransformComponent>().translation, Math::Vec3(0));
         const auto components = create_scene_component_registry();
@@ -100,6 +105,7 @@ namespace Comet::Tests {
             ASSERT_TRUE(runtime.advance(1.0 / 60));
         EXPECT_TRUE(scene.get_animation_playback(model)->ik.empty());
         EXPECT_NEAR(scene.get_animation_playback(model)->pose->bone_matrices[3][3].y, .2, .0001);
+        EXPECT_NEAR(scene.get_animation_playback(model)->pose->bone_matrices[0][3].y, 1.4, .0001);
         EXPECT_NEAR(planted->pose->bone_matrices[3][3].y, .18, .001);
         ASSERT_TRUE(runtime.stop());
         EXPECT_FALSE(scene.get_animation_playback(model));

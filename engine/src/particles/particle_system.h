@@ -35,6 +35,9 @@ namespace Comet {
             uint32_t random = 1;
             bool present = false;
             EntityUuid ignored;
+            std::vector<GpuParticleSpawn> gpu_spawns;
+            uint64_t next_spawn = 0;
+            uint32_t gpu_count = 0;
         };
         struct TrailPoint {
             Math::Vec3 position;
@@ -50,6 +53,8 @@ namespace Comet {
         Result<void, Error> synchronize(Scene& scene);
         Result<void, Error> emit(
             Emitter& emitter, uint32_t count, double delta = 0, double previous = 0);
+        void emit_gpu(Emitter&, uint32_t count, double delta, double previous);
+        void trim_gpu(Emitter&, uint32_t count);
         void advance_trails(Scene& scene);
         void publish(Scene& scene);
         static float random_unit(Emitter& emitter);
@@ -60,6 +65,7 @@ namespace Comet {
         PhysicsAccess* m_physics = nullptr;
         double m_time = 0;
         uint32_t m_count = 0;
+        uint32_t m_gpu_count = 0;
         uint64_t m_settings_revision = UINT64_MAX;
         uint64_t m_transform_revision = 0;
         bool m_dirty = false;

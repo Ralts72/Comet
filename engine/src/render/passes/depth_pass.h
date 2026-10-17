@@ -37,14 +37,17 @@ namespace Comet {
             std::optional<Math::Mat4> previous_view_projection;
             Math::Vec4 previous_projection{};
         };
+        enum class Output { Depth, Motion, Outline };
         static Result<std::unique_ptr<DepthPass>, GraphicsError> create(Device& device,
             uint32_t frame_slots, Math::Vec2u size, uint32_t view_count,
-            bool motion_vectors = false);
+            Output output = Output::Depth);
         DepthPass(const DepthPass&) = delete;
         DepthPass& operator=(const DepthPass&) = delete;
         Result<void, GraphicsError> resize(Math::Vec2u size);
         [[nodiscard]] std::shared_ptr<ImageView> get_depth_view(uint32_t slot) const;
         [[nodiscard]] std::shared_ptr<ImageView> get_motion_view(uint32_t slot) const;
+        [[nodiscard]] std::shared_ptr<ImageView> get_color_view(
+            uint32_t slot, uint32_t index) const;
         [[nodiscard]] Statistics get_statistics() const { return m_statistics; }
         void reset_statistics() { m_statistics = {}; }
         enum class LodSelection { PerView, AlreadySelected };
@@ -102,6 +105,7 @@ namespace Comet {
         };
         std::unordered_map<EntityId, MotionHistory> m_motion_history;
         bool m_motion_vectors = false;
+        bool m_outline = false;
         std::vector<DrawItem> m_draw_queue;
         std::vector<Math::Mat4> m_transforms;
         std::vector<RenderGeometry> m_view_geometry;

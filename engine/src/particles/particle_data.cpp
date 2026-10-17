@@ -7,8 +7,14 @@ namespace Comet {
     Result<void> ParticleEmitterComponent::validate() const {
         if(blend != ParticleBlend::Additive && blend != ParticleBlend::Alpha)
             return Result<void>::failure("Invalid particle blend mode");
-        if(capacity == 0 || capacity > MAX_CAPACITY || burst > MAX_CAPACITY || !std::isfinite(rate)
-            || rate < 0 || rate > 10000 || !std::isfinite(lifetime) || lifetime < 0.01f
+        if(simulation != ParticleSimulation::CPU && simulation != ParticleSimulation::GPU)
+            return Result<void>::failure("无效的粒子模拟方式");
+        const bool gpu = simulation == ParticleSimulation::GPU;
+        const uint32_t limit = gpu ? MAX_GPU_CAPACITY : MAX_CAPACITY;
+        if(gpu && collision != ParticleCollision::None)
+            return Result<void>::failure("GPU 粒子不执行物理查询；碰撞粒子请使用 CPU 模式");
+        if(capacity == 0 || capacity > limit || burst > limit || !std::isfinite(rate) || rate < 0
+            || rate > (gpu ? 1000000 : 10000) || !std::isfinite(lifetime) || lifetime < 0.01f
             || lifetime > 60 || !std::isfinite(speed) || speed < 0 || speed > 1000
             || !std::isfinite(spread) || spread < 0 || spread > 180
             || !Math::is_finite(acceleration) || !Math::is_finite(start_color)
@@ -63,7 +69,10 @@ namespace Comet {
             float(frame / atlas_columns) / atlas_rows, 1.0f / atlas_columns, 1.0f / atlas_rows};
     }
     bool ParticleSnapshot::uses_soft_depth() const {
-        return std::ranges::any_of(
-            batches, [](const auto& batch) { return batch.count != 0 && batch.soft_distance > 0; });
+        return std::ranges::any_of(batches, [](const auto& batch) {
+            return batch.count != 0 && batch.soft_distance > 0;
+        }) || std::ranges::any_of(gpu_emitters, [](const auto& emitter) {
+            return emitter.count != 0 && emitter.settings.soft_distance > 0;
+        });
     }
 }

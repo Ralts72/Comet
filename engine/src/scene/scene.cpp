@@ -288,15 +288,19 @@ namespace Comet {
                 frame->pose_source = binding.data;
                 const auto evaluate = [&] {
                     if(found != m_animation_playbacks.end() && found->second->ik.empty()
-                        && found->second->pose && found->second->pose_error.empty()
+                        && found->second->offsets.empty() && found->second->pose
+                        && found->second->pose_error.empty()
                         && found->second->pose_source == binding.data
-                        && playback->pose_source == binding.data && !frame->ik.empty()) {
+                        && playback->pose_source == binding.data
+                        && (!frame->ik.empty() || !frame->offsets.empty())) {
                         auto base = *frame;
                         base.ik.clear();
+                        base.offsets.clear();
                         if(base == *found->second) {
                             auto constrained =
-                                apply_animation_ik(*binding.data, *found->second->pose, frame->ik,
-                                    frame->root_motion ? &*frame->root_motion : nullptr);
+                                apply_animation_constraints(*binding.data, *found->second->pose,
+                                    frame->ik, frame->root_motion ? &*frame->root_motion : nullptr,
+                                    frame->offsets);
                             if(constrained) {
                                 ++m_animation_statistics.ik_pose_reuses;
                                 frame->pose_error.clear();
@@ -368,10 +372,13 @@ namespace Comet {
     bool Scene::request_particle_burst(Entity entity, const uint32_t count) {
         if(!m_runtime_active || !is_valid(entity)
             || !entity.has_component<ParticleEmitterComponent>() || count == 0
-            || count > ParticleEmitterComponent::MAX_CAPACITY || m_particle_requests.size() >= 128)
+            || m_particle_requests.size() >= 128)
             return false;
         const auto& settings = entity.get_component<ParticleEmitterComponent>();
-        if(!settings.enabled || !settings.validate())
+        const auto limit = settings.simulation == ParticleSimulation::GPU
+                               ? ParticleEmitterComponent::MAX_GPU_CAPACITY
+                               : ParticleEmitterComponent::MAX_CAPACITY;
+        if(count > limit || !settings.enabled || !settings.validate())
             return false;
         (void)get_world_matrix(entity);
         const auto& world = entity.get_component<WorldTransformComponent>();

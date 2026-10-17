@@ -19,6 +19,8 @@
 #include "motion_vert.h"
 #include "motion_frag.h"
 #include "motion_mask_frag.h"
+#include "outline_mask_frag.h"
+#include "outline_frag.h"
 #include "graphics/resource/sampler.h"
 #include "render/material/material.h"
 #include "render/resource/texture.h"
@@ -39,7 +41,9 @@ namespace Comet {
     }
 
     Result<std::unique_ptr<DepthPass>, GraphicsError> DepthPass::create(Device& device,
-        const uint32_t frame_slots, Math::Vec2u size, uint32_t view_count, bool motion_vectors) {
+        const uint32_t frame_slots, Math::Vec2u size, uint32_t view_count, Output output) {
+        const bool motion_vectors = output == Output::Motion;
+        const bool outline = output == Output::Outline;
         using Creation = Result<std::unique_ptr<DepthPass>, GraphicsError>;
         if(frame_slots == 0 || view_count == 0)
             return Creation::failure({"Depth pass requires frame slots"});
@@ -54,7 +58,7 @@ namespace Comet {
         depth.usage |= ImageUsage::Sampled;
         RenderSubPass subpass{.depth_stencil_attachments = {SubpassDepthStencilAttachment(0)}};
         std::vector<Attachment> attachments{depth};
-        if(motion_vectors) {
+        if(motion_vectors || outline) {
             auto motion = Attachment::get_color_attachment(Format::R16G16B16A16_SFLOAT);
             motion.description.initial_layout = ImageLayout::ColorAttachmentOptimal;
             motion.description.final_layout = ImageLayout::ColorAttachmentOptimal;
@@ -63,6 +67,10 @@ namespace Comet {
             motion.usage |= ImageUsage::CopySrc;
             attachments.push_back(motion);
             subpass.color_attachments = {SubpassColorAttachment(1)};
+            if(outline) {
+                attachments.push_back(motion);
+                subpass.color_attachments.push_back(SubpassColorAttachment(2));
+            }
         }
         auto pass = RenderPass::create(device, attachments, {subpass});
         if(!pass)
@@ -77,11 +85,15 @@ namespace Comet {
         if(!vertex)
             return Creation::failure(vertex.error());
         auto fragment = Shader::create(device, "geometry depth fragment",
-            motion_vectors ? std::span<const uint32_t>(MOTION_FRAG)
-                           : std::span<const uint32_t>(DEPTH_FRAG));
+            outline ? std::span<const uint32_t>(OUTLINE_FRAG)
+                    : (motion_vectors ? std::span<const uint32_t>(MOTION_FRAG)
+                                      : std::span<const uint32_t>(DEPTH_FRAG)));
         if(!fragment)
             return Creation::failure(fragment.error());
         ShaderLayout layout;
+        if(outline)
+            layout.push_constants = {
+                std::make_shared<PushConstantRange>(ShaderStage::Fragment, 0, 48)};
         VertexInputDescription input;
         input.add_binding(0, sizeof(MeshVertex), VertexInputRate::Vertex);
         input.add_attribute(0, 0, Format::R32G32B32_SFLOAT, offsetof(MeshVertex, position));
@@ -108,6 +120,7 @@ namespace Comet {
             std::move(pass).value(), std::move(target).value(), std::move(pipeline).value()));
         result->m_view_geometry = std::vector<RenderGeometry>(view_count);
         result->m_motion_vectors = motion_vectors;
+        result->m_outline = outline;
         if(motion_vectors)
             result->m_previous_instances.resize(frame_slots);
         for(unsigned orientation = 1; orientation < 4; ++orientation) {
@@ -133,13 +146,14 @@ namespace Comet {
             return Creation::failure(sampler.error());
         result->m_mask_sampler = std::move(sampler).value();
         auto mask_fragment = Shader::create(device, "depth mask fragment",
-            motion_vectors ? std::span<const uint32_t>(MOTION_MASK_FRAG)
-                           : std::span<const uint32_t>(DEPTH_MASK_FRAG));
+            outline ? std::span<const uint32_t>(OUTLINE_MASK_FRAG)
+                    : (motion_vectors ? std::span<const uint32_t>(MOTION_MASK_FRAG)
+                                      : std::span<const uint32_t>(DEPTH_MASK_FRAG)));
         if(!mask_fragment)
             return Creation::failure(mask_fragment.error());
         layout.descriptor_set_layouts = {result->m_mask_layout};
         layout.push_constants = {std::make_shared<PushConstantRange>(
-            ShaderStage::Fragment, 0, motion_vectors ? 32 : sizeof(float) * 2)};
+            ShaderStage::Fragment, 0, outline ? 48 : (motion_vectors ? 32 : sizeof(float) * 2))};
         for(unsigned orientation = 0; orientation < 4; ++orientation) {
             config.rasterization_state.cull_mode =
                 (orientation & 1) ? CullMode::None : CullMode::Back;
@@ -160,6 +174,10 @@ namespace Comet {
 
     std::shared_ptr<ImageView> DepthPass::get_motion_view(const uint32_t slot) const {
         return m_motion_vectors ? m_target->get_framebuffer(slot)->get_attachments()[1] : nullptr;
+    }
+
+    std::shared_ptr<ImageView> DepthPass::get_color_view(uint32_t slot, uint32_t index) const {
+        return m_target->get_framebuffer(slot)->get_attachments()[index + 1];
     }
 
     Result<void, GraphicsError> DepthPass::resize(Math::Vec2u size) {
@@ -222,6 +240,8 @@ namespace Comet {
                 m_statistics.lod_selections += view_geometry.get_view_statistics().lod_selections;
             }
             for(const auto& prepared : selected.get_items()) {
+                if(m_outline && !prepared.source->outline.active())
+                    continue;
                 if(!prepared.world_bounds)
                     continue;
                 if(frustum && !frustum->intersects(*prepared.world_bounds)) {
@@ -329,6 +349,8 @@ namespace Comet {
         frames.retain_current_frame_resource(m_render_pass);
         frames.retain_current_frame_resource(m_target);
 
+        if(m_outline)
+            m_target->set_clear_value(ClearValue(Math::Vec4(0)));
         m_target->begin_render_target(command, frames.get_current_frame_slot_index());
 
         std::vector<QueueSemaphoreSubmit> waits;
@@ -387,13 +409,23 @@ namespace Comet {
                             waits, QueueSemaphoreSubmit(
                                        ready, Flags<PipelineStage>(PipelineStage::FragmentShader)));
                 }
+                if(m_outline) {
+                    const auto& style = draw.item->outline;
+                    const std::array<Math::Vec4, 3> values{
+                        Math::Vec4(draw.alpha, draw.cutoff, 0, 0), style.color,
+                        Math::Vec4(style.width, style.fill, style.through_walls ? 1.f : 0.f, 0)};
+                    command.push_constants(*pipeline->get_layout(),
+                        Flags<ShaderStage>(ShaderStage::Fragment), 0, values.data(),
+                        sizeof(values));
+                }
                 size_t end = first + 1;
                 while(end < m_draw_queue.size()) {
                     const auto& next = m_draw_queue[end];
                     if((m_motion_vectors && mesh->m_deformed) || next.view != draw.view
                         || next.item->mesh != mesh || next.orientation != draw.orientation
                         || next.mask != draw.mask || next.alpha != draw.alpha
-                        || next.cutoff != draw.cutoff)
+                        || next.cutoff != draw.cutoff
+                        || (m_outline && next.item->outline != draw.item->outline))
                         break;
                     ++end;
                 }

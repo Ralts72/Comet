@@ -119,6 +119,9 @@ namespace Comet {
             if(entity.has_component<MeshLodComponent>())
                 item.lod = entity.get_component<MeshLodComponent>();
             item.contributes_to_gi = mesh.contributes_to_gi;
+            item.outline = entity.has_component<OutlineComponent>()
+                               ? entity.get_component<OutlineComponent>()
+                               : OutlineSettings{.enabled = false};
             item.mesh_handle = mesh.mesh;
             item.material_handle = mesh.material;
             const auto overrides = scene.get_material_overrides(entity);

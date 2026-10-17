@@ -47,6 +47,7 @@ namespace Comet {
         MaterialBinding material;
         std::shared_ptr<const ResolvedMeshLod> lod;
         bool contributes_to_gi = true;
+        OutlineSettings outline{.enabled = false};
     };
 
     struct ResolvedReflectionProbe {
@@ -84,6 +85,7 @@ namespace Comet {
         std::shared_ptr<Environment> environment_resource;
         RenderItemChanges item_changes;
         std::shared_ptr<const ParticleSnapshot> particles;
+        // 与快照的 CPU batches、GPU emitters 顺序对应。
         std::vector<std::shared_ptr<Texture>> particle_textures;
         // 随世界快照复制，保证独立消费者的解析批次连续性。
         struct ResolutionCache {

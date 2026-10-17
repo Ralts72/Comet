@@ -563,8 +563,8 @@ namespace Comet {
         if(playback && playback->clips && playback->clips_target.get() != &data)
             return Result<AnimationPose>::failure(
                 "Animation library target changed; rebind required");
-        if(playback && !playback->ik.empty() && playback->pose_source
-            && playback->pose_source.get() != &data)
+        if(playback && (!playback->ik.empty() || !playback->offsets.empty())
+            && playback->pose_source && playback->pose_source.get() != &data)
             return Result<AnimationPose>::failure("IK target skeleton changed; rebuild required");
         const auto& clips = playback && playback->clips ? *playback->clips : data;
         auto local = blended_pose(clips, playback ? playback->current : AnimationBlend{});
@@ -583,9 +583,10 @@ namespace Comet {
         const auto* root = playback && playback->root_motion ? &*playback->root_motion : nullptr;
         auto pose = build_animation_pose(data, std::move(local).value(), root,
             include_bones || (playback && !playback->ik.empty()));
-        if(!pose || !playback || playback->ik.empty())
+        if(!pose || !playback || (playback->ik.empty() && playback->offsets.empty()))
             return pose;
-        return apply_animation_ik(data, std::move(pose).value(), playback->ik, root);
+        return apply_animation_constraints(
+            data, std::move(pose).value(), playback->ik, root, playback->offsets);
     }
     Result<AnimationPose> interpolate_animation_pose(const AnimationData& data,
         const AnimationPose& previous, const AnimationPose& current, float alpha,

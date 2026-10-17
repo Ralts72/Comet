@@ -26,13 +26,26 @@ namespace Comet {
         }
     }
 
-    Result<AnimationPose> apply_animation_ik(const AnimationData& data, AnimationPose pose,
-        std::span<const AnimationIKConstraint> constraints,
-        const AnimationRootMotion* root_motion) {
+    Result<AnimationPose> apply_animation_constraints(const AnimationData& data, AnimationPose pose,
+        std::span<const AnimationIKConstraint> constraints, const AnimationRootMotion* root_motion,
+        std::span<const AnimationPoseOffset> offsets) {
         PROFILE_SCOPE("Animation::apply_ik");
         using Outcome = Result<AnimationPose>;
-        if(pose.local_transforms.size() != data.nodes.size() || constraints.size() > 16)
+        if(pose.local_transforms.size() != data.nodes.size() || constraints.size() > 16
+            || offsets.size() > 16)
             return Outcome::failure("Invalid IK pose or constraint count");
+        if(!offsets.empty()) {
+            auto local = pose.local_transforms;
+            for(const auto& offset : offsets) {
+                if(offset.node >= local.size() || !Math::is_finite(offset.translation))
+                    return Outcome::failure("Invalid animation pose offset");
+                local[offset.node].translation += offset.translation;
+            }
+            auto shifted = build_animation_pose(data, std::move(local), root_motion);
+            if(!shifted)
+                return shifted;
+            pose = std::move(shifted).value();
+        }
         for(const auto& constraint : constraints) {
             if(!Math::is_finite(constraint.target) || !Math::is_finite(constraint.pole)
                 || !std::isfinite(constraint.weight) || constraint.weight < 0

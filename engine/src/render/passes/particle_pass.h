@@ -16,6 +16,8 @@
 namespace Comet {
     struct FogVolume;
     class CPUBuffer;
+    class Buffer;
+    class GpuParticleSimulation;
     class Device;
     class FrameScheduler;
     class Pipeline;
@@ -30,23 +32,22 @@ namespace Comet {
 
     class COMET_API ParticlePass {
     public:
+        ~ParticlePass();
         static Result<std::unique_ptr<ParticlePass>, GraphicsError> create(Device& device,
             PipelineManager& pipelines, RenderResources& resources, uint32_t frame_slots,
             SampleCount samples);
+        Result<void, GraphicsError> prepare_gpu(
+            FrameScheduler&, const ViewProjectMatrix&, const RenderWorld&);
         Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> prepare(FrameScheduler& frames,
             const ViewProjectMatrix& camera, const RenderWorld& world, bool sort_for_meshes,
             std::shared_ptr<ImageView> scene_depth = {}, const FogVolume* fog = nullptr);
         [[nodiscard]] std::span<const float> depths() const { return m_depths; }
+        // 透明队列条目数：CPU 粒子各一项，GPU 发射器各一项（其内部由 GPU 排序）。
         [[nodiscard]] uint32_t instance_count() const { return m_instance_count; }
         void record(FrameScheduler& frames, uint32_t first, uint32_t count);
         void clear_draws();
 
-        void reset() {
-            clear_draws();
-            m_bindings.clear();
-            for(auto& binding : m_depth_bindings)
-                binding.reset();
-        }
+        void reset();
 
     private:
         struct BillboardCamera {
@@ -58,18 +59,23 @@ namespace Comet {
             ParticleBlend blend;
             bool textured;
             float soft_distance;
+            std::shared_ptr<Buffer> instances, indirect;
         };
         struct DrawBatch {
             uint32_t first, count, source;
+            uint32_t buffer_first = 0;
+            bool gpu = false;
         };
         struct SortEntry {
             uint32_t instance, batch;
             float depth;
+            bool gpu = false;
         };
         ParticlePass(Device& device, uint32_t frame_slots);
         Result<void, GraphicsError> prepare_instances(const ParticleSnapshot& particles,
             std::span<const ParticleSnapshot::Batch> batches, const Math::Mat4& view, bool ordered);
         Device& m_device;
+        std::unique_ptr<GpuParticleSimulation> m_gpu;
         std::array<std::shared_ptr<Pipeline>, 2> m_pipelines;
         std::vector<SortEntry> m_order;
         std::vector<ParticleInstance> m_sorted_instances;

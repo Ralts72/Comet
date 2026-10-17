@@ -375,7 +375,9 @@ namespace Comet {
             }
             input.parameters.path_trace.reset();
             if(frame.world->environment.fog_enabled
-                || (frame.world->particles && !frame.world->particles->batches.empty())) {
+                || (frame.world->particles
+                    && (!frame.world->particles->instances.empty()
+                        || !frame.world->particles->gpu_emitters.empty()))) {
                 view.path_trace_error = "路径追踪暂不支持雾／粒子";
                 continue;
             }

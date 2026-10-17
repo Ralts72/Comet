@@ -268,7 +268,7 @@ namespace Comet::Tests {
             frames.initialize_swapchain_images(1);
             FrameWait wait{device, frames};
             SkinningPass skinning(device, slots);
-            auto depth = DepthPass::create(device, slots, resolution, 1, true);
+            auto depth = DepthPass::create(device, slots, resolution, 1, DepthPass::Output::Motion);
             ASSERT_TRUE(depth) << depth.error();
             auto previous_vp = vp;
             for(unsigned frame = 0; frame < 5; ++frame) {

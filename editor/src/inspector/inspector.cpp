@@ -1060,9 +1060,11 @@ namespace CometEditor {
         if((component.id == "bone_attachment" && property.id == "bone")
             || (component.id == "root_motion" && property.id == "node")
             || (component.id == "foot_placement"
-                && (property.id == "left_foot" || property.id == "right_foot"))) {
+                && (property.id == "left_foot" || property.id == "right_foot"
+                    || property.id == "pelvis"))) {
             const bool root_motion = component.id == "root_motion";
             const bool foot_placement = component.id == "foot_placement";
+            const bool pelvis = foot_placement && property.id == "pelvis";
             const bool own_skeleton = root_motion || foot_placement;
             auto parent = own_skeleton ? entity : m_selection.get_scene().get_parent(entity);
             std::shared_ptr<const Comet::AnimationData> data;
@@ -1080,12 +1082,14 @@ namespace CometEditor {
                     name.clear();
                     result.changed = true;
                 }
-                if(foot_placement && ImGui::Selectable("不使用此脚", !mixed && name.empty())) {
+                if(foot_placement
+                    && ImGui::Selectable(
+                        pelvis ? "不使用骨盆补偿" : "不使用此脚", !mixed && name.empty())) {
                     name.clear();
                     result.changed = true;
                 }
                 for(const auto& joint : data->joints) {
-                    if(foot_placement) {
+                    if(foot_placement && !pelvis) {
                         const auto middle = data->nodes[joint.node].parent;
                         if(middle >= data->nodes.size()
                             || data->nodes[middle].parent >= data->nodes.size())
@@ -1111,6 +1115,9 @@ namespace CometEditor {
             if(root_motion)
                 ImGui::TextWrapped(
                     "选择包含全部关节的根骨骼；目标须为自身或祖先。角色位移参与碰撞求解；编辑预览保持原地。");
+            else if(pelvis)
+                ImGui::TextWrapped(
+                    "选择两条腿链的共同祖先；权重大于零时下降骨盆以减轻腿部过伸，只改变视觉姿态。");
             else if(foot_placement)
                 ImGui::TextWrapped(
                     "选择踝关节，其父／祖父为膝盖／大腿；至少配置一只脚。Play／App 中按物理地面修正，抬脚与离地时释放。");

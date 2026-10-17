@@ -230,6 +230,7 @@ set(COMET_RENDER_SOURCES
     src/render/passes/realtime_irradiance_pass.cpp
     src/render/resource/ray_scene_buffers.cpp
     src/render/passes/particle_pass.cpp
+    src/render/passes/gpu_particle_simulation.cpp
     src/render/passes/skinning_pass.cpp
     src/render/presentation.cpp
     src/render/render_graph.cpp
@@ -238,6 +239,7 @@ set(COMET_RENDER_SOURCES
     src/render/passes/bloom_pass.cpp
     src/render/passes/skybox_pass.cpp
     src/render/passes/depth_pass.cpp
+    src/render/passes/outline_pass.cpp
     src/render/passes/temporal_pass.cpp
     src/render/passes/decal_pass.cpp
     src/render/passes/deferred_pass.cpp

@@ -173,10 +173,14 @@ namespace Comet {
     std::vector<AssetReference> ComponentRegistry::collect_asset_references(
         Scene& scene, const ReferenceScope scope) const {
         std::vector<AssetReference> references;
-        if(scope == ReferenceScope::Runtime && scene.get_particles())
+        if(scope == ReferenceScope::Runtime && scene.get_particles()) {
             for(const auto& batch : scene.get_particles()->batches)
                 if(batch.texture)
                     references.push_back({batch.texture, AssetType::Texture, true});
+            for(const auto& emitter : scene.get_particles()->gpu_emitters)
+                if(emitter.settings.texture)
+                    references.push_back({emitter.settings.texture, AssetType::Texture, true});
+        }
         const auto& environment = scene.get_environment();
         if(environment.asset
             && (scope == ReferenceScope::All || environment.background || environment.lighting))
@@ -449,6 +453,18 @@ namespace Comet {
                     make_property_descriptor("contributes_to_gi", "参与 GI 几何",
                         &MeshRendererComponent::contributes_to_gi, {.required = false})}));
 
+        register_component(make_component_descriptor<OutlineComponent>("outline", "描边／遮罩",
+            {make_property_descriptor("enabled", "启用", &OutlineComponent::enabled),
+                make_property_descriptor("color", "颜色", &OutlineComponent::color),
+                make_property_descriptor("width", "宽度（输出像素）", &OutlineComponent::width,
+                    {.numeric =
+                            {.speed = .1f, .minimum = 0, .maximum = 8, .enforce_bounds = true}}),
+                make_property_descriptor("fill", "填充透明度", &OutlineComponent::fill,
+                    {.numeric =
+                            {.speed = .01f, .minimum = 0, .maximum = 1, .enforce_bounds = true}}),
+                make_property_descriptor(
+                    "through_walls", "穿透遮挡", &OutlineComponent::through_walls)}));
+
         register_component(make_component_descriptor<AnimatorComponent>("animator", "Animator",
             {make_property_descriptor(
                  "enabled", "enabled", &AnimatorComponent::enabled, {.required = false}),
@@ -475,6 +491,27 @@ namespace Comet {
                     "horizontal", "水平位移", &RootMotionComponent::horizontal),
                 make_property_descriptor("vertical", "垂直位移", &RootMotionComponent::vertical),
                 make_property_descriptor("rotation", "根旋转", &RootMotionComponent::rotation)}));
+        register_component(make_component_descriptor<MotionWarpComponent>("motion_warp", "动作对位",
+            {make_property_descriptor("enabled", "启用", &MotionWarpComponent::enabled),
+                make_property_descriptor("target", "对位目标", &MotionWarpComponent::target),
+                make_property_descriptor(
+                    "state", "状态／片段（留空匹配全部）", &MotionWarpComponent::state),
+                make_property_descriptor("start", "窗口起点（0～1）", &MotionWarpComponent::start,
+                    {.numeric =
+                            {.speed = .01f, .minimum = 0, .maximum = 1, .enforce_bounds = true}}),
+                make_property_descriptor("end", "窗口终点（0～1）", &MotionWarpComponent::end,
+                    {.numeric =
+                            {.speed = .01f, .minimum = 0, .maximum = 1, .enforce_bounds = true}}),
+                make_property_descriptor("max_distance", "最大轨迹修正 (m)",
+                    &MotionWarpComponent::max_distance,
+                    {.numeric = {.speed = .1f, .minimum = 0, .enforce_bounds = true}}),
+                make_property_descriptor("max_angle", "最大朝向修正 (°)",
+                    &MotionWarpComponent::max_angle,
+                    {.numeric =
+                            {.speed = 1, .minimum = 0, .maximum = 180, .enforce_bounds = true}}),
+                make_property_descriptor("weight", "权重", &MotionWarpComponent::weight,
+                    {.numeric = {
+                         .speed = .01f, .minimum = 0, .maximum = 1, .enforce_bounds = true}})}));
         register_component(make_component_descriptor<FootPlacementComponent>("foot_placement",
             "脚部 IK",
             {make_property_descriptor("enabled", "启用", &FootPlacementComponent::enabled),
@@ -507,8 +544,19 @@ namespace Comet {
                     {.numeric = {.speed = 1, .minimum = 0, .maximum = 89, .enforce_bounds = true}}),
                 make_property_descriptor("response", "响应速度", &FootPlacementComponent::response,
                     {.numeric = {.speed = .5f, .minimum = .01f, .enforce_bounds = true}}),
-                make_property_descriptor("knee_forward", "膝盖朝向（模型空间）",
-                    &FootPlacementComponent::knee_forward)}));
+                make_property_descriptor(
+                    "knee_forward", "膝盖朝向（模型空间）", &FootPlacementComponent::knee_forward),
+                make_property_descriptor(
+                    "pelvis", "骨盆骨骼", &FootPlacementComponent::pelvis, {.required = false}),
+                make_property_descriptor("pelvis_weight", "骨盆补偿权重",
+                    &FootPlacementComponent::pelvis_weight,
+                    {.required = false,
+                        .numeric =
+                            {.speed = .01f, .minimum = 0, .maximum = 1, .enforce_bounds = true}}),
+                make_property_descriptor("max_pelvis_offset", "骨盆最大下降 (m)",
+                    &FootPlacementComponent::max_pelvis_offset,
+                    {.required = false,
+                        .numeric = {.speed = .01f, .minimum = 0, .enforce_bounds = true}})}));
         register_component(make_component_descriptor<CharacterAnimationComponent>(
             "character_animation", "Character Animation",
             {make_property_descriptor(
@@ -581,9 +629,14 @@ namespace Comet {
 
         register_component(make_component_descriptor<ParticleEmitterComponent>("particle_emitter",
             "Particle Emitter",
-            {make_property_descriptor("texture", "Particle Texture",
-                 &ParticleEmitterComponent::texture,
-                 {.required = false, .asset_type = AssetType::Texture}),
+            {make_enum_property_descriptor<ParticleEmitterComponent, ParticleSimulation>(
+                 "simulation", "模拟方式", &ParticleEmitterComponent::simulation,
+                 {{ParticleSimulation::CPU, {"cpu", "CPU（支持物理碰撞）"}},
+                     {ParticleSimulation::GPU, {"gpu", "GPU（大规模视觉粒子）"}}},
+                 {.required = false}),
+                make_property_descriptor("texture", "Particle Texture",
+                    &ParticleEmitterComponent::texture,
+                    {.required = false, .asset_type = AssetType::Texture}),
                 make_enum_property_descriptor<ParticleEmitterComponent, ParticleBlend>("blend",
                     "Blend", &ParticleEmitterComponent::blend,
                     {{ParticleBlend::Additive, {"additive", "加法（火花／发光）"}},
@@ -651,7 +704,7 @@ namespace Comet {
                     {.required = false,
                         .numeric = {.speed = 0.1f,
                             .minimum = 1,
-                            .maximum = 4096,
+                            .maximum = 65536,
                             .enforce_bounds = true}}),
                 make_property_descriptor(
                     "seed", "Random Seed", &ParticleEmitterComponent::seed, {.required = false}),
@@ -659,13 +712,13 @@ namespace Comet {
                     {.required = false,
                         .numeric = {.speed = 0.1f,
                             .minimum = 0,
-                            .maximum = 4096,
+                            .maximum = 65536,
                             .enforce_bounds = true}}),
                 make_property_descriptor("rate", "Emission Rate", &ParticleEmitterComponent::rate,
                     {.required = false,
                         .numeric = {.speed = 0.1f,
                             .minimum = 0,
-                            .maximum = 10000,
+                            .maximum = 1000000,
                             .enforce_bounds = true}}),
                 make_property_descriptor("lifetime", "Lifetime",
                     &ParticleEmitterComponent::lifetime,

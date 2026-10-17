@@ -17,8 +17,9 @@ namespace Comet {
         using Source = std::function<std::shared_ptr<const AnimationData>(AssetHandle)>;
         using Controllers = std::function<std::shared_ptr<const AnimationController>(AssetHandle)>;
         using Libraries = std::function<std::shared_ptr<const AnimationLibrary>(AssetHandle)>;
-        using MotionConsumer = std::function<Result<void, Error>(Scene&, Entity,
-            const RootMotionComponent&, const AnimationMotion&, double, const RuntimeServices&)>;
+        using MotionConsumer =
+            std::function<Result<void, Error>(Scene&, Entity, const RootMotionComponent&,
+                const AnimationMotionStep&, double, const RuntimeServices&)>;
         explicit AnimationSystem(Source source = {}, Controllers controllers = {},
             Libraries libraries = {}, MotionConsumer motion = {})
             : m_source(std::move(source)), m_controllers(std::move(controllers)),

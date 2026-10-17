@@ -302,7 +302,10 @@
                 0,
                 0,
                 1
-              ]
+              ],
+              "pelvis": "pelvis",
+              "pelvis_weight": 1,
+              "max_pelvis_offset": 0.2
             }
           }
         }
@@ -424,7 +427,10 @@
                 0,
                 0,
                 1
-              ]
+              ],
+              "pelvis": "pelvis",
+              "pelvis_weight": 1,
+              "max_pelvis_offset": 0.2
             }
           }
         }

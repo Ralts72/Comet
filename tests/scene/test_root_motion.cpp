@@ -58,6 +58,89 @@ namespace Comet::Tests {
         }
     }
 
+    TEST(RootMotionTest, WarpsNonLoopingWindowToTargetAndRespectsRangeAndPause) {
+        for(bool in_range : {true, false}) {
+            SCOPED_TRACE(in_range);
+            auto data = std::make_shared<AnimationData>(motion_data());
+            Scene scene;
+            auto model = add_model(scene);
+            model.edit_component<AnimatorComponent>([](auto& animator) { animator.loop = false; });
+            auto marker = scene.create_entity("attack alignment");
+            marker.edit_transform([&](auto& value) {
+                value.translation = {in_range ? 3.f : 30.f, 0, .5f};
+                value.rotation.y = 30;
+            });
+            model.add_component<MotionWarpComponent>(
+                MotionWarpComponent{.target = marker.get_uuid(), .start = .2f, .end = 1});
+            SceneRuntime runtime;
+            ASSERT_TRUE(runtime.set_settings({.fixed_delta = .1}));
+            ASSERT_TRUE(runtime.add_system(root_system(data)));
+            ASSERT_TRUE(runtime.start(scene));
+            ASSERT_TRUE(runtime.advance(.1));
+            EXPECT_NEAR(scene.get_world_matrix(model)[3].x, .2, .0001);
+            ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
+            ASSERT_TRUE(runtime.advance(1));
+            EXPECT_NEAR(scene.get_world_matrix(model)[3].x, .2, .0001);
+            ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Running));
+            for(int i = 0; i < 9; ++i)
+                ASSERT_TRUE(runtime.advance(.1));
+            const auto position = Math::Vec3(scene.get_world_matrix(model)[3]);
+            if(in_range) {
+                EXPECT_NEAR(position.x, 3, .002);
+                EXPECT_NEAR(position.z, .5, .002);
+                EXPECT_NEAR(model.get_component<TransformComponent>().rotation.y, 30, .002);
+            } else {
+                EXPECT_NEAR(position.x, 2, .002);
+                EXPECT_NEAR(position.z, 0, .002);
+            }
+            const auto components = create_scene_component_registry();
+            auto cloned = SceneSerializer(components).clone(scene);
+            ASSERT_TRUE(cloned) << cloned.error();
+            EXPECT_EQ(
+                cloned.value()->find_entity(model.get_uuid()).get_component<MotionWarpComponent>(),
+                model.get_component<MotionWarpComponent>());
+            ASSERT_TRUE(runtime.advance(.5));
+            EXPECT_LT(Math::length(Math::Vec3(scene.get_world_matrix(model)[3]) - position), .002);
+            ASSERT_TRUE(runtime.stop());
+        }
+    }
+
+    TEST(RootMotionTest, AuthoredAttackWarpUsesBuiltinRigAndKeepsCharacterCollisionOwner) {
+        const auto root = std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY).parent_path();
+        const auto mesh = MeshImporter{}.import(root / "engine/resources/characters/default.glb");
+        ASSERT_TRUE(mesh) << mesh.error();
+        auto scene = SceneSerializer(create_scene_component_registry())
+                         .load((root / "demo/assets/scenes/motion_warp.scene").string());
+        ASSERT_TRUE(scene) << scene.error();
+        PhysicsService physics;
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_services({.physics = &physics}));
+        ASSERT_TRUE(runtime.add_system(root_system(mesh.value().animation)));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
+        ASSERT_TRUE(runtime.start(*scene.value()));
+        for(int i = 0; i < 120; ++i) {
+            const auto advanced = runtime.advance(1.0 / 60);
+            ASSERT_TRUE(advanced) << advanced.error().message;
+        }
+        unsigned models = 0;
+        scene.value()->each<const MotionWarpComponent>([&](Entity model, const auto& warp) {
+            ++models;
+            const auto actor = scene.value()->get_parent(model);
+            const auto frame = scene.value()->get_animation_playback(model);
+            ASSERT_TRUE(frame && frame->pose);
+            EXPECT_TRUE(frame->pose_error.empty()) << frame->pose_error;
+            if(warp.enabled) {
+                const auto marker = scene.value()->find_entity(warp.target);
+                EXPECT_NEAR(scene.value()->get_world_matrix(actor)[3].x,
+                    scene.value()->get_world_matrix(marker)[3].x, .03);
+            } else
+                EXPECT_NEAR(scene.value()->get_world_matrix(actor)[3].x, -2, .03);
+            EXPECT_TRUE(physics.get_character_state(actor));
+        });
+        EXPECT_EQ(models, 2u);
+        ASSERT_TRUE(runtime.stop());
+    }
+
     TEST(RootMotionTest, UnwrapsMultipleCyclesClampsAndKeepsUnselectedVerticalAnimation) {
         const auto data = motion_data();
         ASSERT_TRUE(validate_animation(data));

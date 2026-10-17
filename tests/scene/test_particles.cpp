@@ -15,6 +15,64 @@
 #include <limits>
 
 namespace Comet::Tests {
+    TEST(ParticleSystemTest, GpuBirthBatchesStayBoundedPreservePosesAndFollowRuntimeLifetime) {
+        Scene scene;
+        auto source = scene.create_entity();
+        ParticleEmitterComponent settings;
+        settings.simulation = ParticleSimulation::GPU;
+        settings.capacity = 8192;
+        settings.burst = 8000;
+        settings.rate = 1000;
+        settings.lifetime = .25f;
+        source.add_component<ParticleEmitterComponent>(settings);
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_settings({.fixed_delta = .1}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<ParticleSystem>()));
+        ASSERT_TRUE(runtime.start(scene));
+        const auto frozen = scene.get_particles();
+        ASSERT_TRUE(frozen);
+        EXPECT_TRUE(frozen->instances.empty());
+        ASSERT_EQ(frozen->gpu_emitters.size(), 1u);
+        EXPECT_EQ(frozen->gpu_emitters[0].count, 8000u);
+        source.edit_transform([](auto& transform) { transform.translation.x = 10; });
+        ASSERT_TRUE(runtime.advance(.1));
+        const auto moving = scene.get_particles();
+        ASSERT_EQ(moving->gpu_emitters[0].spawns.size(), 2u);
+        EXPECT_EQ(moving->gpu_emitters[0].spawns[0].pose[3].x, 0);
+        EXPECT_EQ(moving->gpu_emitters[0].spawns[1].pose[3].x, 10);
+        ASSERT_TRUE(runtime.advance(.1));
+        EXPECT_EQ(scene.get_particles()->gpu_emitters[0].count, 8192u);
+        ASSERT_TRUE(runtime.advance(.1));
+        EXPECT_LE(scene.get_particles()->gpu_emitters[0].count, 251u);
+        const auto paused = scene.get_particles();
+        ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
+        ASSERT_TRUE(runtime.advance(1));
+        EXPECT_EQ(scene.get_particles(), paused);
+        ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Running));
+        ASSERT_TRUE(scene.request_particle_clear(source));
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_FALSE(scene.get_particles());
+        EXPECT_EQ(frozen->gpu_emitters[0].count, 8000u);
+        ASSERT_TRUE(scene.request_particle_burst(source, 6000));
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_EQ(scene.get_particles()->gpu_emitters[0].count, 6000u);
+        source.edit_component<ParticleEmitterComponent>([](auto& emitter) {
+            emitter.simulation = ParticleSimulation::CPU;
+            emitter.capacity = 128;
+            emitter.burst = 0;
+        });
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_FALSE(scene.get_particles());
+        ASSERT_TRUE(runtime.advance(.1));
+        ASSERT_TRUE(scene.get_particles());
+        EXPECT_TRUE(scene.get_particles()->gpu_emitters.empty());
+        EXPECT_EQ(scene.get_particles()->instances.size(), 100u);
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_FALSE(scene.get_particles());
+        settings.collision = ParticleCollision::Bounce;
+        EXPECT_FALSE(settings.validate());
+    }
+
     TEST(ParticleSystemTest, RenderOnlyFramesReuseSnapshotsAndObserveSameFrameSourceChanges) {
         Scene scene;
         auto parent = scene.create_entity();
@@ -377,42 +435,56 @@ namespace Comet::Tests {
     }
 
     TEST(ParticleSystemTest, BurstsCaptureWorldPoseAndFinishAfterSourceDestruction) {
-        Scene scene;
-        auto parent = scene.create_entity();
-        parent.edit_transform([](auto& transform) { transform.translation = {10, 0, 0}; });
-        auto entity = scene.create_entity();
-        ASSERT_TRUE(scene.set_parent(entity, parent));
-        entity.edit_transform([](auto& transform) { transform.translation = {2, 3, 0}; });
-        ParticleEmitterComponent emitter;
-        emitter.rate = 0;
-        emitter.speed = 0;
-        emitter.acceleration = {};
-        emitter.lifetime = 0.1f;
-        emitter.texture = AssetHandle{42};
-        entity.add_component<ParticleEmitterComponent>(emitter);
-        SceneRuntime runtime;
-        ASSERT_TRUE(runtime.add_system(std::make_unique<ParticleSystem>()));
-        ASSERT_TRUE(runtime.start(scene));
-        ASSERT_TRUE(scene.request_particle_burst(entity, 7));
-        entity.edit_transform([](auto& transform) { transform.translation = {100, 0, 0}; });
-        scene.destroy_entity(entity);
-        ASSERT_TRUE(runtime.advance(0));
-        ASSERT_TRUE(scene.get_particles());
-        ASSERT_EQ(scene.get_particles()->instances.size(), 7u);
-        EXPECT_EQ(Math::Vec3(scene.get_particles()->instances.front().position_size),
-            (Math::Vec3{12, 3, 0}));
-        auto render_scene = SceneExtractor::extract(scene);
-        EXPECT_EQ(render_scene.particles, scene.get_particles());
-        auto components = create_scene_component_registry();
-        const auto references =
-            components.collect_asset_references(scene, ComponentRegistry::ReferenceScope::Runtime);
-        ASSERT_EQ(references.size(), 1u);
-        EXPECT_EQ(references.front().handle, AssetHandle{42});
-        EXPECT_TRUE(components.collect_asset_references(scene).empty());
-        ASSERT_TRUE(runtime.advance(0.2));
-        EXPECT_FALSE(scene.get_particles());
-        ASSERT_TRUE(render_scene.particles);
-        EXPECT_EQ(render_scene.particles->instances.size(), 7u);
+        for(auto simulation : {ParticleSimulation::CPU, ParticleSimulation::GPU}) {
+            SCOPED_TRACE(static_cast<int>(simulation));
+            Scene scene;
+            auto parent = scene.create_entity();
+            parent.edit_transform([](auto& transform) { transform.translation = {10, 0, 0}; });
+            auto entity = scene.create_entity();
+            ASSERT_TRUE(scene.set_parent(entity, parent));
+            entity.edit_transform([](auto& transform) { transform.translation = {2, 3, 0}; });
+            ParticleEmitterComponent emitter;
+            emitter.simulation = simulation;
+            emitter.rate = 0;
+            emitter.speed = 0;
+            emitter.acceleration = {};
+            emitter.lifetime = 0.1f;
+            emitter.texture = AssetHandle{42};
+            entity.add_component<ParticleEmitterComponent>(emitter);
+            SceneRuntime runtime;
+            ASSERT_TRUE(runtime.add_system(std::make_unique<ParticleSystem>()));
+            ASSERT_TRUE(runtime.start(scene));
+            ASSERT_TRUE(scene.request_particle_burst(entity, 7));
+            entity.edit_transform([](auto& transform) { transform.translation = {100, 0, 0}; });
+            scene.destroy_entity(entity);
+            ASSERT_TRUE(runtime.advance(0));
+            ASSERT_TRUE(scene.get_particles());
+            if(simulation == ParticleSimulation::CPU) {
+                ASSERT_EQ(scene.get_particles()->instances.size(), 7u);
+                EXPECT_EQ(Math::Vec3(scene.get_particles()->instances.front().position_size),
+                    (Math::Vec3{12, 3, 0}));
+            } else {
+                ASSERT_EQ(scene.get_particles()->gpu_emitters.size(), 1u);
+                EXPECT_EQ(scene.get_particles()->gpu_emitters[0].count, 7u);
+                EXPECT_EQ(Math::Vec3(scene.get_particles()->gpu_emitters[0].spawns[0].pose[3]),
+                    (Math::Vec3{12, 3, 0}));
+            }
+            auto render_scene = SceneExtractor::extract(scene);
+            EXPECT_EQ(render_scene.particles, scene.get_particles());
+            auto components = create_scene_component_registry();
+            const auto references = components.collect_asset_references(
+                scene, ComponentRegistry::ReferenceScope::Runtime);
+            ASSERT_EQ(references.size(), 1u);
+            EXPECT_EQ(references.front().handle, AssetHandle{42});
+            EXPECT_TRUE(components.collect_asset_references(scene).empty());
+            ASSERT_TRUE(runtime.advance(0.2));
+            EXPECT_FALSE(scene.get_particles());
+            ASSERT_TRUE(render_scene.particles);
+            if(simulation == ParticleSimulation::CPU)
+                EXPECT_EQ(render_scene.particles->instances.size(), 7u);
+            else
+                EXPECT_EQ(render_scene.particles->gpu_emitters[0].count, 7u);
+        }
     }
 
     TEST(ParticleSystemTest, FlipbookUsesParticleAgeAndDoesNotAdvanceWhilePaused) {

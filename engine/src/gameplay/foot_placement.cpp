@@ -22,7 +22,10 @@ namespace Comet::Gameplay {
                    && settings.response > 0 && Math::is_finite(settings.knee_forward)
                    && glm::length(settings.knee_forward) > 1e-5f
                    && (!settings.left_foot.empty() || !settings.right_foot.empty())
-                   && (settings.left_foot.empty() || settings.left_foot != settings.right_foot);
+                   && (settings.left_foot.empty() || settings.left_foot != settings.right_foot)
+                   && std::isfinite(settings.pelvis_weight) && settings.pelvis_weight >= 0
+                   && settings.pelvis_weight <= 1 && std::isfinite(settings.max_pelvis_offset)
+                   && settings.max_pelvis_offset >= 0;
         }
         Result<std::size_t> foot_joint(const AnimationData& data, const std::string& name) {
             const auto node = std::ranges::find(data.nodes, name, &AnimationNode::name);
@@ -83,6 +86,8 @@ namespace Comet::Gameplay {
         const std::array names{settings.left_foot, settings.right_foot};
         auto output = std::make_shared<AnimationPlayback>(*frame);
         output->ik.clear();
+        output->offsets.clear();
+        float pelvis_offset = 0;
         for(std::size_t i = 0; i < names.size(); ++i) {
             if(names[i].empty())
                 continue;
@@ -117,6 +122,7 @@ namespace Comet::Gameplay {
             foot.offset = glm::mix(foot.offset, desired_offset, alpha);
             foot.weight = glm::mix(foot.weight, desired_weight, alpha);
             foot.normal = glm::normalize(glm::mix(foot.normal, normal, alpha));
+            pelvis_offset = std::min(pelvis_offset, foot.offset * foot.weight);
             if(foot.weight < .0001f)
                 continue;
             const auto target = Math::Vec3(inverse * Math::Vec4(animated + up * foot.offset, 1));
@@ -130,6 +136,38 @@ namespace Comet::Gameplay {
                 .pole = Math::Vec3(bone[3]) + glm::normalize(settings.knee_forward),
                 .rotation = glm::normalize(tilt * foot_orientation),
                 .weight = foot.weight});
+        }
+        const float desired_pelvis =
+            std::clamp(pelvis_offset * settings.pelvis_weight, -settings.max_pelvis_offset, 0.f);
+        state.pelvis_offset = glm::mix(state.pelvis_offset, desired_pelvis, alpha);
+        if(settings.pelvis_weight > 0) {
+            if(frame->root_motion && frame->root_motion->vertical
+                && (frame->root_motion->node.empty()
+                    || frame->root_motion->node == settings.pelvis))
+                return Result<void, Error>::failure(
+                    {"Pelvis compensation with vertical root motion needs a separate root bone"});
+            const auto joint = foot_joint(*state.source, settings.pelvis);
+            if(!joint)
+                return Result<void, Error>::failure({joint.error()});
+            const auto node = state.source->joints[joint.value()].node;
+            // 骨盆必须是两条 IK 腿链的共同祖先，不能平移某只脚来伪装补偿。
+            for(const auto& ik : output->ik) {
+                auto ancestor = state.source->nodes[ik.tip].parent;
+                while(ancestor != NO_ANIMATION_NODE && ancestor != node)
+                    ancestor = state.source->nodes[ancestor].parent;
+                if(ancestor != node)
+                    return Result<void, Error>::failure(
+                        {"Pelvis must be an ancestor of both feet"});
+            }
+            const auto& pelvis_local = frame->pose->local_transforms[node];
+            const auto pelvis_matrix = Math::translate(Math::Mat4(1), pelvis_local.translation)
+                                       * glm::mat4_cast(pelvis_local.rotation)
+                                       * Math::scale(Math::Mat4(1), pelvis_local.scale);
+            const auto parent_in_mesh =
+                frame->pose->bone_matrices[joint.value()] * glm::affineInverse(pelvis_matrix);
+            const auto local_up =
+                Math::Vec3(glm::affineInverse(world * parent_in_mesh) * Math::Vec4(up, 0));
+            output->offsets.push_back({node, local_up * state.pelvis_offset});
         }
         scene.set_animation_playback(model, std::move(output));
         return Result<void, Error>::success();

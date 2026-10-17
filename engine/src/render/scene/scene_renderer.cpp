@@ -24,6 +24,7 @@
 #include "diagnostics/logger.h"
 #include "diagnostics/profiler.h"
 #include "render/passes/particle_pass.h"
+#include "render/passes/outline_pass.h"
 #include "render/passes/temporal_pass.h"
 #include "render/passes/decal_pass.h"
 #include "render/passes/deferred_pass.h"
@@ -59,6 +60,10 @@ namespace Comet {
         RenderGeometry view_geometry;
         std::unique_ptr<DebugRenderer> debug;
         std::unique_ptr<ParticlePass> particles;
+        std::unique_ptr<OutlinePass> outline;
+        std::shared_ptr<OutlinePass::Resources> outline_resources;
+        std::array<RenderGraph::ResourceId, 3> outline_masks;
+        std::optional<RenderGraph::PassId> outline_mask_pass, outline_composite_pass;
         std::unique_ptr<DecalPass> decals;
         std::unique_ptr<VolumetricFogPass> fog;
         std::shared_ptr<VolumetricFogPass::Resources> fog_resources;
@@ -73,6 +78,7 @@ namespace Comet {
         std::optional<RenderGraph::PassId> shadow_pass_id;
         ViewRequirements requirements;
         RenderGraph::PassId scene_pass_id;
+        std::optional<RenderGraph::PassId> gpu_particles_pass;
         RenderGraph::PassId output_pass_id;
         std::optional<BloomPass::Passes> bloom_passes;
         std::optional<RenderGraph::ResourceId> view_depth_resource;
@@ -352,6 +358,10 @@ namespace Comet {
         }
         scene.uses.push_back({shadow, ResourceUsage::SampledRead,
             Flags<PipelineStage>(PipelineStage::FragmentShader)});
+        // 粒子 buffer 的阶段内同步由模拟器负责；有序图在 HDR 绘制前调度并计时。
+        std::optional<RenderGraph::PassId> gpu_particles_pass;
+        if(requirements.gpu_particles)
+            gpu_particles_pass = graph.add_pass({"GPU particles", {}});
         const auto scene_pass_id = graph.add_pass(std::move(scene));
         std::optional<RenderGraph::ResourceId> reflection_resource;
         std::optional<RenderGraph::PassId> reflection_pass;
@@ -394,6 +404,35 @@ namespace Comet {
                     {*temporal_output, ResourceUsage::ColorAttachmentWrite, {}}}});
             output = *temporal_output;
         }
+        std::array<RenderGraph::ResourceId, 3> outline_masks;
+        std::optional<RenderGraph::PassId> outline_mask_pass, outline_composite_pass;
+        std::optional<RenderGraph::ResourceId> outline_output;
+        if(requirements.outline) {
+            RenderGraph::Pass mask{"outline mask", {}};
+            for(uint32_t i = 0; i < 3; ++i) {
+                const auto usage = i == 0 ? ResourceUsage::DepthStencilAttachmentWrite
+                                          : ResourceUsage::ColorAttachmentWrite;
+                auto initial = *resolve_resource_state(usage);
+                initial.stages |= PipelineStage::FragmentShader;
+                outline_masks[i] = graph.import_image("outline mask " + std::to_string(i),
+                    {.resource = initial,
+                        .subresources = {.aspects = Flags<ImageAspect>(
+                                             i == 0 ? ImageAspect::Depth : ImageAspect::Color)}});
+                mask.uses.push_back({outline_masks[i], usage, {}});
+            }
+            outline_mask_pass = graph.add_pass(std::move(mask));
+            outline_output = graph.create_image(
+                "outlined HDR", {Format::R16G16B16A16_SFLOAT, source_size.x, source_size.y});
+            const Flags<PipelineStage> fragment(PipelineStage::FragmentShader);
+            RenderGraph::Pass composite{"outline composite",
+                {{output, ResourceUsage::SampledRead, fragment},
+                    {*view_depth_resource, ResourceUsage::SampledRead, fragment},
+                    {*outline_output, ResourceUsage::ColorAttachmentWrite, {}}}};
+            for(auto image : outline_masks)
+                composite.uses.push_back({image, ResourceUsage::SampledRead, fragment});
+            outline_composite_pass = graph.add_pass(std::move(composite));
+            output = *outline_output;
+        }
         std::optional<BloomPass::Passes> bloom_passes;
         RenderGraph::Pass display{
             "display", {{output, ResourceUsage::SampledRead,
@@ -432,6 +471,18 @@ namespace Comet {
                 !prepared)
                 return prepared;
         }
+        std::shared_ptr<OutlinePass::Resources> outline_resources;
+        if(outline_output) {
+            auto prepared =
+                effects.outline->create_resources(resources.value(), *outline_output, source_size);
+            if(!prepared)
+                return Result<void, GraphicsError>::failure(prepared.error());
+            outline_resources = std::move(prepared).value();
+        }
+        state.outline_resources = std::move(outline_resources);
+        state.outline_masks = outline_masks;
+        state.outline_mask_pass = outline_mask_pass;
+        state.outline_composite_pass = outline_composite_pass;
         state.reflection_resources = std::move(reflection_resources);
         state.reflection_pass = reflection_pass;
         state.gbuffer_resources = std::move(gbuffer_resources);
@@ -445,6 +496,7 @@ namespace Comet {
         state.shadow_pass_id = shadow_pass_id;
         state.requirements = requirements;
         state.scene_pass_id = scene_pass_id;
+        state.gpu_particles_pass = gpu_particles_pass;
         state.output_pass_id = output_pass_id;
         state.bloom_passes = bloom_passes;
         state.view_depth_resource = view_depth_resource;
@@ -535,6 +587,14 @@ namespace Comet {
                 return Result<void, GraphicsError>::failure(created.error());
             reflection_candidate = std::move(created).value();
         }
+        std::unique_ptr<OutlinePass> outline_candidate;
+        if(requirements.outline && !m_state->outline) {
+            auto created =
+                OutlinePass::create(m_device, m_frame_slot_count, m_state->hdr_target->get_size());
+            if(!created)
+                return Result<void, GraphicsError>::failure(created.error());
+            outline_candidate = std::move(created).value();
+        }
         std::unique_ptr<BloomPass> candidate;
         if(settings.uses_bloom() && !m_state->bloom) {
             auto created = BloomPass::create(m_device, m_frame_slot_count);
@@ -547,7 +607,8 @@ namespace Comet {
             auto* depth = m_state->view_depth.get();
             if(!depth) {
                 auto created = DepthPass::create(m_device, m_frame_slot_count,
-                    m_state->hdr_target->get_size(), 1, bool(m_state->temporal));
+                    m_state->hdr_target->get_size(), 1,
+                    m_state->temporal ? DepthPass::Output::Motion : DepthPass::Output::Depth);
                 if(!created)
                     return Result<void, GraphicsError>::failure(created.error());
                 depth_candidate = std::move(created).value();
@@ -559,7 +620,8 @@ namespace Comet {
         const auto graph_needs = [&](const PostProcessSettings& post,
                                      const ViewRequirements& view) {
             return std::tuple(view.shadows, view.needs_depth(post, bool(m_state->temporal)),
-                view.fog, post.uses_bloom(), bool(m_state->deferred) && post.uses_reflections());
+                view.fog, view.outline, view.gpu_particles, post.uses_bloom(),
+                bool(m_state->deferred) && post.uses_reflections());
         };
         if(graph_needs(settings, requirements)
             != graph_needs(m_post_process, m_state->requirements)) {
@@ -567,12 +629,17 @@ namespace Comet {
                    {candidate ? candidate.get() : m_state->bloom.get(),
                        fog_candidate ? fog_candidate.get() : m_state->fog.get(),
                        reflection_candidate ? reflection_candidate.get()
-                                            : m_state->reflections.get()},
+                                            : m_state->reflections.get(),
+                       outline_candidate ? outline_candidate.get() : m_state->outline.get()},
                    m_state->hdr_target->get_size());
                 !graph)
                 return graph;
         }
         m_state->requirements = requirements;
+        if(outline_candidate)
+            m_state->outline = std::move(outline_candidate);
+        if(!requirements.outline)
+            m_state->outline.reset();
         if(reflection_candidate)
             m_state->reflections = std::move(reflection_candidate);
         if(!settings.uses_reflections())
@@ -623,8 +690,9 @@ namespace Comet {
         }
         std::unique_ptr<DepthPass> view_depth;
         if(state.requirements.needs_depth(m_post_process, bool(state.temporal))) {
-            auto candidate = DepthPass::create(m_device, m_frame_slot_count,
-                state.quality.scene_size(size), 1, bool(state.temporal));
+            auto candidate =
+                DepthPass::create(m_device, m_frame_slot_count, state.quality.scene_size(size), 1,
+                    state.temporal ? DepthPass::Output::Motion : DepthPass::Output::Depth);
             if(!candidate)
                 return Result<void, GraphicsError>::failure(candidate.error());
             view_depth = std::move(candidate).value();
@@ -636,14 +704,23 @@ namespace Comet {
                 return Result<void, GraphicsError>::failure(candidate.error());
             deferred = std::move(candidate).value();
         }
+        std::unique_ptr<OutlinePass> outline;
+        if(state.requirements.outline) {
+            auto candidate =
+                OutlinePass::create(m_device, m_frame_slot_count, state.quality.scene_size(size));
+            if(!candidate)
+                return Result<void, GraphicsError>::failure(candidate.error());
+            outline = std::move(candidate).value();
+        }
         if(auto graph = rebuild_graph(state, m_post_process, state.requirements,
-               {state.bloom.get(), state.fog.get(), state.reflections.get()},
+               {state.bloom.get(), state.fog.get(), state.reflections.get(), outline.get()},
                state.quality.scene_size(size));
             !graph)
             return graph;
         // 所有候选均成功后再发布，不改变在途帧保留的旧目标。
         if(view_depth)
             state.view_depth = std::move(view_depth);
+        state.outline = std::move(outline);
         state.deferred_resources = std::move(deferred);
         state.hdr_target = std::move(hdr).value();
         state.output_target = std::move(output);
@@ -835,7 +912,12 @@ namespace Comet {
         const ViewRequirements requirements{shadows, soft_particles,
             !submission.world.decals.empty(),
             bool(submission.view_project_matrix)
-                && submission.world.environment.volumetric_fog.active()};
+                && submission.world.environment.volumetric_fog.active(),
+            bool(submission.view_project_matrix)
+                && std::ranges::any_of(submission.world.render_items,
+                    [](const auto& item) { return item.outline.active(); }),
+            bool(submission.view_project_matrix) && submission.world.particles
+                && !submission.world.particles->gpu_emitters.empty()};
         if(requirements != m_state->requirements || (requirements.decals && !m_state->decals)) {
             if(auto rebuilt = configure_effects(m_post_process, requirements); !rebuilt)
                 return RenderResult::failure(rebuilt.error());
@@ -896,6 +978,11 @@ namespace Comet {
             bindings[m_state->temporal_output->index] = m_state->temporal->output()->get_image();
             bindings[m_state->temporal_history->index] = m_state->temporal->history()->get_image();
         }
+        if(m_state->outline_mask_pass) {
+            const auto images = m_state->outline->mask_images(image);
+            for(size_t i = 0; i < images.size(); ++i)
+                bindings[m_state->outline_masks[i].index] = images[i]->get_image();
+        }
         m_state->transient_resources.bind_resources(bindings, image);
         auto waits = std::move(prepared).value();
         const auto recorder = [this, &frames, &submission, &geometry, &main_geometry, &lines,
@@ -946,8 +1033,17 @@ namespace Comet {
                 DeferredPass::images(*m_state->deferred_resources, slot), opaque_hdr,
                 attachments[1], m_post_process.reflections);
         }
+        const auto resolved_hdr = m_state->temporal ? m_state->temporal->output() : reflected_hdr;
+        const auto final_hdr =
+            m_state->outline_resources ? m_state->outline_resources->images.at(slot) : resolved_hdr;
+        if(m_state->gpu_particles_pass && pass == *m_state->gpu_particles_pass)
+            return m_state->particles->prepare_gpu(
+                frames, *submission.view_project_matrix, submission.world);
+        if(m_state->outline_composite_pass && pass == *m_state->outline_composite_pass)
+            return m_state->outline->composite(frames, m_state->outline_resources, resolved_hdr,
+                m_state->view_depth->get_depth_view(slot), m_state->output_target->get_size());
         if(pass == m_state->output_pass_id) {
-            const auto hdr = m_state->temporal ? m_state->temporal->output() : reflected_hdr;
+            const auto hdr = final_hdr;
             std::shared_ptr<ImageView> bloom;
             if(m_state->bloom_passes)
                 bloom = m_state->bloom->get_output(slot);
@@ -959,7 +1055,9 @@ namespace Comet {
                 m_state->view_depth->get_depth_view(slot),
                 m_state->view_depth->get_motion_view(slot));
         auto drawn = Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>::success({});
-        if(m_state->view_depth_pass && pass == *m_state->view_depth_pass) {
+        if(m_state->outline_mask_pass && pass == *m_state->outline_mask_pass)
+            drawn = m_state->outline->mask(frames, *submission.view_project_matrix, main_geometry);
+        else if(m_state->view_depth_pass && pass == *m_state->view_depth_pass) {
             DepthPass::View view;
             view.enabled = bool(submission.view_project_matrix);
             if(view.enabled)
@@ -976,9 +1074,8 @@ namespace Comet {
         } else if(pass == m_state->scene_pass_id)
             drawn = draw_scene(frames, frames.get_current_command_buffer(), submission, lines);
         else if(m_state->bloom_passes)
-            return m_state->bloom->render(frames, pass, *m_state->bloom_passes,
-                m_state->temporal ? m_state->temporal->output() : reflected_hdr,
-                m_post_process.bloom_threshold);
+            return m_state->bloom->render(
+                frames, pass, *m_state->bloom_passes, final_hdr, m_post_process.bloom_threshold);
         else
             return Result<void, GraphicsError>::failure({"Unknown scene render pass"});
         if(!drawn)

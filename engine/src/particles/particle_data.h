@@ -11,9 +11,12 @@
 namespace Comet {
     enum class ParticleBlend { Additive, Alpha };
     enum class ParticleCollision { None, Bounce, Kill };
+    enum class ParticleSimulation { CPU, GPU };
 
     struct COMET_API ParticleEmitterComponent {
         static constexpr uint32_t MAX_CAPACITY = 4096;
+        static constexpr uint32_t MAX_GPU_CAPACITY = 65536;
+        ParticleSimulation simulation = ParticleSimulation::CPU;
         bool enabled = true;
         uint32_t capacity = 128;
         uint32_t seed = 1;
@@ -71,6 +74,22 @@ namespace Comet {
         bool operator==(const ParticleInstance&) const = default;
     };
 
+    // Main 只保存出生批次；位置、颜色、尺寸、序列帧在 GPU 求值，无逐粒子 CPU 状态。
+    struct GpuParticleSpawn {
+        Math::Mat4 pose{1};
+        double time = 0;
+        double spacing = 0;
+        uint64_t first = 0;
+        uint32_t count = 0;
+    };
+    struct GpuParticleEmitter {
+        ParticleEmitterComponent settings;
+        std::vector<GpuParticleSpawn> spawns;
+        double time = 0;
+        Math::Vec3 position{0};
+        uint32_t count = 0;
+    };
+
     // Main 发布的世界空间数据；Render 只上传，不访问实体或模拟状态。
     struct COMET_API ParticleSnapshot {
         struct Batch {
@@ -81,8 +100,10 @@ namespace Comet {
             float soft_distance = 0;
         };
         static constexpr uint32_t MAX_PARTICLES = 65536;
+        static constexpr uint32_t MAX_GPU_PARTICLES = 262144;
         std::vector<ParticleInstance> instances;
         std::vector<Batch> batches;
+        std::vector<GpuParticleEmitter> gpu_emitters;
         [[nodiscard]] bool uses_soft_depth() const;
     };
 }

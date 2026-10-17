@@ -19,9 +19,14 @@ foreach(PROGRAM IN LISTS SHADER_PROGRAMS)
             "${CMAKE_CURRENT_SOURCE_DIR}/${PROGRAM}.frag")
 endforeach()
 list(APPEND SHADER_FILES
+        "${CMAKE_CURRENT_SOURCE_DIR}/particles/particle_simulation.comp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/particles/particle_sort.comp"
         "${CMAKE_CURRENT_SOURCE_DIR}/animation/skinning.comp"
         "${CMAKE_CURRENT_SOURCE_DIR}/path_trace.comp"
         "${CMAKE_CURRENT_SOURCE_DIR}/realtime_irradiance.comp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/depth/outline.frag"
+        "${CMAKE_CURRENT_SOURCE_DIR}/depth/outline_mask.frag"
+        "${CMAKE_CURRENT_SOURCE_DIR}/post/outline_composite.frag"
         "${CMAKE_CURRENT_SOURCE_DIR}/depth/depth_mask.frag"
         "${CMAKE_CURRENT_SOURCE_DIR}/depth/motion_mask.frag"
         "${CMAKE_CURRENT_SOURCE_DIR}/post/temporal.frag"

@@ -60,6 +60,7 @@ namespace Comet {
         || std::is_same_v<std::remove_cvref_t<T>, WorldTransformComponent>;
 
     using MeshLodComponent = MeshLod;
+    using OutlineComponent = OutlineSettings;
 
     struct COMET_API MeshRendererComponent {
         AssetHandle mesh;
@@ -139,7 +140,23 @@ namespace Comet {
         float max_slope = 55;
         float response = 18;
         Math::Vec3 knee_forward{0, 0, 1};
+        std::string pelvis;
+        float pelvis_weight = 0;
+        float max_pelvis_offset = .25f;
         bool operator==(const FootPlacementComponent&) const = default;
+    };
+
+    struct COMET_API MotionWarpComponent {
+        bool enabled = true;
+        EntityUuid target;
+        // 仅在选定非循环状态的归一化窗口内对齐；空状态匹配任意非循环动作。
+        std::string state;
+        float start = 0;
+        float end = 1;
+        float max_distance = 2;
+        float max_angle = 90;
+        float weight = 1;
+        bool operator==(const MotionWarpComponent&) const = default;
     };
     // 父实体为蒙皮模型；本地 Transform 表示骨骼空间偏移。
     struct COMET_API BoneAttachmentComponent {
@@ -226,9 +243,11 @@ namespace Comet {
     inline constexpr bool is_scene_render_component_v =
         std::is_same_v<std::remove_cvref_t<T>, AnimatorComponent>
         || std::is_same_v<std::remove_cvref_t<T>, RootMotionComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, MotionWarpComponent>
         || std::is_same_v<std::remove_cvref_t<T>, FootPlacementComponent>
         || std::is_same_v<std::remove_cvref_t<T>, MeshRendererComponent>
         || std::is_same_v<std::remove_cvref_t<T>, MeshLodComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, OutlineComponent>
         || std::is_same_v<std::remove_cvref_t<T>, CameraComponent>
         || std::is_same_v<std::remove_cvref_t<T>, ParticleEmitterComponent>
         || std::is_same_v<std::remove_cvref_t<T>, TrailComponent>

@@ -182,6 +182,8 @@ namespace Comet {
                     root->node, root->horizontal, root->vertical, root->rotation};
             }
             AnimationMotion current_motion, previous_motion;
+            const double motion_from = frame.current.time;
+            double motion_to = motion_from;
             const auto advance_sample = [&](AnimationBlend& sample, bool current,
                                             AnimationMotion* motion = nullptr) {
                 if(!sample.has_clip())
@@ -214,6 +216,8 @@ namespace Comet {
                     period = period > 0 ? 1 : 0;
                 }
                 if(motion && frame.root_motion) {
+                    if(current)
+                        motion_to = sample.time + step;
                     auto extracted = animation_root_motion(
                         *clips, sample, sample.time + step, *frame.root_motion);
                     if(!extracted) {
@@ -255,7 +259,9 @@ namespace Comet {
                         Result<void, Error>::failure({"Root motion requires a movement consumer"});
                     return;
                 }
-                result = m_motion(scene, entity, *root, motion, delta, services);
+                result = m_motion(scene, entity, *root,
+                    {*clips, frame.current, frame.state, motion_from, motion_to, motion}, delta,
+                    services);
                 if(!result)
                     return;
             }

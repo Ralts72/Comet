@@ -355,15 +355,15 @@ Collider 保存摩擦和弹性系数（0～1），默认 0.2／0；PropertyDescr
 
 ## 粒子模拟与呈现
 
-ParticleEmitterComponent 保存内容配置；ParticleSystem 在固定步维护连续存储的有限粒子池，不为每个粒子创建 Entity。
+ParticleEmitterComponent 保存内容配置；ParticleSystem 在 CPU 模式的固定步维护连续存储的有限粒子池，不为每个粒子创建 Entity。
 Lua 爆发请求在 Scene 内保存触发配置和世界姿态，脚本／动画事件完成后交付；已出生粒子可在源实体销毁后自然消退。配置版本变化才重新扫描来源，变换版本只刷新发射姿态；无固定步、配置修改或请求时复用已发布快照。扫描、快照构建和碰撞查询分别计数。
-图集动画由 ParticleSystem 按粒子年龄计算每实例 UV 区域，共用固定步和预览时钟；不同图集布局可以复用同一纹理批次。
+CPU 图集动画由 ParticleSystem 按粒子年龄计算每实例 UV 区域，共用固定步和预览时钟；不同图集布局可以复用同一纹理批次。
 碰撞通过 PhysicsAccess 扫掠已有物理世界，在固定步更新速度或结束寿命，不为粒子创建后端刚体。PhysicsService 以固定容量复用球／盒／胶囊查询形状；位置、旋转与过滤条件仍逐次生效，尺寸变化选择新几何。
 TrailComponent 保存独立轨迹配置；ParticleSystem 采样实体的世界位置，限制采样点并在瞬移／重新启用时断开。
 拖尾发布为带端点的粒子实例，ParticlePass 按当前相机展开带状片并复用混合、深度与在途资源寿命。
 Scene 只发布不可变 ParticleSnapshot，按混合方式、纹理与软交界距离分组；提取与资产解析沿现有 RenderScene／RenderWorld 传递，不借用模拟容器。
 纹理引用归 Emitter 配置，源实体销毁后的存活粒子仍参与运行时资产需求；SceneResolver 在 Main 解析纹理，RenderWorld 保留该帧资源。
-ParticlePass 在 Render 线程上传当前帧槽的实例缓冲，支持加法／Alpha billboard，随后进入后处理；管线、缓冲和不可变纹理绑定沿 FrameSlot 保活。
+ParticlePass 在 Render 线程上传当前帧槽的 CPU 实例缓冲，支持加法／Alpha billboard，随后进入后处理；管线、缓冲和不可变纹理绑定沿 FrameSlot 保活。
 纯加法且没有透明网格时直接上传快照；存在 Alpha 粒子或透明网格时，在 Render 私有可复用数组按相机深度排序全部粒子，再合并连续同状态实例。相同深度使用原快照次序，不改写 Main 数据。
 MaterialRenderer 与 ParticlePass 分开准备资源和录制命令；SceneRenderer 先画不透明物体，再线性归并透明网格与粒子的深度流，按连续同类区间录制。网格可切开粒子批次，切换后重新绑定各自的顶点、管线与描述符；每帧结束清理借用数据。
 软交界与 AO 复用 SceneRenderer 拥有的单采样 view depth；仅在存在对应需求时分配并执行。ParticlePass 按投影恢复线性相机深度，独立保活各帧槽深度描述符，resize 或关闭效果不改写在途绑定。
@@ -371,6 +371,8 @@ MaterialRenderer 与 ParticlePass 分开准备资源和录制命令；SceneRende
 纹理上传完成信号参与提交等待，替换资源不改写在途描述符。未指定纹理使用柔边圆形，显式引用缺失时诊断并跳过对应批次。
 暂停／单步与 Stop／切关复用 Runtime 协议；场景保存、克隆和 Prefab 不携带存活粒子。素材与触发规则继续归项目。
 Editor 的 ParticlePreview 持有单个特效代理 Scene，按需复制编辑场景的碰撞形状；独立 PhysicsService 将复制体保持静止，ParticleSystem 以现有 Runtime 推进粒子与拖尾并发布到 Edit 视口。预览不启动游戏脚本或音频，不修改原场景物理状态或撤销历史。AnimationPreview／ParticlePreview 各自持有已发布输出；Inspector 只装配目标与 UI，重置时由预览对象复核场景寿命及输出身份，只撤销自己仍拥有的发布。
+
+GPU 发射器由同一 ParticleSystem 发布有界出生批次，保留固定步时间、世界姿态和随机序号；不创建 CPU 粒子实例。GpuParticleSimulation 在每 View／帧槽上按出生年龄求值弹道、颜色、尺寸和图集，生成顶点输入与间接绘制命令。Alpha 发射器使用 GPU bitonic 深度排序；跨发射器与透明网格按发射器中心归并。RenderGraph 在 HDR 绘制前调度并计时，内部 buffer 屏障与 descriptor／pipeline／buffer owner 由模拟器和 FrameSlot 保活，不读回 GPU 状态或推进第二套时钟。碰撞继续走 CPU 路径。
 
 ## 音频与运行域
 
@@ -441,6 +443,7 @@ Compute 在绘制前生成普通 Mesh 顶点，主绘制、阴影及项目材质
 按每个关节影响的顶点界限计算保守姿态界限，供裁剪和阴影范围使用；在途帧保留输入资产、输出缓冲和 descriptor owner。
 同一安全帧槽按源 Mesh 与实际矩阵复用调色板、局部界限和已经成功提交的蒙皮输出；没有变化时跳过 dispatch，世界界限仍随对象变换更新。取消录制不会标记输出有效。
 脚部 IK 仅在同一骨架、无旧约束、其余播放语义完全相同时复用已解析基础局部姿态，沿同一求解函数生成最终骨骼和界限；失败沿原完整解析路径。Scene 分别计数完整姿态求值、IK 复用与呈现插值；动画推进、采样、IK 与插值各有 Profiler 区间。
+骨盆补偿是同一约束发布中的局部节点位移，先于脚部 IK 求解，只改呈现姿态。动作对位归 Gameplay 根运动消费者，借用本次采样区间计算剩余轨迹，再提交既有角色速度或变换；不新增动画时钟，不覆盖物理位置。
 挂点动画来源由动画模块准备函数按父实体去重；Edit 和 Play 共用，不在 Engine 主循环解释挂点组件与资产关系。
 采样接口严格报告无效片段；呈现层记录诊断后显示绑定姿态，旧过渡片段缺失时可直接采样有效的新片段。同一实例每帧槽不重复报告相同错误，内容或资源修正后重新检查；GPU 创建与提交错误仍交由渲染故障边界处理。
 默认角色和基础材质在 `asset/default_assets.h` 声明固定身份，按需由 AssetLoader 加载，复用 Registry、资源工厂和普通引用选择／撤销路径。

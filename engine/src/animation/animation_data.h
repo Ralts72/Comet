@@ -120,6 +120,23 @@ namespace Comet {
         bool operator==(const AnimationIKConstraint&) const = default;
     };
 
+    struct AnimationPoseOffset {
+        uint32_t node = NO_ANIMATION_NODE;
+        // 节点父空间的局部位移，先于 IK 应用，不改变实体或碰撞体。
+        Math::Vec3 translation{0};
+        bool operator==(const AnimationPoseOffset&) const = default;
+    };
+
+    // 借用本次采样定义；from／to 保留取模前的区间，消费者可计算窗口剩余轨迹。
+    struct AnimationMotionStep {
+        const AnimationData& data;
+        const AnimationBlend& sample;
+        std::string_view state;
+        double from;
+        double to;
+        AnimationMotion motion;
+    };
+
     // 时间和过渡归场景实例；混合空间与状态过渡分别求值，不改变共享片段。
     struct AnimationPose;
     struct AnimationPlayback {
@@ -130,6 +147,7 @@ namespace Comet {
         std::string previous_state;
         std::vector<AnimationLayer> layers;
         std::vector<AnimationIKConstraint> ik;
+        std::vector<AnimationPoseOffset> offsets;
         std::optional<AnimationRootMotion> root_motion;
         // 动画库绑定后的只读片段，节点顺序与目标网格一致。
         std::shared_ptr<const AnimationData> clips;
@@ -141,8 +159,9 @@ namespace Comet {
         bool operator==(const AnimationPlayback& other) const {
             return current == other.current && previous == other.previous && blend == other.blend
                    && state == other.state && previous_state == other.previous_state
-                   && layers == other.layers && ik == other.ik && root_motion == other.root_motion
-                   && clips == other.clips && clips_target == other.clips_target;
+                   && layers == other.layers && ik == other.ik && offsets == other.offsets
+                   && root_motion == other.root_motion && clips == other.clips
+                   && clips_target == other.clips_target;
         }
     };
     struct AnimationPose {
@@ -159,9 +178,11 @@ namespace Comet {
     [[nodiscard]] COMET_API Result<AnimationPose> build_animation_pose(const AnimationData& data,
         std::vector<JointTransform> local, const AnimationRootMotion* root_motion = nullptr,
         bool include_bones = true);
-    [[nodiscard]] COMET_API Result<AnimationPose> apply_animation_ik(const AnimationData& data,
-        AnimationPose pose, std::span<const AnimationIKConstraint> constraints,
-        const AnimationRootMotion* root_motion = nullptr);
+    [[nodiscard]] COMET_API Result<AnimationPose> apply_animation_constraints(
+        const AnimationData& data, AnimationPose pose,
+        std::span<const AnimationIKConstraint> constraints,
+        const AnimationRootMotion* root_motion = nullptr,
+        std::span<const AnimationPoseOffset> offsets = {});
     [[nodiscard]] COMET_API Result<AnimationPose> interpolate_animation_pose(
         const AnimationData& data, const AnimationPose& previous, const AnimationPose& current,
         float alpha, const AnimationRootMotion* root_motion = nullptr);

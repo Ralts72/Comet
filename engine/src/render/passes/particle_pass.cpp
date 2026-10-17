@@ -1,5 +1,6 @@
 #include "render/passes/volumetric_fog_pass.h"
 #include "render/passes/particle_pass.h"
+#include "render/passes/gpu_particle_simulation.h"
 
 #include "graphics/command/command_buffer.h"
 #include "graphics/pipeline/pipeline.h"
@@ -30,7 +31,22 @@ namespace Comet {
     static_assert(sizeof(ParticleInstance) == 64);
 
     ParticlePass::ParticlePass(Device& device, const uint32_t frame_slots)
-        : m_device(device), m_buffers(frame_slots), m_depth_bindings(frame_slots) {}
+        : m_device(device), m_gpu(std::make_unique<GpuParticleSimulation>(device, frame_slots)),
+          m_buffers(frame_slots), m_depth_bindings(frame_slots) {}
+    ParticlePass::~ParticlePass() = default;
+    void ParticlePass::reset() {
+        clear_draws();
+        m_gpu->reset();
+        m_bindings.clear();
+        for(auto& binding : m_depth_bindings)
+            binding.reset();
+    }
+    Result<void, GraphicsError> ParticlePass::prepare_gpu(
+        FrameScheduler& frames, const ViewProjectMatrix& camera, const RenderWorld& world) {
+        return m_gpu->prepare(frames, camera,
+            world.particles ? std::span(world.particles->gpu_emitters)
+                            : std::span<const GpuParticleEmitter>{});
+    }
 
     Result<std::unique_ptr<ParticlePass>, GraphicsError> ParticlePass::create(Device& device,
         PipelineManager& pipelines, RenderResources& resources, const uint32_t frame_slots,
@@ -136,12 +152,16 @@ namespace Comet {
         }
         if(covered != particles.instances.size())
             return Prepared::failure({"Particle batches do not cover the snapshot"});
+        ordered |= std::ranges::any_of(particles.gpu_emitters,
+            [](const auto& emitter) { return emitter.settings.blend == ParticleBlend::Alpha; });
         if(!ordered) {
             for(uint32_t source = 0; source < batches.size(); ++source) {
                 const auto& batch = batches[source];
                 if(batch.count)
-                    m_draw_batches.push_back({batch.first, batch.count, source});
+                    m_draw_batches.push_back({batch.first, batch.count, source, batch.first});
             }
+            for(uint32_t i = 0; i < particles.gpu_emitters.size(); ++i)
+                m_draw_batches.push_back({covered + i, 1, uint32_t(batches.size()) + i, 0, true});
             return Prepared::success();
         }
         // Alpha 会衰减后方火花，因此混合场景中的加法粒子也参与排序。
@@ -158,18 +178,32 @@ namespace Comet {
                 m_order.push_back({index, source, DrawOrder::camera_depth(view, position)});
             }
         }
+        for(uint32_t i = 0; i < particles.gpu_emitters.size(); ++i) {
+            const auto& emitter = particles.gpu_emitters[i];
+            m_order.push_back({i, uint32_t(batches.size()) + i,
+                DrawOrder::camera_depth(view, Math::Vec4(emitter.position, 1)), true});
+        }
         std::sort(m_order.begin(), m_order.end(), [](const auto& a, const auto& b) {
             if(a.depth != b.depth)
                 return a.depth < b.depth;
+            if(a.gpu != b.gpu)
+                return a.gpu < b.gpu;
             return a.instance < b.instance;
         });
         m_sorted_instances.reserve(covered);
         m_depths.reserve(covered);
         for(const auto& entry : m_order) {
-            if(!m_draw_batches.empty() && m_draw_batches.back().source == entry.batch)
+            if(entry.gpu) {
+                m_draw_batches.push_back({uint32_t(m_depths.size()), 1, entry.batch, 0, true});
+                m_depths.push_back(entry.depth);
+                continue;
+            }
+            if(!m_draw_batches.empty() && !m_draw_batches.back().gpu
+                && m_draw_batches.back().source == entry.batch)
                 ++m_draw_batches.back().count;
             else
-                m_draw_batches.push_back({uint32_t(m_sorted_instances.size()), 1, entry.batch});
+                m_draw_batches.push_back({uint32_t(m_depths.size()), 1, entry.batch,
+                    uint32_t(m_sorted_instances.size())});
             m_sorted_instances.push_back(particles.instances[entry.instance]);
             m_depths.push_back(entry.depth);
         }
@@ -190,19 +224,23 @@ namespace Comet {
         const bool sort_for_meshes, std::shared_ptr<ImageView> scene_depth, const FogVolume* fog) {
         using Prepared = Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>;
         clear_draws();
-        if(!world.particles || world.particles->instances.empty()) {
+        if(!world.particles
+            || (world.particles->instances.empty() && world.particles->gpu_emitters.empty())) {
             reset();
             return Prepared::success({});
         }
         const auto& particles = *world.particles;
+        if(particles.gpu_emitters.empty())
+            m_gpu->reset();
         const auto count = particles.instances.size();
         if(count > ParticleSnapshot::MAX_PARTICLES)
             return Prepared::failure({"Particle snapshot exceeds scene capacity"});
         const ParticleSnapshot::Batch untextured{{}, 0, uint32_t(count)};
         auto batches = std::span(particles.batches);
-        if(batches.empty())
+        const bool implicit_batch = batches.empty() && count;
+        if(batches.empty() && count)
             batches = std::span(&untextured, 1);
-        else if(world.particle_textures.size() != batches.size())
+        else if(world.particle_textures.size() != batches.size() + particles.gpu_emitters.size())
             return Prepared::failure({"Particle texture bindings do not match the snapshot"});
         if(auto prepared = prepare_instances(particles, batches, camera.view, sort_for_meshes);
             !prepared)
@@ -231,7 +269,7 @@ namespace Comet {
         }
         auto& buffer = m_buffers.at(frames.get_current_frame_slot_index());
         const auto bytes = count * sizeof(ParticleInstance);
-        if(!buffer || buffer->get_size() < bytes) {
+        if(bytes && (!buffer || buffer->get_size() < bytes)) {
             auto allocated =
                 Buffer::try_create_cpu_buffer(m_device, Flags<BufferUsage>(BufferUsage::Vertex),
                     std::bit_ceil(bytes), true, nullptr, "particle instances");
@@ -242,8 +280,10 @@ namespace Comet {
         auto instances = std::span(particles.instances);
         if(!m_sorted_instances.empty())
             instances = m_sorted_instances;
-        buffer->write(instances.data(), bytes);
-        frames.retain_current_frame_resource(buffer);
+        if(bytes) {
+            buffer->write(instances.data(), bytes);
+            frames.retain_current_frame_resource(buffer);
+        }
         const auto pose = Math::inverse(camera.view);
         m_camera = {camera.projection * camera.view, pose[0], pose[1]};
         m_camera.right.w = fog ? fog->parameters.x : 0;
@@ -254,14 +294,26 @@ namespace Comet {
             merge_semaphore_wait(waits, QueueSemaphoreSubmit(white_ready,
                                             Flags<PipelineStage>(PipelineStage::FragmentShader)));
         std::unordered_set<AssetHandle> used;
-        m_sources.reserve(batches.size());
-        for(size_t index = 0; index < batches.size(); ++index) {
-            const auto& batch = batches[index];
+        std::vector<ParticleSnapshot::Batch> sources(batches.begin(), batches.end());
+        for(const auto& emitter : particles.gpu_emitters)
+            sources.push_back({emitter.settings.texture, 0, emitter.count, emitter.settings.blend,
+                emitter.settings.soft_distance});
+        m_sources.reserve(sources.size());
+        for(size_t index = 0; index < sources.size(); ++index) {
+            const auto& batch = sources[index];
             auto& source = m_sources.emplace_back(
                 DrawSource{nullptr, batch.blend, bool(batch.texture), batch.soft_distance});
+            if(index >= batches.size()) {
+                const auto outputs = m_gpu->outputs();
+                const auto gpu = index - batches.size();
+                if(gpu >= outputs.size())
+                    return Prepared::failure({"GPU particles must be prepared before drawing"});
+                source.instances = outputs[gpu].instances;
+                source.indirect = outputs[gpu].indirect;
+            }
             auto texture = m_white;
             if(batch.texture)
-                texture = world.particle_textures[index];
+                texture = world.particle_textures.at(index - (implicit_batch ? 1 : 0));
             if(!texture || !batch.count)
                 continue;
             if(texture->get_image_view()->get_image()->get_info().cubemap)
@@ -289,7 +341,7 @@ namespace Comet {
                                completion, Flags<PipelineStage>(PipelineStage::FragmentShader)));
         }
         std::erase_if(m_bindings, [&](const auto& entry) { return !used.contains(entry.first); });
-        m_instance_count = uint32_t(count);
+        m_instance_count = uint32_t(count + particles.gpu_emitters.size());
         return Prepared::success(std::move(waits));
     }
 
@@ -297,7 +349,6 @@ namespace Comet {
         if(!count)
             return;
         const auto& command = frames.get_current_command_buffer();
-        command.bind_vertex_buffer({*m_buffers.at(frames.get_current_frame_slot_index()), 0});
         const Pipeline* active_pipeline = nullptr;
         const auto end = first + count;
         auto batch = std::lower_bound(m_draw_batches.begin(), m_draw_batches.end(), first,
@@ -323,7 +374,16 @@ namespace Comet {
             command.push_constants(layout, Flags<ShaderStage>(ShaderStage::Fragment), 96,
                 settings.data(), sizeof(settings));
             const auto begin = std::max(first, batch->first);
-            command.draw(6, std::min(end, batch->first + batch->count) - begin, 0, begin);
+            if(batch->gpu) {
+                command.bind_vertex_buffer({*source.instances, 0});
+                command.get().drawIndirect(
+                    source.indirect->get(), 0, 1, sizeof(vk::DrawIndirectCommand));
+            } else {
+                command.bind_vertex_buffer(
+                    {*m_buffers.at(frames.get_current_frame_slot_index()), 0});
+                command.draw(6, std::min(end, batch->first + batch->count) - begin, 0,
+                    batch->buffer_first + begin - batch->first);
+            }
         }
     }
 }

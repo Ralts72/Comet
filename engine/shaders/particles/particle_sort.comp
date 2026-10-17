@@ -1,0 +1,23 @@
+#version 450
+layout(local_size_x=64) in;
+struct Particle { vec4 position_size; vec4 color; vec4 uv_rect; vec4 sort_key; };
+layout(std430,set=0,binding=1) readonly buffer Parameters {
+    mat4 view;
+    vec4 acceleration_lifetime, start_color, end_color, sizes_speed_cone, atlas, animation;
+    uvec4 counts;
+} parameters;
+layout(std430,set=0,binding=2) buffer Instances { Particle particles[]; };
+layout(push_constant) uniform Sort { uint stage, stride; } sorting;
+bool less_key(Particle a, Particle b) {
+    return a.sort_key.x < b.sort_key.x
+        || (a.sort_key.x == b.sort_key.x && a.sort_key.y < b.sort_key.y);
+}
+void main() {
+    uint index=gl_GlobalInvocationID.x, other=index^sorting.stride;
+    if(index>=parameters.counts.z || other<=index) return;
+    Particle a=particles[index], b=particles[other];
+    bool ascending=(index&sorting.stage)==0;
+    if(ascending ? less_key(b,a) : less_key(a,b)) {
+        particles[index]=b; particles[other]=a;
+    }
+}

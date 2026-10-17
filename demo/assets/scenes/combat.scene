@@ -607,6 +607,18 @@
                   "volume": 0.25,
                   "spatial": true,
                   "loop": false
+                },
+                "outline": {
+                  "enabled": true,
+                  "color": [
+                    1,
+                    0.25,
+                    0.05,
+                    1
+                  ],
+                  "width": 2,
+                  "fill": 0,
+                  "through_walls": false
                 }
               }
             }
@@ -815,6 +827,18 @@
                   "volume": 0.25,
                   "spatial": true,
                   "loop": false
+                },
+                "outline": {
+                  "enabled": true,
+                  "color": [
+                    1,
+                    0.25,
+                    0.05,
+                    1
+                  ],
+                  "width": 2,
+                  "fill": 0,
+                  "through_walls": false
                 }
               }
             }

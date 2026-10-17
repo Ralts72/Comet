@@ -54,6 +54,7 @@ namespace Comet {
         AssetHandle material_handle = INVALID_ASSET_HANDLE;
         std::shared_ptr<const MaterialOverrides> material_overrides;
         bool contributes_to_gi = true;
+        OutlineSettings outline{.enabled = false};
     };
 
     // revision 为 0 时逐项核对；局部批次只能接在 base_revision 对应的输出后。

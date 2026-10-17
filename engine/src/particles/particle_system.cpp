@@ -69,9 +69,53 @@ namespace Comet {
         return Result<void, Error>::success();
     }
 
+    void ParticleSystem::trim_gpu(Emitter& emitter, uint32_t count) {
+        count = std::min(count, emitter.gpu_count);
+        emitter.gpu_count -= count;
+        m_gpu_count -= count;
+        while(count) {
+            auto& batch = emitter.gpu_spawns.front();
+            const auto removed = std::min(count, batch.count);
+            batch.count -= removed;
+            batch.first += removed;
+            batch.time += removed * batch.spacing;
+            count -= removed;
+            if(!batch.count)
+                emitter.gpu_spawns.erase(emitter.gpu_spawns.begin());
+        }
+        m_dirty = true;
+    }
+
+    void ParticleSystem::emit_gpu(Emitter& emitter, uint32_t count, double delta, double previous) {
+        const auto& settings = emitter.settings;
+        const auto limit = std::min(settings.capacity,
+            ParticleSnapshot::MAX_GPU_PARTICLES - m_gpu_count + emitter.gpu_count);
+        const auto kept = std::min(count, limit);
+        const auto skipped = count - kept;
+        const auto first = emitter.next_spawn + skipped;
+        emitter.next_spawn += count;
+        if(!kept)
+            return;
+        if(emitter.gpu_count + kept > limit)
+            trim_gpu(emitter, emitter.gpu_count + kept - limit);
+        double time = m_time, spacing = 0;
+        if(delta > 0) {
+            spacing = 1.0 / settings.rate;
+            time = m_time - delta + (skipped + 1 - previous) * spacing;
+        }
+        emitter.gpu_spawns.push_back({emitter.pose, time, spacing, first, kept});
+        emitter.gpu_count += kept;
+        m_gpu_count += kept;
+        m_dirty = true;
+    }
+
     Result<void, Error> ParticleSystem::emit(
         Emitter& emitter, uint32_t count, const double delta, const double previous) {
         const auto& settings = emitter.settings;
+        if(settings.simulation == ParticleSimulation::GPU) {
+            emit_gpu(emitter, count, delta, previous);
+            return Result<void, Error>::success();
+        }
         if(emitter.particles.size() >= settings.capacity
             || m_count >= ParticleSnapshot::MAX_PARTICLES)
             return Result<void, Error>::success();
@@ -131,6 +175,19 @@ namespace Comet {
             }
             auto [found, inserted] = m_emitters.try_emplace(entity.get_id());
             auto& emitter = found->second;
+            auto previous_settings = emitter.settings;
+            previous_settings.enabled = settings.enabled;
+            const bool reset = !inserted
+                               && (emitter.settings.simulation != settings.simulation
+                                   || (settings.simulation == ParticleSimulation::GPU
+                                       && previous_settings != settings));
+            if(reset) {
+                m_count -= uint32_t(emitter.particles.size());
+                emitter.particles.clear();
+                trim_gpu(emitter, emitter.gpu_count);
+                emitter.remainder = 0;
+                emitter.next_spawn = 0;
+            }
             if(inserted || emitter.settings.seed != settings.seed)
                 emitter.random = settings.seed ? settings.seed : 1;
             if(emitter.settings != settings && !emitter.particles.empty())
@@ -146,7 +203,7 @@ namespace Comet {
                 emitter.particles.resize(settings.capacity);
                 m_dirty = true;
             }
-            if(inserted && settings.enabled && settings.burst > 0)
+            if((inserted || reset) && settings.enabled && settings.burst > 0)
                 initial_bursts.push_back(entity.get_id());
         });
         if(!result)
@@ -186,6 +243,7 @@ namespace Comet {
         m_physics = services.physics;
         m_time = 0;
         m_count = 0;
+        m_gpu_count = 0;
         m_settings_revision = UINT64_MAX;
         m_transform_revision = 0;
         m_statistics = {};
@@ -201,8 +259,19 @@ namespace Comet {
         if(auto synced = synchronize(scene); !synced)
             return synced;
         m_time += context.delta_time;
-        m_dirty |= m_count != 0 || !m_trails.empty();
+        m_dirty |= m_count != 0 || m_gpu_count != 0 || !m_trails.empty();
         for(auto& [id, emitter] : m_emitters) {
+            while(!emitter.gpu_spawns.empty()) {
+                const auto& batch = emitter.gpu_spawns.front();
+                const double expired_time = m_time - emitter.settings.lifetime - batch.time;
+                if(expired_time < 0)
+                    break;
+                const auto removed = batch.spacing > 0
+                                         ? uint32_t(std::min(double(batch.count),
+                                               std::floor(expired_time / batch.spacing) + 1))
+                                         : batch.count;
+                trim_gpu(emitter, removed);
+            }
             for(auto& particle : emitter.particles)
                 if(auto advanced = advance(particle, emitter, context.delta_time); !advanced)
                     return advanced;
@@ -232,6 +301,7 @@ namespace Comet {
                 m_dirty |= !emitter.particles.empty();
                 m_count -= uint32_t(emitter.particles.size());
                 emitter.particles.clear();
+                trim_gpu(emitter, emitter.gpu_count);
                 emitter.remainder = 0;
                 continue;
             }
@@ -249,7 +319,8 @@ namespace Comet {
                 return emitted;
         }
         std::erase_if(m_emitters, [](const auto& entry) {
-            return !entry.second.present && entry.second.particles.empty();
+            return !entry.second.present && entry.second.particles.empty()
+                   && entry.second.gpu_spawns.empty();
         });
         publish(scene);
         return Result<void, Error>::success();
@@ -285,12 +356,16 @@ namespace Comet {
     void ParticleSystem::publish(Scene& scene) {
         if(!std::exchange(m_dirty, false))
             return;
-        if(m_count == 0 && m_trails.empty()) {
+        if(m_count == 0 && m_gpu_count == 0 && m_trails.empty()) {
             scene.set_particles(nullptr);
             return;
         }
         auto snapshot = std::make_shared<ParticleSnapshot>();
         ++m_statistics.snapshot_builds;
+        for(const auto& [id, emitter] : m_emitters)
+            if(emitter.gpu_count)
+                snapshot->gpu_emitters.push_back({emitter.settings, emitter.gpu_spawns, m_time,
+                    Math::Vec3(emitter.pose[3]), emitter.gpu_count});
         snapshot->instances.reserve(m_count);
         std::vector<const Emitter*> emitters;
         emitters.reserve(m_emitters.size());
@@ -350,7 +425,7 @@ namespace Comet {
                 snapshot->batches.push_back(
                     {settings.texture, first, count, settings.blend, settings.soft_distance});
         }
-        if(snapshot->instances.empty())
+        if(snapshot->instances.empty() && snapshot->gpu_emitters.empty())
             scene.set_particles(nullptr);
         else
             scene.set_particles(std::move(snapshot));
@@ -361,6 +436,7 @@ namespace Comet {
         m_trails.clear();
         m_physics = nullptr;
         m_count = 0;
+        m_gpu_count = 0;
         scene.set_particles(nullptr);
     }
 }
