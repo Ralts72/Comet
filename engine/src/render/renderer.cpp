@@ -305,7 +305,7 @@ namespace Comet {
     }
 
     void Renderer::prepare_irradiance(RenderFrame& frame) {
-        frame.irradiance_scene.reset();
+        frame.irradiance.reset();
         const auto report = [&](std::string error) {
             if(error != m_irradiance_error && !error.empty())
                 LOG_ERROR("实时探针 GI 准备失败：{}", error);
@@ -357,7 +357,8 @@ namespace Comet {
         auto scene = m_irradiance_builder->update(input, m_ray_read, m_ray_revision, m_ray_images);
         report(scene ? std::string{} : scene.error());
         if(scene)
-            frame.irradiance_scene = std::move(scene).value();
+            frame.irradiance =
+                RenderFrame::IrradianceInput{selected->volume, std::move(scene).value()};
     }
 
     void Renderer::prepare_scene_views(RenderFrame& frame) {
@@ -464,23 +465,20 @@ namespace Comet {
             m_frames->retain_current_frame_resource(m_skinning);
         }
         std::optional<ResolvedIrradianceVolume> irradiance;
-        if(needs_raster && frame.irradiance_scene) {
-            const auto selected = std::ranges::find_if(
-                world.irradiance_volumes, [](const auto& item) { return item.volume.realtime; });
-            if(selected != world.irradiance_volumes.end()) {
-                if(!m_realtime_irradiance)
-                    m_realtime_irradiance =
-                        std::make_unique<RealtimeIrradiancePass>(m_render_context->get_device());
-                auto updated = m_realtime_irradiance->update(*m_frames, world.scene_lifetime,
-                    frame.irradiance_scene, selected->volume, m_diagnostics->is_enabled());
-                if(!updated)
-                    return Result<void, GraphicsError>::failure(updated.error());
-                irradiance = ResolvedIrradianceVolume{selected->volume, std::move(updated).value()};
-                const auto statistics = m_realtime_irradiance->statistics();
-                irradiance->updated_first = statistics.first_updated_probe;
-                irradiance->updated_count = statistics.updated_probes;
-                irradiance->evaluated_probes = statistics.evaluated_probes;
-            }
+        if(needs_raster && frame.irradiance) {
+            if(!m_realtime_irradiance)
+                m_realtime_irradiance =
+                    std::make_unique<RealtimeIrradiancePass>(m_render_context->get_device());
+            const auto& input = *frame.irradiance;
+            auto updated = m_realtime_irradiance->update(*m_frames, world.scene_lifetime,
+                input.scene, input.volume, m_diagnostics->is_enabled());
+            if(!updated)
+                return Result<void, GraphicsError>::failure(updated.error());
+            irradiance = ResolvedIrradianceVolume{input.volume, std::move(updated).value()};
+            const auto statistics = m_realtime_irradiance->statistics();
+            irradiance->updated_first = statistics.first_updated_probe;
+            irradiance->updated_count = statistics.updated_probes;
+            irradiance->evaluated_probes = statistics.evaluated_probes;
         } else if(m_realtime_irradiance) {
             m_realtime_irradiance->reset();
         }

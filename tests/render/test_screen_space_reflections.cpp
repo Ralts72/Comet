@@ -34,11 +34,7 @@ namespace Comet::Tests {
             const auto clip = camera.projection * camera.view * Math::Vec4(point, 1);
             const auto x = unsigned((clip.x / clip.w * .5f + .5f) * float(size.x));
             const auto y = unsigned((.5f - clip.y / clip.w * .5f) * float(size.y));
-            const auto offset = (y * size.x + x) * 4;
-            const bool bgra = format == Format::B8G8R8A8_SRGB || format == Format::B8G8R8A8_UNORM;
-            return {std::to_integer<int>(pixels[offset + (bgra ? 2 : 0)]),
-                std::to_integer<int>(pixels[offset + 1]),
-                std::to_integer<int>(pixels[offset + (bgra ? 0 : 2)])};
+            return read_sdr_pixel(pixels, size, format, {x, y});
         }
     }
 

@@ -13,6 +13,7 @@
 #include <cmath>
 #include <map>
 #include <optional>
+#include <span>
 #include <utility>
 
 namespace Comet {
@@ -287,18 +288,17 @@ namespace Comet {
             return Surface::success(result);
         }
 
-        BoundingBox bounds(const RayScene::Triangle& triangle) {
-            auto result = BoundingBox::from_point(Math::Vec3(triangle.positions[0]));
-            result.include(Math::Vec3(triangle.positions[1]));
-            result.include(Math::Vec3(triangle.positions[2]));
+        BoundingBox triangle_bounds(std::span<const RayScene::Triangle> triangles) {
+            auto result = BoundingBox::from_point(Math::Vec3(triangles.front().positions[0]));
+            for(const auto& triangle : triangles)
+                for(const auto& position : triangle.positions)
+                    result.include(Math::Vec3(position));
             return result;
         }
 
         void build_node(RayScene::Geometry& scene, uint32_t first, uint32_t count) {
             const auto index = scene.nodes.size();
-            auto box = bounds(scene.triangles[first]);
-            for(uint32_t i = 1; i < count; ++i)
-                box.include(bounds(scene.triangles[first + i]));
+            const auto box = triangle_bounds(std::span(scene.triangles).subspan(first, count));
             scene.nodes.push_back(
                 {Math::Vec4(box.minimum, 0), Math::Vec4(box.maximum, 0), {first, count, 0, 0}});
             if(count > 4) {
@@ -447,16 +447,16 @@ namespace Comet {
             // 节点按前序存储；逆序时两个子树的界限都已更新，不改变叶与三角形顺序。
             for(size_t i = result->nodes.size(); i-- > 0;) {
                 auto& node = result->nodes[i];
-                auto box = node.links[1] ? bounds(result->triangles[node.links[0]])
-                                         : BoundingBox{Math::Vec3(result->nodes[i + 1].minimum),
-                                               Math::Vec3(result->nodes[i + 1].maximum)};
-                if(node.links[1]) {
-                    for(uint32_t j = 1; j < node.links[1]; ++j)
-                        box.include(bounds(result->triangles[node.links[0] + j]));
+                BoundingBox box;
+                const auto count = node.links[1];
+                if(count) {
+                    box =
+                        triangle_bounds(std::span(result->triangles).subspan(node.links[0], count));
                 } else {
-                    const auto& right = result->nodes[result->nodes[i + 1].links[3]];
-                    box.include(Math::Vec3(right.minimum));
-                    box.include(Math::Vec3(right.maximum));
+                    const auto& left = result->nodes[i + 1];
+                    const auto& right = result->nodes[left.links[3]];
+                    box = {glm::min(Math::Vec3(left.minimum), Math::Vec3(right.minimum)),
+                        glm::max(Math::Vec3(left.maximum), Math::Vec3(right.maximum))};
                 }
                 node.minimum = Math::Vec4(box.minimum, 0);
                 node.maximum = Math::Vec4(box.maximum, 0);

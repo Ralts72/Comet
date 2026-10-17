@@ -114,6 +114,11 @@ namespace Comet::Tests {
         auto& renderer = engine->get_renderer();
         ProbeScene source;
         source.world.render_items[0].mesh = lit_quad();
+        auto baked = region();
+        baked.entity_id = EntityId(9);
+        baked.realtime = false;
+        baked.update_budget = 0;
+        source.world.irradiance_volumes.push_back({.volume = baked});
         source.world.irradiance_volumes.push_back({.volume = region()});
         unsigned mesh_reads = 0;
         renderer.set_ray_scene_sources([&](AssetHandle) {
@@ -144,6 +149,14 @@ namespace Comet::Tests {
         ASSERT_NO_FATAL_FAILURE(draw());
         EXPECT_FALSE(renderer.path_trace_error().empty());
         EXPECT_EQ(renderer.get_irradiance_statistics().probes, 8u);
+        EXPECT_EQ(mesh_reads, 2u);
+
+        auto& selected = source.world.irradiance_volumes.back().volume;
+        selected.half_extents = {1, 1, 1};
+        selected.update_budget = 3;
+        ASSERT_NO_FATAL_FAILURE(draw());
+        EXPECT_EQ(renderer.get_irradiance_statistics().probes, 64u);
+        EXPECT_EQ(renderer.get_irradiance_statistics().updated_probes, 3u);
         EXPECT_EQ(mesh_reads, 2u);
 
         view.visible = false;
@@ -431,6 +444,8 @@ namespace Comet::Tests {
             .updated_first = 0,
             .updated_count = 1,
             .evaluated_probes = 2};
+        auto unrelated = live;
+        unrelated.resource = std::make_shared<Irradiance>();
         RenderWorld world;
         world.irradiance_volumes.push_back({.volume = volume});
         const ViewProjectMatrix camera{Math::look_at({3, 4, 5}, {0, 0, 0}, {0, 1, 0}),
@@ -466,7 +481,7 @@ namespace Comet::Tests {
                 SCOPED_TRACE(int(mode));
                 begin_frame(frames);
                 const RenderSubmission submission{
-                    world, camera, {}, {}, realtime ? &live : nullptr, mode};
+                    world, camera, {}, {}, realtime ? &live : &unrelated, mode};
                 RenderGeometry geometry;
                 geometry.prepare(world);
                 const auto drawn = renderer.value()->render(frames, submission, geometry);
@@ -477,13 +492,8 @@ namespace Comet::Tests {
                     finish_readback(*renderer.value(), frames, readback, size, drawn.value()));
                 const auto bytes = readback->read();
                 const auto format = output->get_image()->get_info().format;
-                const bool bgra =
-                    format == Format::B8G8R8A8_SRGB || format == Format::B8G8R8A8_UNORM;
                 const auto rgb = [&](Math::Vec2u p) {
-                    const auto offset = (p.y * size.x + p.x) * 4;
-                    return Math::Vec3(std::to_integer<int>(bytes[offset + (bgra ? 2 : 0)]),
-                        std::to_integer<int>(bytes[offset + 1]),
-                        std::to_integer<int>(bytes[offset + (bgra ? 0 : 2)]));
+                    return read_sdr_pixel(bytes, size, format, p);
                 };
                 const auto first = rgb(pixel(0));
                 if(mode == IrradianceDebugMode::Off) {

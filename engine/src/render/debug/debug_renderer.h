@@ -19,6 +19,7 @@ namespace Comet {
     class DescriptorSet;
     class DescriptorSetLayout;
     struct Irradiance;
+    struct ResolvedIrradianceVolume;
     enum class IrradianceDebugMode : uint32_t;
 
     // 在调用方已开启的场景 pass 内绘制；调用前须等待当前 slot 并设置 viewport/scissor。
@@ -31,8 +32,9 @@ namespace Comet {
         Result<void, GraphicsError> render(FrameScheduler& frame_scheduler,
             const ViewProjectMatrix& view_project, const LineDrawList& draw_list);
         Result<void, GraphicsError> render_irradiance(FrameScheduler& frames,
-            const DescriptorSet& view, const Irradiance& irradiance, Math::Vec2u target_size,
-            IrradianceDebugMode mode, uint32_t evaluated_probes, Math::Vec2u updated_range);
+            const DescriptorSet& view, const std::shared_ptr<Irradiance>& irradiance,
+            Math::Vec2u target_size, IrradianceDebugMode mode,
+            const ResolvedIrradianceVolume* realtime);
 
     private:
         DebugRenderer(Device& device, PipelineManager& pipelines,

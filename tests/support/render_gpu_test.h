@@ -27,8 +27,18 @@
 #include <cstring>
 #include <cmath>
 #include <sstream>
+#include <span>
 
 namespace Comet::Tests {
+    inline Math::Vec3 read_sdr_pixel(
+        std::span<const std::byte> pixels, Math::Vec2u size, Format format, Math::Vec2u position) {
+        const auto offset = (position.y * size.x + position.x) * 4;
+        const bool bgra = format == Format::B8G8R8A8_SRGB || format == Format::B8G8R8A8_UNORM;
+        return {std::to_integer<int>(pixels[offset + (bgra ? 2 : 0)]),
+            std::to_integer<int>(pixels[offset + 1]),
+            std::to_integer<int>(pixels[offset + (bgra ? 0 : 2)])};
+    }
+
     template<typename T> T encode_srgb(T linear) {
         if(linear <= T(0.0031308))
             return T(12.92) * linear;

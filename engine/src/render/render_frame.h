@@ -26,9 +26,13 @@ namespace Comet {
             std::optional<Pick> pick;
             LineDrawList lines;
         };
+        struct IrradianceInput {
+            RenderIrradianceVolume volume;
+            std::shared_ptr<const RayScene> scene;
+        };
         uint64_t serial = 0;
         std::shared_ptr<const RenderWorld> world;
-        std::shared_ptr<const RayScene> irradiance_scene;
+        std::optional<IrradianceInput> irradiance;
         std::vector<View> views;
         OverlayDrawList overlays;
 

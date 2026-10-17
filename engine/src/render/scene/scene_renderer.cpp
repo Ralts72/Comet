@@ -9,7 +9,6 @@
 #include "render/passes/shadow_pass.h"
 #include "render/passes/skybox_pass.h"
 #include "render/resource/texture.h"
-#include "render/resource/irradiance.h"
 #include "graphics/frame_buffer.h"
 #include "graphics/resource/image_view.h"
 #include "graphics/device.h"
@@ -1041,23 +1040,12 @@ namespace Comet {
             if(submission.irradiance_debug != IrradianceDebugMode::Off) {
                 const auto slot = frames.get_current_frame_slot_index();
                 const auto& bindings = m_state->materials->view_bindings();
-                if(const auto& irradiance = bindings.irradiance(slot)) {
-                    const auto* live = submission.realtime_irradiance;
-                    const bool realtime = live && live->resource == irradiance;
-                    Math::Vec2u updated{};
-                    auto evaluated = irradiance->dimensions.x * irradiance->dimensions.y
-                                     * irradiance->dimensions.z;
-                    if(realtime) {
-                        updated = {live->updated_first, live->updated_count};
-                        evaluated = live->evaluated_probes;
-                    }
-                    if(auto probes =
-                            m_state->debug->render_irradiance(frames, bindings.descriptor(slot),
-                                *irradiance, size, submission.irradiance_debug, evaluated, updated);
-                        !probes)
-                        return Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>::failure(
-                            probes.error());
-                }
+                if(auto probes = m_state->debug->render_irradiance(frames,
+                       bindings.descriptor(slot), bindings.irradiance(slot), size,
+                       submission.irradiance_debug, submission.realtime_irradiance);
+                    !probes)
+                    return Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>::failure(
+                        probes.error());
             }
             if(auto debug = m_state->debug->render(frames, *submission.view_project_matrix, lines);
                 !debug)

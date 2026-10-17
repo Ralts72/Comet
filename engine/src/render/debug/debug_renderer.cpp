@@ -8,17 +8,31 @@
 #include "graphics/resource/buffer.h"
 #include "render/frame_scheduler.h"
 #include "render/resource/irradiance.h"
-#include "render/scene/render_scene.h"
+#include "render/scene/render_submission.h"
 
 #include "line_frag.h"
 #include "line_vert.h"
 #include "irradiance_debug_vert.h"
 #include "irradiance_debug_frag.h"
 
+#include <array>
+#include <cstddef>
 #include <limits>
 #include <utility>
 
 namespace Comet {
+    namespace {
+        struct ProbeDrawParameters {
+            Math::Vec4 origin_radius;
+            Math::Vec4 spacing;
+            Math::Vec4 dimensions_pixel;
+            std::array<uint32_t, 4> flags;
+        };
+        constexpr auto PROBE_FRAGMENT_OFFSET = offsetof(ProbeDrawParameters, flags);
+        constexpr auto PROBE_FRAGMENT_SIZE = sizeof(ProbeDrawParameters::flags);
+        static_assert(PROBE_FRAGMENT_OFFSET == 48 && sizeof(ProbeDrawParameters) == 64);
+    }
+
     DebugRenderer::DebugRenderer(Device& device, PipelineManager& pipelines,
         std::shared_ptr<Pipeline> pipeline, const uint32_t frame_slot_count, SampleCount samples,
         std::shared_ptr<DescriptorSetLayout> view_layout)
@@ -119,8 +133,10 @@ namespace Comet {
             return Result<void, GraphicsError>::failure(fragment.error());
         ShaderLayout layout;
         layout.descriptor_set_layouts = {m_view_layout};
-        layout.push_constants = {std::make_shared<PushConstantRange>(ShaderStage::Vertex, 0, 48),
-            std::make_shared<PushConstantRange>(ShaderStage::Fragment, 48, 16)};
+        layout.push_constants = {
+            std::make_shared<PushConstantRange>(ShaderStage::Vertex, 0, PROBE_FRAGMENT_OFFSET),
+            std::make_shared<PushConstantRange>(
+                ShaderStage::Fragment, PROBE_FRAGMENT_OFFSET, PROBE_FRAGMENT_SIZE)};
         PipelineConfig config;
         config.set_multisample_state(m_samples, false);
         config.set_dynamic_state({DynamicState::Viewport, DynamicState::Scissor});
@@ -135,34 +151,33 @@ namespace Comet {
     }
 
     Result<void, GraphicsError> DebugRenderer::render_irradiance(FrameScheduler& frames,
-        const DescriptorSet& view, const Irradiance& irradiance, Math::Vec2u target_size,
-        IrradianceDebugMode mode, uint32_t evaluated_probes, Math::Vec2u updated_range) {
-        if(mode == IrradianceDebugMode::Off)
+        const DescriptorSet& view, const std::shared_ptr<Irradiance>& irradiance,
+        Math::Vec2u target_size, IrradianceDebugMode mode,
+        const ResolvedIrradianceVolume* realtime) {
+        if(mode == IrradianceDebugMode::Off || !irradiance)
             return Result<void, GraphicsError>::success();
         if(auto prepared = prepare_irradiance_pipeline(); !prepared)
             return prepared;
-        struct Parameters {
-            Math::Vec4 origin_radius;
-            Math::Vec4 spacing;
-            Math::Vec4 dimensions_pixel;
-            std::array<uint32_t, 4> flags;
-        };
-        static_assert(sizeof(Parameters) == 64);
         const auto count =
-            irradiance.dimensions.x * irradiance.dimensions.y * irradiance.dimensions.z;
-        const Parameters parameters{Math::Vec4(irradiance.origin, 4),
-            Math::Vec4(irradiance.spacing, 0),
-            {float(irradiance.dimensions.x), float(irradiance.dimensions.y), 1.f / target_size.x,
+            irradiance->dimensions.x * irradiance->dimensions.y * irradiance->dimensions.z;
+        // 只使用实际绑定资源的更新状态；烘焙探针已经全部求值。
+        const bool live = realtime && realtime->resource == irradiance;
+        const auto evaluated = live ? realtime->evaluated_probes : count;
+        const ProbeDrawParameters parameters{Math::Vec4(irradiance->origin, 4),
+            Math::Vec4(irradiance->spacing, 0),
+            {float(irradiance->dimensions.x), float(irradiance->dimensions.y), 1.f / target_size.x,
                 1.f / target_size.y},
-            {updated_range.x, updated_range.y, count, uint32_t(mode) | (evaluated_probes << 2)}};
+            {live ? realtime->updated_first : 0, live ? realtime->updated_count : 0, count,
+                uint32_t(mode) | (evaluated << 2)}};
         const auto& command = frames.get_current_command_buffer();
         frames.retain_current_frame_resource(m_irradiance_pipeline);
         command.bind_pipeline(*m_irradiance_pipeline);
         command.bind_descriptor_sets(*m_irradiance_pipeline->get_layout(), std::span(&view, 1));
         command.push_constants(*m_irradiance_pipeline->get_layout(),
-            Flags<ShaderStage>(ShaderStage::Vertex), 0, &parameters, 48);
+            Flags<ShaderStage>(ShaderStage::Vertex), 0, &parameters, PROBE_FRAGMENT_OFFSET);
         command.push_constants(*m_irradiance_pipeline->get_layout(),
-            Flags<ShaderStage>(ShaderStage::Fragment), 48, parameters.flags.data(), 16);
+            Flags<ShaderStage>(ShaderStage::Fragment), PROBE_FRAGMENT_OFFSET,
+            parameters.flags.data(), PROBE_FRAGMENT_SIZE);
         command.draw(6, count);
         return Result<void, GraphicsError>::success();
     }
