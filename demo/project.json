@@ -471,6 +471,29 @@
           "scale": -1
         }
       ]
+    },
+    {
+      "id": "e4f99ed4-df04-5724-b348-ce136da6caf9",
+      "name": "character.attack",
+      "context": "character",
+      "type": "button",
+      "bindings": [
+        {
+          "id": "3567963a-72d1-588c-bc53-03d138cd5ae4",
+          "source": "key",
+          "control": "J"
+        },
+        {
+          "id": "5fdb56be-165d-5f6c-bb2b-90377e8cc723",
+          "source": "mouse_button",
+          "control": "Left"
+        },
+        {
+          "id": "6e42b513-4135-5f84-b2fb-2d121c49b2ae",
+          "source": "gamepad_button",
+          "control": "West"
+        }
+      ]
     }
   ]
 }

@@ -58,11 +58,11 @@ namespace Comet {
                 [&](Entity entity, const IrradianceVolumeComponent& volume, const IdComponent& id) {
                     if(volume.enabled && (volume.realtime || volume.irradiance)
                         && volume.intensity > 0)
-                        output.irradiance_volumes.push_back(
-                            {id.id, volume.irradiance, volume.intensity, volume.normal_bias,
-                                volume.realtime, Math::Vec3(scene.get_world_matrix(entity)[3]),
-                                volume.half_extents, volume.spacing, volume.max_distance,
-                                volume.update_budget, volume.update_rays, volume.history_weight});
+                        output.irradiance_volumes.push_back({id.id, volume.irradiance,
+                            volume.intensity, volume.normal_bias, volume.realtime,
+                            Math::Vec3(scene.get_world_matrix(entity)[3]), volume.half_extents,
+                            volume.spacing, volume.max_distance, volume.update_budget,
+                            volume.update_rays, volume.history_weight, volume.blend_distance});
                 });
             std::ranges::sort(output.irradiance_volumes, {}, &RenderIrradianceVolume::entity_id);
             scene.each<const DecalComponent, WorldTransformComponent, IdComponent>(

@@ -1062,7 +1062,7 @@ namespace Comet {
             {make_property_descriptor("enabled", "启用", &IrradianceVolumeComponent::enabled),
                 make_property_descriptor("realtime", "实时更新",
                     &IrradianceVolumeComponent::realtime, {.required = false}),
-                make_property_descriptor("update_budget", "每帧更新探针数",
+                make_property_descriptor("update_budget", "区域每帧上限",
                     &IrradianceVolumeComponent::update_budget,
                     {.required = false,
                         .numeric =
@@ -1114,6 +1114,13 @@ namespace Comet {
                     &IrradianceVolumeComponent::normal_bias,
                     {.numeric =
                             {.speed = .01f, .minimum = 0, .maximum = 1, .enforce_bounds = true}}),
+                make_property_descriptor("blend_distance", "混合距离（米）",
+                    &IrradianceVolumeComponent::blend_distance,
+                    {.required = false,
+                        .numeric = {.speed = .1f,
+                            .minimum = 0,
+                            .maximum = 100000,
+                            .enforce_bounds = true}}),
                 make_property_descriptor("bake_fingerprint", "烘焙输入",
                     &IrradianceVolumeComponent::bake_fingerprint,
                     {.editable = false, .required = false})}));

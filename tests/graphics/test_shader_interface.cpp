@@ -1,4 +1,5 @@
 #include "graphics/pipeline/shader_interface.h"
+#include "render/lighting.h"
 #include "render/material/material_layout.h"
 #include "graphics/pipeline/shader.h"
 #include "core/engine.h"
@@ -141,13 +142,18 @@ namespace Comet::Tests {
         ASSERT_TRUE(fragment_result) << fragment_result.error();
         const auto fragment = std::move(fragment_result).value();
         EXPECT_EQ(fragment.get_stage(), ShaderStage::Fragment);
-        ASSERT_EQ(fragment.get_bindings().size(), 19u);
-        for(uint32_t index = 3; index <= 12; ++index) {
+        ASSERT_EQ(fragment.get_bindings().size(), 20u);
+        for(uint32_t index = 3; index <= 13; ++index) {
             const auto binding = std::ranges::find_if(fragment.get_bindings(),
                 [index](const auto& value) { return value.set == 0 && value.binding == index; });
             ASSERT_NE(binding, fragment.get_bindings().end());
-            EXPECT_EQ(binding->type, DescriptorType::CombinedImageSampler);
-            EXPECT_EQ(binding->count, 1u);
+            auto type = DescriptorType::CombinedImageSampler;
+            if(index == 11)
+                type = DescriptorType::SampledImage;
+            else if(index == 13)
+                type = DescriptorType::Sampler;
+            EXPECT_EQ(binding->type, type);
+            EXPECT_EQ(binding->count, index == 11 ? LightingData::MAX_IRRADIANCE_VOLUMES : 1u);
         }
         EXPECT_TRUE(fragment.get_push_constants().empty());
         const auto parameter_binding = std::ranges::find_if(fragment.get_bindings(),

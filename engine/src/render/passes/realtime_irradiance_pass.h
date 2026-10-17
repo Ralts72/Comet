@@ -10,9 +10,10 @@ namespace Comet {
     class Device;
     class FrameScheduler;
     struct RayScene;
-    struct Irradiance;
+    struct ResolvedIrradianceVolume;
+    struct RaySceneBuffers;
 
-    // 每个世界一份探针历史，各视图只采样；不依赖 Editor 或离线烘焙。
+    // 一个世界共用追踪输入，各区域独立历史；各视图只采样。
     class COMET_API RealtimeIrradiancePass {
     public:
         struct GpuTiming {
@@ -22,7 +23,7 @@ namespace Comet {
         struct Statistics {
             uint32_t probes = 0;
             uint32_t updated_probes = 0;
-            uint32_t first_updated_probe = 0;
+            uint32_t regions = 0;
             uint32_t evaluated_probes = 0;
             uint32_t rays = 0;
             uint64_t updates = 0;
@@ -37,9 +38,10 @@ namespace Comet {
         [[nodiscard]] static Result<void, GraphicsError> check_support(const Device& device);
         [[nodiscard]] static Result<Math::Vec3u> validate_region(
             const RenderIrradianceVolume& volume);
-        [[nodiscard]] Result<std::shared_ptr<Irradiance>, GraphicsError> update(
+        [[nodiscard]] Result<std::vector<ResolvedIrradianceVolume>, GraphicsError> update(
             FrameScheduler& frames, uint64_t scene_lifetime,
-            const std::shared_ptr<const RayScene>& scene, const RenderIrradianceVolume& volume,
+            const std::shared_ptr<const RayScene>& scene,
+            std::span<const RenderIrradianceVolume> volumes, uint32_t total_budget,
             bool measure = false);
         [[nodiscard]] Statistics statistics() const { return m_statistics; }
         void reset();
@@ -53,12 +55,19 @@ namespace Comet {
             FrameScheduler& frames);
         [[nodiscard]] Result<void, GraphicsError> initialize();
         [[nodiscard]] Result<std::shared_ptr<History>, GraphicsError> create_history(
-            uint64_t scene_lifetime, const RenderIrradianceVolume& volume, Math::Vec3u dimensions);
+            const RenderIrradianceVolume& volume, Math::Vec3u dimensions);
         [[nodiscard]] Result<void, GraphicsError> prepare(uint64_t scene_lifetime,
-            const std::shared_ptr<const RayScene>& scene, const RenderIrradianceVolume& volume);
+            const std::shared_ptr<const RayScene>& scene,
+            std::span<const RenderIrradianceVolume> volumes);
+        [[nodiscard]] Result<void, GraphicsError> record_regions(FrameScheduler& frames,
+            std::span<const RenderIrradianceVolume> volumes, std::span<const uint32_t> grants,
+            bool geometry_moved, std::span<ResolvedIrradianceVolume> outputs);
         Device& m_device;
         std::shared_ptr<Program> m_program;
-        std::shared_ptr<Resources> m_resources;
+        std::vector<std::shared_ptr<Resources>> m_regions;
+        std::shared_ptr<RaySceneBuffers> m_buffers;
+        uint64_t m_scene_lifetime = 0;
+        uint32_t m_budget_cursor = 0;
         Statistics m_statistics;
         uint64_t m_recorded_serial = 0;
         std::vector<std::shared_ptr<Timing>> m_timings;

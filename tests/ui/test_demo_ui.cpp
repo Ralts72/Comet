@@ -119,6 +119,9 @@ namespace {
             ASSERT_TRUE(constructor);
             ASSERT_TRUE(constructor.Bind("fps_text", &fps));
             ASSERT_TRUE(constructor.Bind("character_game", &available));
+            ASSERT_TRUE(constructor.Bind("combat_game", &combat_flag));
+            for(const auto* name : {"combat_health", "combat_status", "combat_target"})
+                ASSERT_TRUE(constructor.Bind(name, &display_text));
             for(const auto* name : {"course_actions", "next_level", "return_level"})
                 ASSERT_TRUE(constructor.Bind(name, &confirmation_flag));
             ASSERT_TRUE(constructor.Bind("character_status", &display_text));
@@ -191,6 +194,7 @@ namespace {
         bool waiting = false;
         bool has_actions = true;
         bool display_flag = false;
+        bool combat_flag = false;
         bool confirmation_flag = false;
         float audio_volume = 100;
         std::string display_text;

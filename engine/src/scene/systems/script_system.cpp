@@ -417,7 +417,10 @@ namespace Comet {
         const auto events = scene.take_events();
         for(const auto& event : events) {
             for(auto& [key, entry] : m_entries) {
-                if((event.target && event.target != key.entity) || !is_live(key, entry))
+                if(!is_live(key, entry))
+                    continue;
+                if(event.target
+                    && (event.target != key.entity || event.target_id != entry.entity.get_id()))
                     continue;
                 const auto& handlers = entry.script->event_handlers();
                 const auto handler = handlers.find(event.name);

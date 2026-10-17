@@ -390,6 +390,7 @@ miniaudio 的设备、解码器、页面与任务队列封装在 AudioPlayback �
 换版保留兼容参数覆盖，重建 self／模块，不迁移任意 Lua 状态，也不自动改写 Edit 内容；暂停时待继续或单步再换版。
 项目 require 使用预先冻结的源码闭包，实例只执行已准备模块，不在运行回调中查找文件。模块为 source-only，不创建资产身份。
 内存、指令、日志、实体／事件请求都有预算；实体和接触交付在阶段边界复核身份，停止回调不访问 Scene。
+定向 `comet.emit(name, value, entity)` 使用现有阶段消息，排队时固定 UUID 与运行实体身份，交付时拒绝已销毁／重建的接收者。`entity:transform_point` 查询权威层级变换，`comet.face_movement` 复用 Gameplay 的朝向计算；战斗数值、命中规则与反馈留在 demo，不向 ScriptSystem 增加战斗状态。
 ScriptSystem 每个阶段保留结构同步，用 Registry revision 跳过没有发布变化的资产扫描；失败组比较成员与参数快照，修正参数仍可重试。结构扫描与资产扫描分别计数，不隐藏 fixed／update 之间的实体变更。UI 控制器的 VM 与行为实例分别拥有权限和寿命。
 
 ### 脚本材质覆盖
@@ -562,15 +563,15 @@ CPU 产品移交 RenderAssetFactory 创建 GPU 候选；App／Editor 注入 Engi
 
 静态 GI 的离线求解归现有 `tools/asset`：输入持有静态 CPU 网格、材质、灯光与环境，私有三角形 BVH 负责遮挡和漫反射路径。Engine 的 `IrradianceData` 只定义有界探针网格、卷积后球谐系数、方向距离矩、产品读写和采样，不持有烘焙任务或设备。`CpuCubeSampler` 由环境预过滤、HDR 编码和 GI 共用，按需解码 mip 并统一跨面采样；各 Worker 独占缓存，源数据寿命由调用者保证。
 
-`.gi` 是已烘焙的 CPU 资产，经同一 RenderAssetFactory 创建 Irradiance 运行资源并发布到唯一 AssetRegistry；每个探针按 41 个 Vec4 打包进单张 RGBA32F 只读纹理，复用现有上传与完成点。RenderWorld 固定资源版本，ViewLightingData 每 View 选择一个可见区域，ViewBindings 与帧槽保活资源及描述符。PBR 在有效区域内用 GI 替换全局 IBL 的漫反射，镜面保持独立；无有效探针或区域外回退全局漫反射，被遮挡则保持黑色。所有 PBR 表面按实际片元世界位置采样，烘焙区域移动不会平移旧产物。产品导出直接携带已验证 `.gi`，运行时不导入源几何或进行烘焙；Editor 的 IrradianceBake 通过现有 TaskScheduler 调度 CPU 烘焙，任务独占场景快照、资产记录和 CPU 产物，只有 Main 能复核输入并经资产事务发布结果和撤销命令。取消标记与任务数据共用寿命，任务不借用 Scene、数据库或 GPU；切场景、输入变化及过期版本不会接纳结果。反射捕获包含已发布 GI，其输入指纹包含 GI 引用、采样参数和真实源字节。
+`.gi` 是已烘焙的 CPU 资产，经同一 RenderAssetFactory 创建 Irradiance 运行资源并发布到唯一 AssetRegistry；每个探针按 41 个 Vec4 打包进单张 RGBA32F 只读纹理，复用现有上传与完成点。RenderWorld 固定资源版本，ViewLightingData 每 View 按相机距离与实体 ID 选择最多四个可见区域，ViewBindings 与帧槽保活资源及描述符。PBR 在交叠区域内按各轴边缘权重的乘积归一化混合 GI，再替换全局 IBL 的漫反射，镜面保持独立；无有效探针或区域外回退全局漫反射，被遮挡则保持黑色。所有 PBR 表面按实际片元世界位置采样，烘焙区域移动不会平移旧产物。产品导出直接携带已验证 `.gi`，运行时不导入源几何或进行烘焙；Editor 的 IrradianceBake 通过现有 TaskScheduler 调度 CPU 烘焙，任务独占场景快照、资产记录和 CPU 产物，只有 Main 能复核输入并经资产事务发布结果和撤销命令。取消标记与任务数据共用寿命，任务不借用 Scene、数据库或 GPU；切场景、输入变化及过期版本不会接纳结果。反射捕获包含已发布 GI，其输入指纹包含 GI 引用、采样参数和真实源字节。
 
-实时 GI 与离线 `.gi` 共用探针采样格式。Main 确认当帧有光栅视图后，选择更新区域，从 RenderWorld 筛选参与 GI 的非蒙皮贡献者；选定区域与准备好的 RayScene 一起进入 RenderFrame，RenderThread 直接消费，不再次选择。`RaySceneBuilder` 与路径追踪共用不可变 BVH／材质／光源输入；`RaySceneBuffers` 按各自版本上传。实时 GI 的材质图按 512 长边读取已有 Mip 或缩小，不改变正常绘制和路径追踪的源分辨率。
+实时 GI 与离线 `.gi` 共用探针采样格式。Main 确认当帧有光栅视图后，选择更新区域，从 RenderWorld 筛选参与 GI 的非蒙皮贡献者；选定的最多四个实时区域与一份准备好的 RayScene 一起进入 RenderFrame，RenderThread 直接消费，不再次选择。`RaySceneBuilder` 与路径追踪共用不可变 BVH／材质／光源输入；`RaySceneBuffers` 按各自版本上传。实时 GI 的材质图按 512 长边读取已有 Mip 或缩小，不改变正常绘制和路径追踪的源分辨率。
 
-动态灯光不重建 BVH；变换更新共享源顶点与拓扑，另建世界空间三角形和 refit 后的 BVH，并复用探针历史。网格内容／材质／环境／区域和场景变化清除历史。GPU 按不可变几何版本上传，帧槽保活旧代。
+动态灯光不重建 BVH；变换更新共享源顶点与拓扑，另建世界空间三角形和 refit 后的 BVH，并复用探针历史。网格内容／材质／环境和场景变化清除全部历史；区域空间配置变化仅重建对应区域的历史。GPU 按不可变几何版本上传，帧槽保活旧代。
 
 探针可视化由 DebugRenderer 复用当前 View 的 GI 描述符，直接读取有效性并拼装状态和更新范围；SceneRenderer 只安排绘制顺序，不解释探针状态，不增加 GPU 读回或第二套探针状态。
 
-Renderer 在各 View 绘制之前调用一次 `RealtimeIrradiancePass`，以有限探针预算更新球谐和方向距离矩，两个历史图像交替读写；各 View 的 ViewBindings 只采样同一份已发布输出。历史图像创建、资源描述符绑定与逐帧更新分别处理；先完整准备候选，再替换当前资源。
+Renderer 在各 View 绘制之前调用一次 `RealtimeIrradiancePass`，以场景总预算和各区域上限轮转更新球谐和方向距离矩，各区域两个历史图像独立交替读写；各 View 的 ViewBindings 只采样这些已发布输出。GPU 场景 buffer、compute 程序和计时查询每世界共用；采样图像数组共用一个 sampler，保持 Deferred 与 16-sampler 设备兼容。历史图像创建、资源描述符绑定与逐帧更新分别处理；先完整准备候选，再替换当前资源。同帧区域合入一次图计划，先集中清空／复制，再录制独立计算与统一导出，避免区域间反复切换 transfer／compute；采样时每区域选择一次图像，不在各球谐 texel 读取中重复选择。
 
 ### 编译、反射与缓存边界
 

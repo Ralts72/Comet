@@ -1423,7 +1423,7 @@ void main() { color = texture(unsupported_view_resource, vec2(0.5)); }
                             {{2, AssetHandle(1541)}, inactive.value(), 3});
                     if(frame == 5)
                         world.irradiance_volumes.resize(
-                            2, ResolvedIrradianceVolume{{2, AssetHandle(1541)}, dark.value(), 2});
+                            5, ResolvedIrradianceVolume{{2, AssetHandle(1541)}, dark.value(), 2});
                     if(frame == 6)
                         world.irradiance_volumes.push_back(
                             {{2, AssetHandle(1541)}, blocked.value(), 4});
@@ -1439,9 +1439,10 @@ void main() { color = texture(unsupported_view_resource, vec2(0.5)); }
                     const auto drawn = scene.value()->render(frames, submission, geometry);
                     ASSERT_TRUE(drawn) << drawn.error();
                     const auto stats = scene.value()->get_material_statistics();
-                    EXPECT_EQ(stats.irradiance_probes, frame == 2 ? 0 : 8);
+                    const auto probes = frame == 2 ? 0 : (frame == 5 ? 32 : 8);
+                    EXPECT_EQ(stats.irradiance_probes, probes);
                     EXPECT_EQ(stats.excess_irradiance_volumes, frame == 5 ? 1 : 0);
-                    EXPECT_EQ(stats.irradiance_bytes, frame == 2 ? 0 : 8 * sizeof(IrradianceProbe));
+                    EXPECT_EQ(stats.irradiance_bytes, probes * sizeof(IrradianceProbe));
                     const auto view = scene.value()->get_offscreen_color_view(
                         frames.get_current_frame_slot_index());
                     auto output = std::make_shared<Readback>(

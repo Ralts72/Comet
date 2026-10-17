@@ -90,6 +90,9 @@ namespace Comet {
         // 立即消费写入描述；资源和池的生命周期仍由调用方保证。
         void update(Device& device, std::span<const UniformBufferWrite> buffers,
             std::span<const ImageSamplerWrite> images = {}) const;
+        void write_sampled_images(
+            Device& device, uint32_t binding, std::span<const ImageView* const> images) const;
+        void write_sampler(Device& device, uint32_t binding, const Sampler& sampler) const;
 
         [[nodiscard]] vk::DescriptorSet get() const { return m_descriptor_set; }
 

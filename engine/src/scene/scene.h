@@ -51,6 +51,7 @@ namespace Comet {
             std::string name;
             std::optional<ParameterValue> value;
             EntityUuid target;
+            EntityId target_id = INVALID_ENTITY_ID;
         };
 
         Scene();

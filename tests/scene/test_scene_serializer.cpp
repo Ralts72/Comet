@@ -966,6 +966,14 @@ namespace Comet::Tests {
         auto legacy = serializer.deserialize(R"({"version":2,"entities":[]})");
         ASSERT_TRUE(legacy);
         EXPECT_EQ(legacy.value()->get_environment(), SceneEnvironment{});
+        EXPECT_EQ(legacy.value()->get_environment().realtime_gi_budget, 32u);
+        for(const auto* invalid : {"0", "16385", "-1", "1.5", "true", "null"})
+            EXPECT_FALSE(serializer.deserialize(
+                std::string(
+                    R"({"version":2,"entities":[],"environment":{"asset":0,"background":false,"intensity":1,"rotation":0,"realtime_gi_budget":)")
+                + invalid + "}}"))
+                << invalid;
+
         EXPECT_EQ(legacy.value()->get_environment().background_color, Math::Vec3(0));
         auto background_only = serializer.deserialize(
             R"({"version":2,"environment":{"asset":0,"background":true,"intensity":1,"rotation":0},"entities":[]})");
@@ -1680,6 +1688,9 @@ namespace Comet::Tests {
         const auto registry = create_scene_component_registry();
         const SceneSerializer serializer(registry);
         Scene scene;
+        auto environment = scene.get_environment();
+        environment.realtime_gi_budget = 3;
+        ASSERT_TRUE(scene.set_environment(environment));
         auto entity = scene.create_entity("实时探针");
         auto transform = entity.get_component<TransformComponent>();
         transform.translation = {2, 3, 4};
@@ -1690,6 +1701,7 @@ namespace Comet::Tests {
         volume.update_budget = 12;
         volume.update_rays = 128;
         volume.history_weight = .85f;
+        volume.blend_distance = 1.25f;
         entity.add_component<IrradianceVolumeComponent>(volume);
         auto moving = scene.create_entity("移动网格");
         moving.add_component<MeshRendererComponent>(
@@ -1710,6 +1722,8 @@ namespace Comet::Tests {
         const auto snapshot = SceneExtractor::extract(*copy.value());
         ASSERT_EQ(snapshot.irradiance_volumes.size(), 1u);
         const auto& extracted = snapshot.irradiance_volumes[0];
+        EXPECT_EQ(snapshot.environment.realtime_gi_budget, 3u);
+        EXPECT_FLOAT_EQ(extracted.blend_distance, 1.25f);
         EXPECT_TRUE(extracted.realtime);
         EXPECT_EQ(extracted.center, Math::Vec3(2, 3, 4));
         EXPECT_EQ(extracted.update_budget, 12u);

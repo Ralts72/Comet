@@ -131,7 +131,7 @@ namespace Comet {
         std::optional<ViewProjectMatrix> view_project_matrix;
         std::shared_ptr<const RayScene> path_trace;
         PathTraceSettings path_trace_settings;
-        const ResolvedIrradianceVolume* realtime_irradiance = nullptr;
+        std::span<const ResolvedIrradianceVolume> realtime_irradiance;
         IrradianceDebugMode irradiance_debug = IrradianceDebugMode::Off;
     };
 }

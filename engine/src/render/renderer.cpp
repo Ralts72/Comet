@@ -311,14 +311,22 @@ namespace Comet {
                 LOG_ERROR("实时探针 GI 准备失败：{}", error);
             m_irradiance_error = std::move(error);
         };
-        const ResolvedIrradianceVolume* selected = nullptr;
+        std::vector<RenderIrradianceVolume> selected;
         if(frame.world && frame.has_raster_view())
             for(const auto& volume : frame.world->irradiance_volumes)
                 if(volume.volume.realtime) {
-                    selected = &volume;
-                    break;
+                    if(auto valid = RealtimeIrradiancePass::validate_region(volume.volume);
+                        !valid) {
+                        report(valid.error());
+                        return;
+                    }
+                    if(selected.size() == LightingData::MAX_IRRADIANCE_VOLUMES) {
+                        report("实时 GI 最多支持 4 个区域，请禁用多余区域");
+                        return;
+                    }
+                    selected.push_back(volume.volume);
                 }
-        if(!selected) {
+        if(selected.empty()) {
             m_irradiance_builder.reset();
             m_irradiance_input.reset();
             report({});
@@ -326,10 +334,6 @@ namespace Comet {
         }
         if(!frame.world->resolution.pending_asset_slots.empty())
             return;
-        if(auto valid = RealtimeIrradiancePass::validate_region(selected->volume); !valid) {
-            report(valid.error());
-            return;
-        }
         if(!m_irradiance_support_error.empty()) {
             report(m_irradiance_support_error);
             return;
@@ -358,7 +362,7 @@ namespace Comet {
         report(scene ? std::string{} : scene.error());
         if(scene)
             frame.irradiance =
-                RenderFrame::IrradianceInput{selected->volume, std::move(scene).value()};
+                RenderFrame::IrradianceInput{std::move(selected), std::move(scene).value()};
     }
 
     void Renderer::prepare_scene_views(RenderFrame& frame) {
@@ -464,21 +468,18 @@ namespace Comet {
                 return skinned;
             m_frames->retain_current_frame_resource(m_skinning);
         }
-        std::optional<ResolvedIrradianceVolume> irradiance;
+        std::vector<ResolvedIrradianceVolume> irradiance;
         if(needs_raster && frame.irradiance) {
             if(!m_realtime_irradiance)
                 m_realtime_irradiance =
                     std::make_unique<RealtimeIrradiancePass>(m_render_context->get_device());
             const auto& input = *frame.irradiance;
             auto updated = m_realtime_irradiance->update(*m_frames, world.scene_lifetime,
-                input.scene, input.volume, m_diagnostics->is_enabled());
+                input.scene, input.volumes, world.environment.realtime_gi_budget,
+                m_diagnostics->is_enabled());
             if(!updated)
                 return Result<void, GraphicsError>::failure(updated.error());
-            irradiance = ResolvedIrradianceVolume{input.volume, std::move(updated).value()};
-            const auto statistics = m_realtime_irradiance->statistics();
-            irradiance->updated_first = statistics.first_updated_probe;
-            irradiance->updated_count = statistics.updated_probes;
-            irradiance->evaluated_probes = statistics.evaluated_probes;
+            irradiance = std::move(updated).value();
         } else if(m_realtime_irradiance) {
             m_realtime_irradiance->reset();
         }
@@ -493,7 +494,7 @@ namespace Comet {
             }
             auto* diagnostics = diagnosed ? nullptr : m_diagnostics.get();
             if(auto recorded = render_view(view, input, world, frame.world != nullptr,
-                   resource_waits, diagnostics, irradiance ? &*irradiance : nullptr);
+                   resource_waits, diagnostics, irradiance);
                 !recorded)
                 return recorded;
             diagnosed = true;
@@ -507,7 +508,7 @@ namespace Comet {
     Result<void, GraphicsError> Renderer::render_view(ViewState& view,
         const RenderFrame::View& input, const RenderWorld& world, const bool has_scene,
         std::vector<QueueSemaphoreSubmit>& waits, RenderDiagnostics* diagnostics,
-        const ResolvedIrradianceVolume* irradiance) {
+        std::span<const ResolvedIrradianceVolume> irradiance) {
         const auto& frame_view = input.parameters;
         const RenderSubmission submission{world,
             has_scene ? view.camera.resolve(world, frame_view) : std::nullopt,

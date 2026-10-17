@@ -671,6 +671,10 @@ namespace CometEditor {
             "%.2f", ImGuiSliderFlags_AlwaysClamp));
         result.include_item(ImGui::DragFloat(
             "旋转###Rotation", &environment.rotation, 0.5f, 0.0f, 0.0f, "%.1f deg"));
+        int gi_budget = int(environment.realtime_gi_budget);
+        result.include_item(ImGui::DragInt("实时 GI 总预算###GI total budget", &gi_budget, 1, 1,
+            16384, "%d 探针/帧", ImGuiSliderFlags_AlwaysClamp));
+        environment.realtime_gi_budget = uint32_t(gi_budget);
         ImGui::Spacing();
         const bool fog_changed = ImGui::Checkbox("距离雾###Distance fog", &environment.fog_enabled);
         result.changed |= fog_changed;

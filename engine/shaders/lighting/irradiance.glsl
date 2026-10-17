@@ -1,6 +1,6 @@
 #include "irradiance_basis.glsl"
 
-layout(set = 0, binding = 11) uniform sampler2D irradiance_grid;
+#include "irradiance_texture.glsl"
 
 vec2 irradiance_oct_coordinate(vec3 direction) {
     direction /= abs(direction.x) + abs(direction.y) + abs(direction.z);
@@ -12,7 +12,7 @@ vec2 irradiance_oct_coordinate(vec3 direction) {
     return coordinate * 0.5 + 0.5;
 }
 
-vec2 irradiance_moments(int probe, ivec2 texel) {
+vec2 irradiance_moments(texture2D grid_texture, int probe, ivec2 texel) {
     if(texel.x < 0 || texel.x >= 8) {
         texel.x = texel.x < 0 ? -texel.x - 1 : 15 - texel.x;
         texel.y = 7 - texel.y;
@@ -22,19 +22,19 @@ vec2 irradiance_moments(int probe, ivec2 texel) {
         texel.x = 7 - texel.x;
     }
     int index = texel.y * 8 + texel.x;
-    vec4 packed = texelFetch(irradiance_grid, ivec2(9 + index / 2, probe), 0);
+    vec4 packed = texelFetch(sampler2D(grid_texture, irradiance_sampler), ivec2(9 + index / 2, probe), 0);
     return (index & 1) == 0 ? packed.xy : packed.zw;
 }
 
-float irradiance_visibility(int probe, vec3 delta, float bias) {
+float irradiance_visibility(texture2D grid_texture, int probe, vec3 delta, float bias) {
     float distance = length(delta);
     if(distance < 1e-6) return 1.0;
     vec2 coordinate = irradiance_oct_coordinate(delta) * 8.0 - 0.5;
     ivec2 texel = ivec2(floor(coordinate));
     vec2 fraction = fract(coordinate);
     vec2 moments = mix(
-        mix(irradiance_moments(probe, texel), irradiance_moments(probe, texel + ivec2(1, 0)), fraction.x),
-        mix(irradiance_moments(probe, texel + ivec2(0, 1)), irradiance_moments(probe, texel + ivec2(1)), fraction.x),
+        mix(irradiance_moments(grid_texture, probe, texel), irradiance_moments(grid_texture, probe, texel + ivec2(1, 0)), fraction.x),
+        mix(irradiance_moments(grid_texture, probe, texel + ivec2(0, 1)), irradiance_moments(grid_texture, probe, texel + ivec2(1)), fraction.x),
         fraction.y);
     if(distance <= moments.x + bias) return 1.0;
     float variance = max(moments.y - moments.x * moments.x, 1e-5);
@@ -43,17 +43,28 @@ float irradiance_visibility(int probe, vec3 delta, float bias) {
     return probability * probability * probability;
 }
 
-bool sample_irradiance(vec3 position, vec3 normal, out vec3 result) {
+bool sample_irradiance_region(int region, texture2D grid_texture, vec3 position, vec3 normal,
+    out vec3 result, out float spatial_weight) {
+    IrradianceVolume volume = lighting.irradiance_volumes[region];
+    spatial_weight = 0.0;
     result = vec3(0.0);
-    if(lighting.irradiance_origin.w <= 0.0) return false;
-    vec3 coordinate = (position - lighting.irradiance_origin.xyz) / lighting.irradiance_spacing_bias.xyz;
-    ivec3 dimensions = ivec3(lighting.irradiance_dimensions.xyz);
+    if(volume.origin_intensity.w <= 0.0) return false;
+    vec3 coordinate = (position - volume.origin_intensity.xyz) / volume.spacing_bias.xyz;
+    ivec3 dimensions = ivec3(volume.dimensions_blend.xyz);
     if(any(lessThan(coordinate, vec3(-0.5)))
         || any(greaterThan(coordinate, vec3(dimensions) - 0.5))) return false;
+    vec3 edge = min(coordinate + 0.5, vec3(dimensions) - 0.5 - coordinate) * volume.spacing_bias.xyz;
+    spatial_weight = 1.0;
+    if(volume.dimensions_blend.w > 0.0) {
+        vec3 weights = smoothstep(vec3(0.0), vec3(volume.dimensions_blend.w), edge);
+        // 各轴相乘，使相邻区域共有的地板／顶面衰减在归一化后相消。
+        // 边界上的有效黑色仍是 GI，不因零权重突然回退到 IBL。
+        spatial_weight = max(weights.x * weights.y * weights.z, 1e-8);
+    }
     vec3 grid = clamp(coordinate, vec3(0.0), vec3(dimensions) - 1.0);
     ivec3 lower = min(ivec3(grid), dimensions - 2);
     vec3 fraction = grid - vec3(lower);
-    float bias = lighting.irradiance_spacing_bias.w;
+    float bias = volume.spacing_bias.w;
     vec3 biased = position + normal * bias;
     float harmonics[9];
     irradiance_basis(normal, harmonics);
@@ -66,22 +77,58 @@ bool sample_irradiance(vec3 position, vec3 normal, out vec3 result) {
         vec3 factors = mix(vec3(1.0) - fraction, fraction, vec3(offset));
         float weight = factors.x * factors.y * factors.z;
         if(weight == 0.0) continue;
-        vec4 first = texelFetch(irradiance_grid, ivec2(0, probe), 0);
+        vec4 first = texelFetch(sampler2D(grid_texture, irradiance_sampler), ivec2(0, probe), 0);
         if(first.w < 0.5) continue;
         has_probe = true;
-        vec3 delta = biased - (lighting.irradiance_origin.xyz + lighting.irradiance_spacing_bias.xyz * vec3(cell));
+        vec3 delta = biased - (volume.origin_intensity.xyz + volume.spacing_bias.xyz * vec3(cell));
         float distance = length(delta);
         float facing = distance > 1e-6 ? 0.1 + 0.9 * max(0.0, dot(-delta / distance, normal)) : 1.0;
-        weight *= facing * facing * irradiance_visibility(probe, delta, bias);
+        weight *= facing * facing * irradiance_visibility(grid_texture, probe, delta, bias);
         vec3 irradiance = first.rgb * harmonics[0];
         for(int coefficient = 1; coefficient < 9; ++coefficient)
-            irradiance += texelFetch(irradiance_grid, ivec2(coefficient, probe), 0).rgb * harmonics[coefficient];
+            irradiance += texelFetch(sampler2D(grid_texture, irradiance_sampler), ivec2(coefficient, probe), 0).rgb * harmonics[coefficient];
         result += max(irradiance, vec3(0.0)) * weight;
         total += weight;
     }
     // 有有效探针但权重被遮挡时返回黑色，不回退成穿墙的全局环境光。
     if(total >= 1e-5) result /= total;
     else result = vec3(0.0);
-    result *= lighting.irradiance_origin.w;
+    result *= volume.origin_intensity.w;
     return has_probe;
+}
+
+bool sample_irradiance(vec3 position, vec3 normal, out vec3 result) {
+    result = vec3(0.0);
+    float total = 0.0;
+    for(int region = 0; region < int(lighting.irradiance_metadata.x); ++region) {
+        vec3 value;
+        float weight;
+        bool valid = false;
+        // 在区域外选择纹理，避免每个球谐／可见性 texel 都重复分支。
+        switch(region) {
+        case 0:
+            valid = sample_irradiance_region(region, irradiance_grids[0],
+                position, normal, value, weight);
+            break;
+        case 1:
+            valid = sample_irradiance_region(region, irradiance_grids[1],
+                position, normal, value, weight);
+            break;
+        case 2:
+            valid = sample_irradiance_region(region, irradiance_grids[2],
+                position, normal, value, weight);
+            break;
+        case 3:
+            valid = sample_irradiance_region(region, irradiance_grids[3],
+                position, normal, value, weight);
+            break;
+        }
+        if(valid) {
+            result += value * weight;
+            total += weight;
+        }
+    }
+    // 归一化交叠区域，避免两套探针重复注入能量。
+    if(total > 0.0) result /= total;
+    return total > 0.0;
 }

@@ -10,9 +10,10 @@ namespace Comet {
         LightingData lighting;
         std::shared_ptr<Environment> environment;
         std::array<std::shared_ptr<Environment>, LightingData::MAX_REFLECTION_PROBES> probes;
-        std::shared_ptr<Irradiance> irradiance;
+        std::array<std::shared_ptr<Irradiance>, LightingData::MAX_IRRADIANCE_VOLUMES> irradiance;
         uint32_t probe_count = 0;
         uint32_t excess_probes = 0;
+        uint32_t irradiance_volume_count = 0;
         uint32_t excess_irradiance_volumes = 0;
         uint32_t irradiance_probes = 0;
         uint64_t irradiance_bytes = 0;
@@ -53,7 +54,7 @@ namespace Comet {
             return m_layout;
         }
         [[nodiscard]] DescriptorSet descriptor(uint32_t slot) const;
-        [[nodiscard]] const std::shared_ptr<Irradiance>& irradiance(uint32_t slot) const;
+        [[nodiscard]] std::span<const std::shared_ptr<Irradiance>> irradiance(uint32_t slot) const;
         [[nodiscard]] const std::shared_ptr<Texture>& fallback_texture() const {
             return m_fallback;
         }
@@ -72,7 +73,8 @@ namespace Comet {
             std::shared_ptr<ImageView> fog;
             std::shared_ptr<Sampler> environment_sampler;
             std::shared_ptr<Environment> environment;
-            std::shared_ptr<Irradiance> irradiance;
+            std::array<std::shared_ptr<Irradiance>, LightingData::MAX_IRRADIANCE_VOLUMES>
+                irradiance;
             std::array<std::shared_ptr<Environment>, LightingData::MAX_REFLECTION_PROBES>
                 reflection_probes;
             std::optional<DescriptorSet> descriptor;

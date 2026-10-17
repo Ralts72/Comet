@@ -633,6 +633,33 @@ namespace Comet::Tests {
         EXPECT_FALSE(runtime.is_active());
     }
 
+    TEST_F(ScriptSystemTest, EntityPointsUseTheAuthoritativeHierarchyTransform) {
+        auto parent = scene.create_entity();
+        parent.edit_transform([](auto& transform) {
+            transform.translation = {3, 4, 5};
+            transform.rotation = {0, 90, 0};
+            transform.scale = {2, 1, 3};
+        });
+        source(R"(return {on_start = function(self)
+            local x, y, z = comet.self_entity():transform_point(0, 0, 1)
+            assert(math.abs(x - 6) < 0.0001 and math.abs(y - 4) < 0.0001
+                and math.abs(z - 3) < 0.0001)
+            local entity = comet.self_entity()
+            for _, direction in ipairs({{1, 0}, {0, 1}, {-1, 0}, {0, -1}}) do
+                comet.face_movement(entity, direction[1], direction[2])
+                local x, _, z = entity:transform_point(0, 0, 0)
+                local fx, _, fz = entity:transform_point(0, 0, -1)
+                local length = math.sqrt((fx - x)^2 + (fz - z)^2)
+                assert((fx - x) / length * direction[1] + (fz - z) / length * direction[2] > .999)
+            end
+        end})");
+        auto child = actor();
+        ASSERT_TRUE(scene.set_parent(child, parent));
+        child.edit_transform([](auto& transform) { transform.translation = {1, 0, 0}; });
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.stop());
+    }
+
     TEST_F(ScriptSystemTest, ScriptEntityCreationAndDestructionUseRuntimeBoundaries) {
         source(R"(return {
             on_start = function(self)
@@ -845,6 +872,40 @@ namespace Comet::Tests {
             EXPECT_EQ(entity.get_component<TransformComponent>().translation, Math::Vec3(5, 7, 19));
         ASSERT_TRUE(runtime.advance(0));
         EXPECT_EQ(receiver.get_component<TransformComponent>().translation, Math::Vec3(5, 7, 19));
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST_F(ScriptSystemTest, LuaEventsTargetOneLiveEntityAndRejectRecreatedRecipients) {
+        source(R"(local script = {
+            properties = {sender = false, recipient = {type = 'entity'}},
+            events = {['test.hit'] = 'hit'}}
+            function script:update()
+                if self.parameters.sender and not self.sent then
+                    comet.emit('test.hit', 7, self.parameters.recipient)
+                    self.sent = true
+                end
+            end
+            function script:hit(value) comet.translate(value, 0, 0) end
+            return script)");
+        auto sender = actor();
+        auto receiver = actor();
+        auto bystander = actor();
+        auto& parameters = sender.get_component<ScriptComponent>().parameters;
+        parameters["sender"] = true;
+        parameters["recipient"] = receiver.get_uuid();
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_EQ(receiver.get_component<TransformComponent>().translation, Math::Vec3(7, 0, 0));
+        EXPECT_EQ(sender.get_component<TransformComponent>().translation, Math::Vec3(0));
+        EXPECT_EQ(bystander.get_component<TransformComponent>().translation, Math::Vec3(0));
+        ASSERT_TRUE(scene.emit_event("test.hit", 11.f, receiver));
+        const auto uuid = receiver.get_uuid();
+        scene.destroy_entity(receiver);
+        auto replacement = scene.create_entity_with_uuid(uuid);
+        ASSERT_TRUE(replacement);
+        replacement.add_component<ScriptComponent>().asset = handle;
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_EQ(replacement.get_component<TransformComponent>().translation, Math::Vec3(0));
         ASSERT_TRUE(runtime.stop());
     }
 

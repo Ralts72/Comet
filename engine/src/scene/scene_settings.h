@@ -38,6 +38,7 @@ namespace Comet {
         float fog_start = 10.0f;
         float fog_end = 100.0f;
         VolumetricFogSettings volumetric_fog;
+        uint32_t realtime_gi_budget = 32;
 
         [[nodiscard]] Result<void> validate() const;
         bool operator==(const SceneEnvironment&) const = default;

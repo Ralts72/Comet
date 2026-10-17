@@ -587,7 +587,8 @@ namespace Comet {
         if(target && !is_valid(target))
             return false;
         m_events.push_back(
-            {std::string(name), std::move(value), target ? target.get_uuid() : EntityUuid{}});
+            {std::string(name), std::move(value), target ? target.get_uuid() : EntityUuid{},
+                target ? target.get_id() : INVALID_ENTITY_ID});
         return true;
     }
 

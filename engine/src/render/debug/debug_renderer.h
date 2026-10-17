@@ -8,6 +8,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <vector>
 
 namespace Comet {
@@ -32,9 +33,9 @@ namespace Comet {
         Result<void, GraphicsError> render(FrameScheduler& frame_scheduler,
             const ViewProjectMatrix& view_project, const LineDrawList& draw_list);
         Result<void, GraphicsError> render_irradiance(FrameScheduler& frames,
-            const DescriptorSet& view, const std::shared_ptr<Irradiance>& irradiance,
+            const DescriptorSet& view, std::span<const std::shared_ptr<Irradiance>> irradiance,
             Math::Vec2u target_size, IrradianceDebugMode mode,
-            const ResolvedIrradianceVolume* realtime);
+            std::span<const ResolvedIrradianceVolume> realtime);
 
     private:
         DebugRenderer(Device& device, PipelineManager& pipelines,

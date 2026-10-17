@@ -48,17 +48,24 @@ namespace Comet {
         uint32_t update_budget = 8;
         uint32_t update_rays = 64;
         float history_weight = .9f;
+        float blend_distance = 1;
     };
 
     // 与 forward.glsl 的 std140 布局匹配；不是 Scene 组件或 GPU owner。
     struct alignas(16) COMET_API LightingData {
         static constexpr uint32_t MAX_LIGHTS = 32;
         static constexpr uint32_t MAX_REFLECTION_PROBES = 4;
+        static constexpr uint32_t MAX_IRRADIANCE_VOLUMES = 4;
         struct alignas(16) ReflectionProbe {
             Math::Vec4 position_intensity{};
             Math::Vec4 minimum_blend{};
             Math::Vec4 maximum_lod{};
             Math::Vec4 rotation_projection{}; // sin、cos、盒投影开关。
+        };
+        struct alignas(16) IrradianceVolume {
+            Math::Vec4 origin_intensity{};
+            Math::Vec4 spacing_bias{1, 1, 1, .05f};
+            Math::Vec4 dimensions_blend{};
         };
         static constexpr uint32_t SHADOW_CASCADES = 4;
         static constexpr uint32_t MAX_SPOT_SHADOWS = 4;
@@ -111,10 +118,9 @@ namespace Comet {
         Math::Vec4 environment{0, 0, 0, 1}; // 强度、最大 LOD、旋转角正弦、旋转角余弦。
         std::array<ReflectionProbe, MAX_REFLECTION_PROBES> reflection_probes{};
         Math::Vec4 reflection_metadata{}; // 有效探针数、超预算数。
-        Math::Vec4 irradiance_origin{};   // xyz 首个格心、w 强度；零表示关闭。
-        Math::Vec4 irradiance_spacing_bias{1, 1, 1, .05f};
-        Math::Vec4 irradiance_dimensions{};
-        Math::Vec4 fog_parameters{}; // near（零关闭）、逆对数深度范围、屏幕尺寸的倒数。
+        std::array<IrradianceVolume, MAX_IRRADIANCE_VOLUMES> irradiance_volumes{};
+        Math::Vec4 irradiance_metadata{}; // 有效区域数、超预算数。
+        Math::Vec4 fog_parameters{};      // near（零关闭）、逆对数深度范围、屏幕尺寸的倒数。
         [[nodiscard]] static LightingData prepare(std::span<const RenderLight> lights);
         void prepare_shadow(const BoundingBox& world_bounds, uint32_t resolution,
             const Math::Mat4& view, const Math::Mat4& projection);

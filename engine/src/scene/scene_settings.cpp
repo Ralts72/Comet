@@ -17,6 +17,8 @@ namespace Comet {
     }
 
     Result<void> SceneEnvironment::validate() const {
+        if(!realtime_gi_budget || realtime_gi_budget > 16384)
+            return Result<void>::failure("实时 GI 总预算须为 1～16384 个探针");
         if(auto valid = volumetric_fog.validate(); !valid)
             return valid;
         for(int channel = 0; channel < 3; ++channel) {

@@ -826,6 +826,7 @@ namespace Comet {
             Json::write_vector(writer, environment.fog_color);
             writer.field("fog_start", environment.fog_start);
             writer.field("fog_end", environment.fog_end);
+            writer.field("realtime_gi_budget", uint64_t(environment.realtime_gi_budget));
             if(environment.volumetric_fog != VolumetricFogSettings{}) {
                 writer.key("volumetric_fog");
                 write_volumetric_fog(writer, environment.volumetric_fog);
@@ -916,7 +917,7 @@ namespace Comet {
             if(auto valid = context.validate_keys(environment_node,
                    {"asset", "background", "intensity", "rotation", "lighting",
                        "lighting_intensity", "background_color", "fog_enabled", "fog_color",
-                       "fog_start", "fog_end", "volumetric_fog"},
+                       "fog_start", "fog_end", "volumetric_fog", "realtime_gi_budget"},
                    "environment");
                 !valid)
                 return LoadResult::failure(valid.error());
@@ -987,6 +988,13 @@ namespace Comet {
                 if(!color)
                     return LoadResult::failure(color.error());
                 environment.fog_color = color.value();
+            }
+            if(environment_node["realtime_gi_budget"].error() != simdjson::NO_SUCH_FIELD) {
+                auto budget = context.read_field<uint32_t>(
+                    environment_node, "realtime_gi_budget", "an integer", "environment");
+                if(!budget)
+                    return LoadResult::failure(budget.error());
+                environment.realtime_gi_budget = budget.value();
             }
             const auto volumetric = context.find(environment_node, "volumetric_fog");
             if(!volumetric)

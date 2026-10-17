@@ -749,6 +749,25 @@ namespace Comet::LuaBindings {
                 return luaL_error(state, "move_character needs an enabled Character Controller");
             return 0;
         }
+        int face_movement(lua_State* state) {
+            if(lua_gettop(state) != 3)
+                return luaL_error(state, "face_movement expects a visual entity and X/Z direction");
+            const auto visual = require_entity(state);
+            const Math::Vec2 direction{number(state, 2), number(state, 3)};
+            auto& context = current(state);
+            context.return_value.reset();
+            {
+                auto result = Gameplay::CharacterController::face_movement(
+                    *context.scene, visual.get_uuid(), direction);
+                if(!result)
+                    context.return_value = result.error();
+            }
+            if(context.return_value)
+                return luaL_error(
+                    state, "%s", std::get<std::string>(*context.return_value).c_str());
+            return 0;
+        }
+
         int navigate_to(lua_State* state) {
             const auto count = lua_gettop(state);
             if(count != 3 && count != 4)
@@ -1119,6 +1138,8 @@ namespace Comet::LuaBindings {
             return 0;
         }
         int emit(lua_State* state) {
+            if(lua_gettop(state) < 1 || lua_gettop(state) > 3)
+                return luaL_error(state, "emit expects a name, optional value and target entity");
             luaL_checktype(state, 1, LUA_TSTRING);
             size_t length = 0;
             const char* text = luaL_checklstring(state, 1, &length);
@@ -1128,11 +1149,13 @@ namespace Comet::LuaBindings {
             auto& context = current(state);
             if(!context.scene)
                 return luaL_error(state, "Events require an active runtime scene");
+            const auto target = lua_isnoneornil(state, 3) ? Entity{} : require_entity(state, 3);
             if(lua_isnoneornil(state, 2))
                 context.return_value.reset();
             else
                 read_runtime_value(state, 2);
-            const bool accepted = context.scene->emit_event(name, std::move(context.return_value));
+            const bool accepted =
+                context.scene->emit_event(name, std::move(context.return_value), target);
             context.return_value.reset();
             if(!accepted)
                 return luaL_error(
@@ -1183,6 +1206,20 @@ namespace Comet::LuaBindings {
         }
         int reference_position(lua_State* state) {
             return push_position(state, require_entity(state));
+        }
+        int reference_transform_point(lua_State* state) {
+            if(lua_gettop(state) != 4)
+                return luaL_error(state, "transform_point expects three local coordinates");
+            const auto entity = require_entity(state);
+            const Math::Vec3 local{number(state, 2), number(state, 3), number(state, 4)};
+            const auto world =
+                Math::Vec3(current(state).scene->get_world_matrix(entity) * Math::Vec4(local, 1));
+            if(!Math::is_finite(world))
+                return luaL_error(state, "Transformed point is not finite");
+            lua_pushnumber(state, world.x);
+            lua_pushnumber(state, world.y);
+            lua_pushnumber(state, world.z);
+            return 3;
         }
         int reference_rotate(lua_State* state) {
             return rotate_entity(state, require_entity(state), 2);
@@ -1263,9 +1300,10 @@ namespace Comet::LuaBindings {
         lua_newtable(state);
         lua_pushlightuserdata(state, &context);
         const luaL_Reg entity_api[]{{"is_valid", reference_valid}, {"position", reference_position},
-            {"rotate", reference_rotate}, {"translate", reference_translate},
-            {"scale", reference_scale}, {"set_scale", reference_set_scale},
-            {"set_position", reference_set_position}, {nullptr, nullptr}};
+            {"transform_point", reference_transform_point}, {"rotate", reference_rotate},
+            {"translate", reference_translate}, {"scale", reference_scale},
+            {"set_scale", reference_set_scale}, {"set_position", reference_set_position},
+            {nullptr, nullptr}};
         luaL_setfuncs(state, entity_api, 1);
         lua_setfield(state, -2, "__index");
         lua_pop(state, 1);
@@ -1289,13 +1327,13 @@ namespace Comet::LuaBindings {
             {"linear_velocity", linear_velocity}, {"angular_velocity", angular_velocity},
             {"set_animation_parameter", set_animation_parameter},
             {"set_material_scalar", set_material_scalar}, {"move_character", move_character},
-            {"navigate_to", navigate_to}, {"character_grounded", character_grounded},
-            {"character_state", character_state}, {"control_character", control_character},
-            {"set_material_vector", set_material_vector}, {"session_get", session_get},
-            {"session_set", session_set}, {"emit", emit}, {"set_input_context", set_input_context},
-            {"action_value", action_value}, {"action_down", action_down},
-            {"action_pressed", action_pressed}, {"action_released", action_released},
-            {nullptr, nullptr}};
+            {"navigate_to", navigate_to}, {"face_movement", face_movement},
+            {"character_grounded", character_grounded}, {"character_state", character_state},
+            {"control_character", control_character}, {"set_material_vector", set_material_vector},
+            {"session_get", session_get}, {"session_set", session_set}, {"emit", emit},
+            {"set_input_context", set_input_context}, {"action_value", action_value},
+            {"action_down", action_down}, {"action_pressed", action_pressed},
+            {"action_released", action_released}, {nullptr, nullptr}};
         luaL_setfuncs(state, api, 1);
         lua_setglobal(state, "comet");
     }

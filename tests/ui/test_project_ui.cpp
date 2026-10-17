@@ -323,6 +323,32 @@ namespace Comet::Tests {
         EXPECT_FALSE(hint->IsVisible());
     }
 
+    TEST_F(ProjectUiGpuTest, CombatHudShowsHealthDefeatAndDeathWithoutCollectionActions) {
+        session_values = {{"demo.mode", std::string("combat")}, {"combat.health.player", 120.f},
+            {"combat.maximum", 120.f}, {"combat.defeated", 0.f}, {"combat.total", 2.f},
+            {"character.score", 3.f}};
+        ASSERT_TRUE(submit_frame());
+        auto* hint = document().GetElementById("combat-hint");
+        auto* health = document().GetElementById("combat-health");
+        auto* status = document().GetElementById("combat-status");
+        ASSERT_TRUE(hint && health && status);
+        EXPECT_TRUE(hint->IsVisible());
+        EXPECT_NE(health->GetInnerRML().find("120 / 120"), std::string::npos);
+        EXPECT_FALSE(document().GetElementById("game-hint")->IsVisible());
+        EXPECT_FALSE(document().GetElementById("course-actions")->IsVisible());
+        session_values["combat.health.player"] = 72.f;
+        session_values["combat.defeated"] = 2.f;
+        ASSERT_TRUE(submit_frame());
+        EXPECT_NE(health->GetInnerRML().find("72 / 120"), std::string::npos);
+        EXPECT_NE(status->GetInnerRML().find("挑战完成"), std::string::npos);
+        session_values["combat.health.player"] = 0.f;
+        ASSERT_TRUE(submit_frame());
+        EXPECT_NE(status->GetInnerRML().find("你已倒下"), std::string::npos);
+        session_values.clear();
+        ASSERT_TRUE(submit_frame());
+        EXPECT_FALSE(hint->IsVisible());
+    }
+
     TEST_F(ProjectUiGpuTest, CourseButtonsSendEventsAndHideBehindSettingsOrWhenStopped) {
         session_values["character.level"] = 1.0f;
         session_values["character.score"] = 3.0f;

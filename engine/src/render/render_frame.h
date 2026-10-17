@@ -27,7 +27,7 @@ namespace Comet {
             LineDrawList lines;
         };
         struct IrradianceInput {
-            RenderIrradianceVolume volume;
+            std::vector<RenderIrradianceVolume> volumes;
             std::shared_ptr<const RayScene> scene;
         };
         uint64_t serial = 0;

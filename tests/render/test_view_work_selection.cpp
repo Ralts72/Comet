@@ -43,7 +43,7 @@ namespace Comet::Tests {
         const auto selected = ViewLightingData::prepare(
             {world, ViewProjectMatrix{Math::Mat4(1), Math::Mat4(1)}}, lights);
         EXPECT_FALSE(selected.environment);
-        EXPECT_FALSE(selected.irradiance);
+        EXPECT_EQ(selected.irradiance_volume_count, 0u);
         EXPECT_EQ(selected.probe_count, 0u);
         EXPECT_EQ(selected.excess_probes, 0u);
         EXPECT_EQ(selected.excess_irradiance_volumes, 0u);

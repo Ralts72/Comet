@@ -137,6 +137,7 @@ namespace CometEditor::LightingBakeInput {
             writer.write_u64(volume.irradiance.value());
             writer.write_float(volume.intensity);
             writer.write_float(volume.normal_bias);
+            writer.write_float(volume.blend_distance);
             handles.insert(volume.irradiance);
         }
         std::set<AssetHandle> visited;

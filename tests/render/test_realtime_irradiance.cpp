@@ -5,6 +5,7 @@
 #include "render/ray_scene.h"
 #include "render/passes/realtime_irradiance_pass.h"
 #include "render/resource/irradiance.h"
+#include "render/material/view_lighting.h"
 #include "render/scene/render_submission.h"
 
 namespace Comet::Tests {
@@ -97,16 +98,17 @@ namespace Comet::Tests {
             const std::shared_ptr<Readback>& readback, uint64_t lifetime = 1,
             bool measure = false) {
             begin_frame(frames);
-            auto result = pass.update(frames, lifetime, scene.snapshot, settings, measure);
+            auto result = pass.update(frames, lifetime, scene.snapshot, std::span(&settings, 1),
+                settings.update_budget, measure);
             EXPECT_TRUE(result) << result.error().message;
             if(!result)
                 return {};
-            copy_probes(frames, *result.value(), readback);
+            copy_probes(frames, *result.value().front().resource, readback);
             if(HasFatalFailure())
                 return {};
             submit(frames.get_device(), frames);
             frames.wait_for_all_slots();
-            return decode_probes(*result.value(), *readback);
+            return decode_probes(*result.value().front().resource, *readback);
         }
     };
 
@@ -157,6 +159,18 @@ namespace Comet::Tests {
         ASSERT_NO_FATAL_FAILURE(draw());
         EXPECT_EQ(renderer.get_irradiance_statistics().probes, 64u);
         EXPECT_EQ(renderer.get_irradiance_statistics().updated_probes, 3u);
+        EXPECT_EQ(mesh_reads, 2u);
+
+        auto second = selected;
+        second.entity_id = EntityId(10);
+        second.center.x += 1;
+        source.world.irradiance_volumes.push_back({.volume = second});
+        source.world.environment.realtime_gi_budget = 1;
+        ASSERT_NO_FATAL_FAILURE(draw());
+        EXPECT_EQ(renderer.get_irradiance_statistics().regions, 2u);
+        EXPECT_EQ(renderer.get_irradiance_statistics().probes, 128u);
+        EXPECT_EQ(renderer.get_irradiance_statistics().updated_probes, 1u);
+        EXPECT_GE(renderer.get_irradiance_statistics().evaluated_probes, 4u);
         EXPECT_EQ(mesh_reads, 2u);
 
         view.visible = false;
@@ -241,11 +255,9 @@ namespace Comet::Tests {
         const auto first = draw();
         EXPECT_EQ(active(first), 1);
         EXPECT_EQ(pass.statistics().evaluated_probes, 1u);
-        EXPECT_EQ(pass.statistics().first_updated_probe, 0u);
         const auto second = draw();
         EXPECT_EQ(active(second), 2);
         EXPECT_EQ(pass.statistics().evaluated_probes, 2u);
-        EXPECT_EQ(pass.statistics().first_updated_probe, 1u);
         EXPECT_EQ(std::memcmp(&first.probes[0], &second.probes[0], sizeof(IrradianceProbe)), 0);
         for(int i = 0; i < 6; ++i)
             EXPECT_EQ(active(draw()), i + 3);
@@ -281,12 +293,15 @@ namespace Comet::Tests {
         EXPECT_EQ(active(draw()), 0); // 地面背后的探针不能向上泄漏光照。
         begin_frame(frames);
         settings.update_rays = 0;
-        EXPECT_FALSE(pass.update(frames, lifetime, scene.snapshot, settings));
+        EXPECT_FALSE(pass.update(
+            frames, lifetime, scene.snapshot, std::span(&settings, 1), settings.update_budget));
         settings = region();
         settings.spacing = .1f;
         settings.half_extents = {100, 100, 100};
-        EXPECT_FALSE(pass.update(frames, lifetime, scene.snapshot, settings));
-        EXPECT_FALSE(pass.update(frames, lifetime, std::make_shared<RayScene>(), region()));
+        EXPECT_FALSE(pass.update(
+            frames, lifetime, scene.snapshot, std::span(&settings, 1), settings.update_budget));
+        EXPECT_FALSE(pass.update(
+            frames, lifetime, std::make_shared<RayScene>(), std::span(&settings, 1), 8));
     }
     TEST_F(RealtimeIrradianceGpuTest, RealtimeIrradianceVisibilityKeepsLightBehindTheWall) {
         auto& device = engine->get_renderer().get_render_context().get_device();
@@ -393,10 +408,11 @@ namespace Comet::Tests {
                 world.render_items[0].model_matrix =
                     Math::translate(Math::Mat4(1), {frame % 2 ? .1f : 0, 0, frame % 2 ? .2f : 0});
                 begin_frame(frames);
-                auto result = pass.update(frames, 1, source.snapshot, settings);
+                auto result = pass.update(
+                    frames, 1, source.snapshot, std::span(&settings, 1), settings.update_budget);
                 ASSERT_TRUE(result) << result.error().message;
-                const ResolvedIrradianceVolume live{settings, result.value()};
-                const RenderSubmission submission{world, camera, {}, {}, &live};
+                const ResolvedIrradianceVolume live{settings, result.value().front().resource};
+                const RenderSubmission submission{world, camera, {}, {}, std::span(&live, 1)};
                 RenderGeometry geometry;
                 geometry.prepare(world);
                 const auto drawn = renderer.value()->render(frames, submission, geometry);
@@ -481,7 +497,7 @@ namespace Comet::Tests {
                 SCOPED_TRACE(int(mode));
                 begin_frame(frames);
                 const RenderSubmission submission{
-                    world, camera, {}, {}, realtime ? &live : &unrelated, mode};
+                    world, camera, {}, {}, std::span(realtime ? &live : &unrelated, 1), mode};
                 RenderGeometry geometry;
                 geometry.prepare(world);
                 const auto drawn = renderer.value()->render(frames, submission, geometry);
@@ -536,7 +552,9 @@ namespace Comet::Tests {
         settings.history_weight = 0;
         auto readback = std::make_shared<Readback>(
             device, device.get_capability().physical_device, 8 * sizeof(IrradianceProbe));
-        std::shared_ptr<Irradiance> last;
+        auto second_readback = std::make_shared<Readback>(
+            device, device.get_capability().physical_device, 8 * sizeof(IrradianceProbe));
+        std::array<std::shared_ptr<Irradiance>, 2> last;
         for(unsigned frame = 0; frame < 8; ++frame) {
             scene.world.lights[0].color = frame % 2 ? Math::Vec3(0, 1, 0) : Math::Vec3(1, 0, 0);
             if(frame == 3)
@@ -545,23 +563,195 @@ namespace Comet::Tests {
                 settings.center.x = .1f;
             ASSERT_NO_FATAL_FAILURE(scene.capture());
             begin_frame(frames);
-            auto updated = pass.update(frames, frame < 3 ? 1 : 2, scene.snapshot, settings);
+            auto second = settings;
+            second.entity_id = 2;
+            second.center.x += .5f;
+            const std::array regions{settings, second};
+            auto updated = pass.update(frames, frame < 3 ? 1 : 2, scene.snapshot, regions, 16);
             ASSERT_TRUE(updated) << updated.error().message;
             if(frame == 5)
                 pass.reset(); // 已录制的旧代仍由 GPU 帧槽保活。
             if(frame == 7) {
-                last = updated.value();
-                ASSERT_NO_FATAL_FAILURE(copy_probes(frames, *last, readback));
+                last = {updated.value()[0].resource, updated.value()[1].resource};
+                ASSERT_NO_FATAL_FAILURE(copy_probes(frames, *last[0], readback));
+                ASSERT_NO_FATAL_FAILURE(copy_probes(frames, *last[1], second_readback));
             }
             submit(device, frames);
         }
         frames.wait_for_all_slots();
-        ASSERT_TRUE(last);
-        const auto data = decode_probes(*last, *readback);
-        const auto color = data.sample(settings.center, {0, 0, -1});
-        ASSERT_TRUE(color);
-        EXPECT_GT(color->g, .12f);
-        EXPECT_LT(color->r, .001f);
+        for(unsigned i = 0; i < last.size(); ++i) {
+            ASSERT_TRUE(last[i]);
+            const auto data = decode_probes(*last[i], i ? *second_readback : *readback);
+            const auto color = data.sample(last[i]->origin, {0, 0, -1});
+            ASSERT_TRUE(color);
+            EXPECT_GT(color->g, .12f);
+            EXPECT_LT(color->r, .001f);
+        }
     }
 
+    TEST_F(RealtimeIrradianceGpuTest, MultipleRegionsShareInputsAndPreserveIndependentHistories) {
+        auto& device = engine->get_renderer().get_render_context().get_device();
+        FrameScheduler frames(device, 2);
+        frames.initialize_swapchain_images(1);
+        FrameWait wait{device, frames};
+        RealtimeIrradiancePass pass(device);
+        ProbeScene scene;
+        ASSERT_NO_FATAL_FAILURE(scene.capture());
+        std::array<RenderIrradianceVolume, 4> regions;
+        for(unsigned i = 0; i < regions.size(); ++i) {
+            regions[i] = region();
+            regions[i].entity_id = i + 1;
+            regions[i].center.x = float(i);
+        }
+        regions[0].update_budget = 1;
+        auto readback = std::make_shared<Readback>(
+            device, device.get_capability().physical_device, 8 * sizeof(IrradianceProbe));
+        std::vector<ResolvedIrradianceVolume> outputs;
+        const auto draw = [&](uint32_t budget, uint64_t lifetime = 1) {
+            begin_frame(frames);
+            auto updated = pass.update(frames, lifetime, scene.snapshot, regions, budget);
+            ASSERT_TRUE(updated) << updated.error().message;
+            outputs = std::move(updated).value();
+            ASSERT_EQ(outputs.size(), regions.size());
+            EXPECT_EQ(pass.statistics().regions, 4u);
+            EXPECT_EQ(pass.statistics().probes, 32u);
+            EXPECT_EQ(pass.statistics().updated_probes, budget);
+            EXPECT_EQ(pass.statistics().image_bytes, 32u * sizeof(IrradianceProbe) * 2);
+            // 新区域即使没有分到预算也必须可安全采样，不能含未初始化数据。
+            ASSERT_NO_FATAL_FAILURE(copy_probes(frames, *outputs.back().resource, readback));
+            submit(device, frames);
+            frames.wait_for_all_slots();
+        };
+        ASSERT_NO_FATAL_FAILURE(draw(1));
+        const auto pending = decode_probes(*outputs.back().resource, *readback);
+        EXPECT_EQ(std::ranges::count_if(pending.probes, &IrradianceProbe::active), 0);
+        const auto uploaded = pass.statistics().upload_bytes;
+        for(unsigned i = 0; i < 7; ++i)
+            ASSERT_NO_FATAL_FAILURE(draw(1));
+        for(const auto& output : outputs)
+            EXPECT_EQ(output.evaluated_probes, 2u);
+        EXPECT_EQ(pass.statistics().upload_bytes, uploaded);
+
+        regions[0].center.x += .1f;
+        ASSERT_NO_FATAL_FAILURE(draw(4));
+        EXPECT_EQ(outputs[0].evaluated_probes, 1u);
+        for(unsigned i = 1; i < outputs.size(); ++i)
+            EXPECT_EQ(outputs[i].evaluated_probes, 3u);
+        EXPECT_EQ(pass.statistics().upload_bytes, uploaded);
+        std::swap(regions[0], regions[3]);
+        ASSERT_NO_FATAL_FAILURE(draw(4));
+        EXPECT_EQ(outputs[0].evaluated_probes, 4u);
+        EXPECT_EQ(outputs[3].evaluated_probes, 2u);
+        ASSERT_NO_FATAL_FAILURE(draw(4, 2));
+        for(const auto& output : outputs)
+            EXPECT_EQ(output.evaluated_probes, 1u);
+        EXPECT_EQ(pass.statistics().upload_bytes, uploaded);
+        begin_frame(frames);
+        regions[1].entity_id = regions[0].entity_id;
+        EXPECT_FALSE(pass.update(frames, 2, scene.snapshot, regions, 4));
+    }
+
+    TEST_F(RealtimeIrradianceGpuTest, SelectionUsesVisibleBoundsDistanceAndStableIdentity) {
+        IrradianceData data;
+        data.origin = {0, 0, -4};
+        data.spacing = {1, 1, 1};
+        data.probes.resize(8);
+        auto created = Irradiance::try_create(engine->get_render_resources(), data);
+        ASSERT_TRUE(created);
+        RenderWorld world;
+        const std::array<float, 6> positions{4, 0, 2, 0, 1, 100};
+        for(unsigned i = 0; i < positions.size(); ++i) {
+            auto resource = std::make_shared<Irradiance>(*created.value());
+            resource->origin.x = positions[i];
+            world.irradiance_volumes.push_back({{.entity_id = 6 - i}, resource});
+        }
+        const auto selected = ViewLightingData::prepare(
+            {world, ViewProjectMatrix{Math::Mat4(1), Math::ortho(-10, 10, -10, 10, .1f, 100)}}, {});
+        EXPECT_EQ(selected.irradiance_volume_count, 4u);
+        EXPECT_EQ(selected.excess_irradiance_volumes, 1u); // 屏外区域不计入超预算。
+        EXPECT_EQ(selected.irradiance_probes, 32u);
+        const std::array<unsigned, 4> expected{3, 1, 4, 2};
+        for(unsigned i = 0; i < expected.size(); ++i)
+            EXPECT_EQ(selected.irradiance[i], world.irradiance_volumes[expected[i]].resource);
+    }
+
+    TEST_F(RealtimeIrradianceGpuTest, OverlappingBakedAndLiveRegionsBlendWithoutAddingEnergy) {
+        auto& device = engine->get_renderer().get_render_context().get_device();
+        std::array<std::shared_ptr<Irradiance>, 2> resources;
+        for(unsigned i = 0; i < resources.size(); ++i) {
+            IrradianceData data;
+            // 接收面紧邻两个区域共有的 Y 边界，不能把 X 方向的混合压平成等权。
+            data.origin = {i ? .125f : -1.375f, .9f, -1};
+            data.spacing = {1.25f, 2, 2};
+            data.probes.resize(8);
+            for(auto& probe : data.probes) {
+                probe.coefficients[0] = Math::Vec4(
+                    (i ? Math::Vec3(0, .4f, 0) : Math::Vec3(.4f, 0, 0)) / .2820947918f, 1);
+                probe.visibility.fill({100, 10000});
+            }
+            auto created = Irradiance::try_create(engine->get_render_resources(), data);
+            ASSERT_TRUE(created) << created.error().message;
+            resources[i] = std::move(created).value();
+        }
+        auto material = std::make_shared<Material>("GI blend receiver", "pbr");
+        ASSERT_TRUE(material->set_vector_property("base_color", {1, 1, 1, 1}));
+        ASSERT_TRUE(material->set_scalar_property("roughness", 1));
+        const ViewProjectMatrix camera{
+            Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}), Math::ortho(-1, 1, -1, 1, .1f, 10)};
+        constexpr Math::Vec2u size{65, 33};
+        for(const auto path : {RenderPath::Forward, RenderPath::Deferred}) {
+            SCOPED_TRACE(int(path));
+            MaterialPrograms programs;
+            auto renderer = create_scene(programs, size, SampleCount::Count1, true, path);
+            ASSERT_TRUE(renderer);
+            FrameScheduler frames(device, 2);
+            frames.initialize_swapchain_images(1);
+            FrameWait wait{device, frames};
+            RenderWorld world{
+                .render_items = {{.mesh = lit_quad(), .material = {.resource = material}}}};
+            world.irradiance_volumes = {{{.entity_id = 1}, resources[0]},
+                {{.entity_id = 2}, resources[1]}, {{.entity_id = 3}, resources[0]},
+                {{.entity_id = 4}, resources[1]}};
+            ResolvedIrradianceVolume live = world.irradiance_volumes[1];
+            auto readback = std::make_shared<Readback>(
+                device, device.get_capability().physical_device, size.x * size.y * 4);
+            for(unsigned frame = 0; frame < 8; ++frame) {
+                // 静态／静态与静态／实时使用同一条采样；移除后不能残留旧描述符。
+                const bool mixed = frame >= 3 && frame < 6;
+                if(world.irradiance_volumes.size() > 1)
+                    world.irradiance_volumes[1].volume.realtime = mixed;
+                if(frame == 6)
+                    world.irradiance_volumes.resize(1);
+                begin_frame(frames);
+                const RenderSubmission submission{world, camera, {}, {},
+                    mixed ? std::span(&live, 1) : std::span<const ResolvedIrradianceVolume>{}};
+                RenderGeometry geometry;
+                geometry.prepare(world);
+                auto drawn = renderer.value()->render(frames, submission, geometry);
+                ASSERT_TRUE(drawn) << drawn.error().message;
+                const auto image = renderer.value()->get_offscreen_color_view(
+                    frames.get_current_frame_slot_index());
+                ASSERT_NO_FATAL_FAILURE(
+                    finish_readback(*renderer.value(), frames, readback, size, drawn.value()));
+                const auto bytes = readback->read();
+                if(frame < 2)
+                    continue; // TAA 首帧初始化后再比较稳定区域。
+                for(unsigned x : {5u, 19u, 32u, 45u, 59u}) {
+                    const float position = (float(x) + .5f) / size.x * 2 - 1;
+                    const auto smooth = [](float v) {
+                        v = std::clamp(v, 0.f, 1.f);
+                        return v * v * (3 - 2 * v);
+                    };
+                    const float left = smooth(.5f - position);
+                    const float right = frame < 6 ? smooth(position + .5f) : 0;
+                    const float denominator = std::max(left + right, 1e-6f);
+                    const auto color =
+                        read_sdr_pixel(bytes, size, image->get_image()->get_info().format, {x, 16});
+                    EXPECT_NEAR(color.r, mapped_byte(.4f * .96f * left / denominator), 5);
+                    EXPECT_NEAR(color.g, mapped_byte(.4f * .96f * right / denominator), 5);
+                    EXPECT_LT(color.b, 3);
+                }
+            }
+        }
+    }
 }

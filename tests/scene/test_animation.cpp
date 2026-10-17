@@ -42,7 +42,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(mesh.animation);
         EXPECT_EQ(mesh.animation->joints.size(), 65);
         EXPECT_EQ(mesh.skin.size(), mesh.vertices.size());
-        EXPECT_EQ(mesh.animation->clips.size(), 7);
+        EXPECT_EQ(mesh.animation->clips.size(), 8);
         ASSERT_TRUE(validate_animation(*mesh.animation));
         for(const auto& clip : mesh.animation->clips) {
             EXPECT_GT(clip.duration, 0);
@@ -53,6 +53,25 @@ namespace Comet::Tests {
             EXPECT_EQ(sampled.value().matrices.size(), 65);
             EXPECT_GT(sampled.value().bounds.maximum.y, sampled.value().bounds.minimum.y);
         }
+        const auto& animation = *mesh.animation;
+        const auto hand = std::ranges::find_if(animation.joints,
+            [&](const auto& joint) { return animation.nodes[joint.node].name == "hand_r"; });
+        ASSERT_NE(hand, animation.joints.end());
+        const auto index = static_cast<size_t>(hand - animation.joints.begin());
+        AnimationPlayback attack{.current = {.clip = "attack", .loop = false}};
+        auto start = sample_animation(animation, &attack);
+        ASSERT_TRUE(start);
+        attack.current.time = .28;
+        auto strike = sample_animation(animation, &attack);
+        ASSERT_TRUE(strike);
+        EXPECT_GT(strike.value().bone_matrices[index][3].z,
+            start.value().bone_matrices[index][3].z + .3f);
+        attack.current.time = animation.find_clip("attack")->duration;
+        auto recovered = sample_animation(animation, &attack);
+        ASSERT_TRUE(recovered);
+        EXPECT_LT(glm::distance(Math::Vec3(start.value().bone_matrices[index][3]),
+                      Math::Vec3(recovered.value().bone_matrices[index][3])),
+            .0001f);
     }
     TEST(AnimationTest, SamplesLoopsClampsAndBlendsWithoutChangingAsset) {
         auto data = simple_animation();
@@ -94,7 +113,7 @@ namespace Comet::Tests {
         auto loaded = MeshArtifact::load(file, artifact.handle);
         ASSERT_TRUE(loaded);
         ASSERT_TRUE(loaded->data.animation);
-        EXPECT_EQ(loaded->data.animation->clips.size(), 7);
+        EXPECT_EQ(loaded->data.animation->clips.size(), 8);
         EXPECT_EQ(loaded->data.skin.front().joints, artifact.data.skin.front().joints);
         EXPECT_EQ(loaded->data.skin.front().weights, artifact.data.skin.front().weights);
         AnimationPlayback playback{.current = {.clip = "run", .time = 0.15}};

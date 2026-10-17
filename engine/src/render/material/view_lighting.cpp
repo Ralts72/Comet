@@ -79,32 +79,62 @@ namespace Comet {
         }
         selected.lighting.reflection_metadata = {
             float(selected.probe_count), float(selected.excess_probes), 0, 0};
+        const auto camera = Math::Vec3(Math::inverse(view.view)[3]);
+        std::array<std::pair<float, EntityId>, LightingData::MAX_IRRADIANCE_VOLUMES> priorities;
+        uint32_t candidates = 0;
         for(const auto& resolved : submission.world.irradiance_volumes) {
             const auto& volume = resolved.volume;
-            const auto& realtime = submission.realtime_irradiance;
-            const auto resource = volume.realtime
-                                      ? (realtime && realtime->volume.entity_id == volume.entity_id
-                                                ? realtime->resource
-                                                : nullptr)
-                                      : resolved.resource;
+            auto resource = resolved.resource;
+            if(volume.realtime) {
+                resource.reset();
+                for(const auto& live : submission.realtime_irradiance)
+                    if(live.volume.entity_id == volume.entity_id) {
+                        resource = live.resource;
+                        break;
+                    }
+            }
             if(!resource || !resource->probes || !std::isfinite(volume.intensity)
                 || volume.intensity <= 0 || volume.intensity > SceneEnvironment::MAX_INTENSITY
                 || !std::isfinite(volume.normal_bias) || volume.normal_bias < 0
-                || volume.normal_bias > 1 || (frustum && !frustum->intersects(resource->bounds())))
+                || volume.normal_bias > 1 || !std::isfinite(volume.blend_distance)
+                || volume.blend_distance < 0
+                || (frustum && !frustum->intersects(resource->bounds())))
                 continue;
-            if(selected.irradiance) {
-                ++selected.excess_irradiance_volumes;
-                continue;
+            ++candidates;
+            const auto bounds = resource->bounds();
+            const auto delta = camera - glm::clamp(camera, bounds.minimum, bounds.maximum);
+            const auto priority = std::pair(glm::dot(delta, delta), volume.entity_id);
+            auto index =
+                std::min(selected.irradiance_volume_count, LightingData::MAX_IRRADIANCE_VOLUMES);
+            while(index && priority < priorities[index - 1]) {
+                if(index < LightingData::MAX_IRRADIANCE_VOLUMES) {
+                    priorities[index] = priorities[index - 1];
+                    selected.irradiance[index] = selected.irradiance[index - 1];
+                    selected.lighting.irradiance_volumes[index] =
+                        selected.lighting.irradiance_volumes[index - 1];
+                }
+                --index;
             }
-            selected.irradiance = resource;
-            selected.lighting.irradiance_origin = {resource->origin, volume.intensity};
-            selected.lighting.irradiance_spacing_bias = {resource->spacing, volume.normal_bias};
-            selected.lighting.irradiance_dimensions = {Math::Vec3(resource->dimensions), 0};
-            selected.irradiance_probes =
-                resource->dimensions.x * resource->dimensions.y * resource->dimensions.z;
-            selected.irradiance_bytes = uint64_t(selected.irradiance_probes)
-                                        * Irradiance::TEXELS_PER_PROBE * sizeof(Math::Vec4);
+            if(index == LightingData::MAX_IRRADIANCE_VOLUMES)
+                continue;
+            priorities[index] = priority;
+            selected.irradiance[index] = resource;
+            selected.lighting.irradiance_volumes[index] = {{resource->origin, volume.intensity},
+                {resource->spacing, volume.normal_bias},
+                {Math::Vec3(resource->dimensions), volume.blend_distance}};
+            selected.irradiance_volume_count = std::min(
+                selected.irradiance_volume_count + 1, LightingData::MAX_IRRADIANCE_VOLUMES);
         }
+        selected.excess_irradiance_volumes = candidates - selected.irradiance_volume_count;
+        selected.lighting.irradiance_metadata = {float(selected.irradiance_volume_count),
+            float(selected.excess_irradiance_volumes), 0, 0};
+        for(const auto& resource : selected.irradiance)
+            if(resource) {
+                const auto dimensions = resource->dimensions;
+                selected.irradiance_probes += dimensions.x * dimensions.y * dimensions.z;
+            }
+        selected.irradiance_bytes = uint64_t(selected.irradiance_probes)
+                                    * Irradiance::TEXELS_PER_PROBE * sizeof(Math::Vec4);
         return selected;
     }
 
@@ -146,8 +176,14 @@ namespace Comet {
         frame_bindings.add_binding(2, DescriptorType::CombinedImageSampler,
             Flags<ShaderStage>(ShaderStage::Fragment) | ShaderStage::Compute);
         for(uint32_t binding = 3; binding <= 12; ++binding)
-            frame_bindings.add_binding(binding, DescriptorType::CombinedImageSampler,
-                Flags<ShaderStage>(ShaderStage::Fragment));
+            if(binding != 11)
+                frame_bindings.add_binding(binding, DescriptorType::CombinedImageSampler,
+                    Flags<ShaderStage>(ShaderStage::Fragment));
+        // 共用 sampler，避免 Deferred 的 G-buffer 与多区域 GI 超过设备的 sampler 上限。
+        frame_bindings.add_binding(11, DescriptorType::SampledImage,
+            Flags<ShaderStage>(ShaderStage::Fragment), LightingData::MAX_IRRADIANCE_VOLUMES);
+        frame_bindings.add_binding(
+            13, DescriptorType::Sampler, Flags<ShaderStage>(ShaderStage::Fragment));
         auto frame_layout = DescriptorSetLayout::create(device, frame_bindings);
         if(!frame_layout)
             return Result<void, GraphicsError>::failure(frame_layout.error());
@@ -155,7 +191,10 @@ namespace Comet {
         DescriptorPoolSizes pool_sizes;
         pool_sizes.add_pool_size(DescriptorType::UniformBuffer, frame_slots * 2);
         pool_sizes.add_pool_size(DescriptorType::CombinedImageSampler,
-            frame_slots * (7 + LightingData::MAX_REFLECTION_PROBES));
+            frame_slots * (6 + LightingData::MAX_REFLECTION_PROBES));
+        pool_sizes.add_pool_size(
+            DescriptorType::SampledImage, frame_slots * LightingData::MAX_IRRADIANCE_VOLUMES);
+        pool_sizes.add_pool_size(DescriptorType::Sampler, frame_slots);
         auto pool_result = DescriptorPool::create(device, frame_slots, pool_sizes);
         if(!pool_result)
             return Result<void, GraphicsError>::failure(pool_result.error());
@@ -185,11 +224,13 @@ namespace Comet {
             const std::array writes{
                 DescriptorSet::UniformBufferWrite{0, *frame->buffer, sizeof(ViewFrameData)},
                 DescriptorSet::UniformBufferWrite{1, *frame->lighting, sizeof(LightingData)}};
-            const std::array fallbacks{DescriptorSet::ImageSamplerWrite{11,
-                                           *m_fallback->get_image_view(), *frame->shadow_sampler},
-                DescriptorSet::ImageSamplerWrite{
-                    12, *m_fallback->get_image_view(), *frame->shadow_sampler}};
-            frame->descriptor->update(device, writes, fallbacks);
+            const DescriptorSet::ImageSamplerWrite fallback{
+                12, *m_fallback->get_image_view(), *frame->shadow_sampler};
+            frame->descriptor->update(device, writes, std::span(&fallback, 1));
+            std::array<const ImageView*, LightingData::MAX_IRRADIANCE_VOLUMES> images;
+            images.fill(m_fallback->get_image_view().get());
+            frame->descriptor->write_sampled_images(device, 11, images);
+            frame->descriptor->write_sampler(device, 13, *frame->shadow_sampler);
             m_frames.push_back(std::move(frame));
         }
         return Result<void, GraphicsError>::success();
@@ -199,7 +240,7 @@ namespace Comet {
         return *m_frames.at(slot)->descriptor;
     }
 
-    const std::shared_ptr<Irradiance>& ViewBindings::irradiance(uint32_t slot) const {
+    std::span<const std::shared_ptr<Irradiance>> ViewBindings::irradiance(uint32_t slot) const {
         return m_frames.at(slot)->irradiance;
     }
 
@@ -271,23 +312,25 @@ namespace Comet {
         if(selected.excess_probes && previous_excess_probes != selected.excess_probes)
             LOG_WARN("Reflection probes omitted {} excess visible probes (limit {})",
                 selected.excess_probes, LightingData::MAX_REFLECTION_PROBES);
-        const auto& irradiance = selected.irradiance;
         m_statistics.irradiance_probes = selected.irradiance_probes;
         m_statistics.irradiance_bytes = selected.irradiance_bytes;
         m_statistics.excess_irradiance_volumes = selected.excess_irradiance_volumes;
         if(selected.excess_irradiance_volumes
             && previous_excess_gi != selected.excess_irradiance_volumes)
-            LOG_WARN("GI omitted {} excess visible volumes (limit 1)",
-                selected.excess_irradiance_volumes);
-        if(frame->irradiance != irradiance) {
-            const auto& texture = irradiance ? irradiance->probes : m_fallback;
-            const DescriptorSet::ImageSamplerWrite write{
-                11, *texture->get_image_view(), *frame->shadow_sampler};
-            frame->descriptor->update(device, {}, std::span(&write, 1));
-            frame->irradiance = irradiance;
+            LOG_WARN("GI omitted {} excess visible volumes (limit {})",
+                selected.excess_irradiance_volumes, LightingData::MAX_IRRADIANCE_VOLUMES);
+        if(frame->irradiance != selected.irradiance) {
+            std::array<const ImageView*, LightingData::MAX_IRRADIANCE_VOLUMES> images;
+            for(uint32_t index = 0; index < images.size(); ++index) {
+                const auto& resource = selected.irradiance[index];
+                images[index] = (resource ? resource->probes : m_fallback)->get_image_view().get();
+            }
+            frame->descriptor->write_sampled_images(device, 11, images);
+            frame->irradiance = selected.irradiance;
         }
-        if(irradiance)
-            append_wait(irradiance->probes->get_ready_completion());
+        for(const auto& resource : selected.irradiance)
+            if(resource)
+                append_wait(resource->probes->get_ready_completion());
         frame->lighting->write(&frame_lighting);
         if(frame->environment != environment) {
             const std::array writes{

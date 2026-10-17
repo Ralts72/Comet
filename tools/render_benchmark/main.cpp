@@ -65,7 +65,7 @@ namespace {
     constexpr std::string_view USAGE =
         "Usage: render_benchmark OUTPUT.csv OBJECTS WIDTH HEIGHT FRAMES BLOOM(0/1) "
         "[MATERIALS [static|moving|script-moving|skeletal|light-moving|culling|project-shader|physics-active|physics-sleeping|reflections-off|reflections|gi-off|gi|gi-moving "
-        "[MSAA ANISOTROPY RENDER_SCALE [forward|deferred]]]]";
+        "[MSAA ANISOTROPY RENDER_SCALE [forward|deferred [GI_REGIONS(1..4)]]]]]";
 
     enum class Workload {
         Static,
@@ -135,6 +135,7 @@ namespace {
         unsigned materials = 1;
         Workload workload = Workload::Static;
         Comet::QualitySettings quality{4, 1, 1};
+        unsigned gi_regions = 1;
     };
 
     Result<Options> parse_options(int argc, char** argv) {
@@ -143,7 +144,8 @@ namespace {
             && std::string_view(argv[argc - 1]) == "NO")
             argc -= 2;
 #endif
-        if(argc < 7 || (argc > 9 && argc != 12 && argc != 13) || std::string_view(argv[1]).empty())
+        if(argc < 7 || (argc > 9 && argc != 12 && argc != 13 && argc != 14)
+            || std::string_view(argv[1]).empty())
             return Result<Options>::failure(std::string(USAGE));
         const std::array<unsigned, 6> minimum{1, 64, 64, 8, 0, 1};
         const std::array<unsigned, 6> maximum{4096, 4096, 4096, 10000, 1, 256};
@@ -206,7 +208,7 @@ namespace {
             if(!number(argv[9], quality.msaa_samples) || !number(argv[10], quality.max_anisotropy)
                 || !number(argv[11], quality.render_scale))
                 return Result<Options>::failure("Invalid benchmark quality arguments");
-            if(argc == 13) {
+            if(argc >= 13) {
                 const std::string_view path(argv[12]);
                 if(path == "deferred")
                     quality.render_path = Comet::RenderPath::Deferred;
@@ -219,8 +221,18 @@ namespace {
         if((workload == Workload::Reflections || workload == Workload::ReflectionSurface)
             && quality.render_path != Comet::RenderPath::Deferred)
             return Result<Options>::failure("Reflection workloads require deferred rendering");
+        unsigned gi_regions = 1;
+        if(argc == 14) {
+            const std::string_view text(argv[13]);
+            const auto [end, error] =
+                std::from_chars(text.data(), text.data() + text.size(), gi_regions);
+            if(error != std::errc{} || end != text.data() + text.size() || !gi_regions
+                || gi_regions > 4 || !uses_irradiance(workload))
+                return Result<Options>::failure(
+                    "GI_REGIONS requires a GI workload and a count from 1 to 4");
+        }
         return Result<Options>::success({argv[1], values[0], values[1], values[2], values[3],
-            values[4] != 0, values[5], workload, quality});
+            values[4] != 0, values[5], workload, quality, gi_regions});
     }
 
     Result<std::filesystem::path> create_temporary_project() {
@@ -491,15 +503,24 @@ namespace {
                 .intensity = 20,
                 .range = 12});
         if(uses_irradiance(options.workload)) {
-            auto region = create_entity("Realtime GI region");
-            region.set_transform({.translation = {0, 1, 0}});
-            region.add_component<Comet::IrradianceVolumeComponent>(
-                Comet::IrradianceVolumeComponent{.enabled = irradiance_enabled(options.workload),
-                    .half_extents = {5.5f, 2, 5.5f},
-                    .spacing = 1,
-                    .realtime = true,
-                    .update_budget = 8,
-                    .update_rays = 64});
+            auto environment = scene->get_environment();
+            environment.realtime_gi_budget = 8;
+            if(!scene->set_environment(environment))
+                return Result<void>::failure("Invalid benchmark GI budget");
+            for(unsigned i = 0; i < options.gi_regions; ++i) {
+                const auto name = "Realtime GI region " + std::to_string(i + 1);
+                auto region = create_entity(name.c_str());
+                region.set_transform(
+                    {.translation = {float(i) * 2 - float(options.gi_regions - 1), 1, 0}});
+                region.add_component<Comet::IrradianceVolumeComponent>(
+                    Comet::IrradianceVolumeComponent{
+                        .enabled = irradiance_enabled(options.workload),
+                        .half_extents = {5.5f, 2, 5.5f},
+                        .spacing = 1,
+                        .realtime = true,
+                        .update_budget = 8,
+                        .update_rays = 64});
+            }
         }
         engine.set_scene(std::move(scene));
         return Result<void>::success();
@@ -511,7 +532,8 @@ namespace {
         Measurement(Comet::Engine& engine, const Options& options)
             : m_engine(engine), m_options(options),
               m_physics(engine.get_scene_runtime().find_system<Comet::PhysicsSystem>()),
-              m_warmup(std::max(uses_irradiance(options.workload) ? 128u : WARMUP_FRAMES,
+              m_warmup(std::max(uses_irradiance(options.workload) ? 128u * options.gi_regions
+                                                                  : WARMUP_FRAMES,
                            options.frames / 4)
                        + (options.workload == Workload::PhysicsSleeping ? SETTLE_STEPS : 0)),
               m_size(engine.get_renderer().get_scene_renderer().get_render_target().get_size()),
@@ -773,9 +795,10 @@ namespace {
                    << " gpu_samples=" << gpu_samples << " gpu_status=" << gpu_status << '\n'
                    << "# gpu_error=" << snapshot.gpu_error << '\n'
                    << "# realtime_gi=" << irradiance_enabled(m_options.workload)
-                   << " probes=" << irradiance.probes
+                   << " regions=" << irradiance.regions << " probes=" << irradiance.probes
                    << " updated_probes=" << irradiance.updated_probes << " rays=" << irradiance.rays
                    << " image_bytes=" << irradiance.image_bytes
+                   << " upload_bytes=" << irradiance.upload_bytes
                    << " geometry_upload_bytes=" << irradiance.geometry_upload_bytes << '\n'
                    << "# vma_allocation_bytes=" << allocated << '\n'
                    << "metric,samples,p50_ms,p95_ms,p99_ms,mean_ms\n";
@@ -844,8 +867,8 @@ namespace {
         Result<void> validate_workload(const Comet::PhysicsService::Statistics& physics) {
             if(irradiance_enabled(m_options.workload)) {
                 const auto gi = m_engine.get_renderer().get_irradiance_statistics();
-                if(gi.probes != 484 || gi.updated_probes != 8 || gi.rays != 1024
-                    || !gi.geometry_upload_bytes)
+                if(gi.regions != m_options.gi_regions || gi.probes != 484 * m_options.gi_regions
+                    || gi.updated_probes != 8 || gi.rays != 1024 || !gi.geometry_upload_bytes)
                     return Result<void>::failure("GI benchmark did not update the expected probes");
                 const bool geometry_changed = gi.geometry_upload_bytes != m_gi_geometry_bytes;
                 const bool expected_motion = m_options.workload == Workload::IrradianceMoving;

@@ -112,6 +112,7 @@ set(UNIT_TEST_SOURCES
         input/test_player_input_settings.cpp
         input/test_runtime_input.cpp
         physics/test_physics_service.cpp
+        gameplay/test_combat_demo.cpp
         ui/test_demo_ui.cpp
         ui/test_resource_dependencies.cpp
         render/test_ray_scene.cpp

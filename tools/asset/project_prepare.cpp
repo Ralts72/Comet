@@ -289,7 +289,11 @@ namespace Comet {
             }
             AssetDatabase database(paths);
             const auto scan = database.scan();
-            if(!scan.succeeded() || database.is_read_only())
+            if(!scan.succeeded())
+                return Result<void>::failure("Cannot index export asset "
+                                             + scan.issues.front().path.generic_string() + ": "
+                                             + scan.issues.front().message);
+            if(database.is_read_only())
                 return Result<void>::failure("Export requires a valid source project asset index");
             staging = target.parent_path() / (".comet-export-" + Uuid::generate().to_string());
             std::filesystem::create_directories(staging / "assets");

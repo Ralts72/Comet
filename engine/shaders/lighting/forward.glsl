@@ -3,6 +3,7 @@
 #ifndef COMET_SHADOW_PCF_RADIUS
 #define COMET_SHADOW_PCF_RADIUS 1
 #endif
+#include "irradiance_texture.glsl"
 const int LIGHT_DIRECTIONAL = 0;
 const int LIGHT_POINT = 1;
 const int LIGHT_SPOT = 2;
@@ -33,6 +34,11 @@ struct ReflectionProbe {
     vec4 maximum_lod;
     vec4 rotation_projection;
 };
+struct IrradianceVolume {
+    vec4 origin_intensity;
+    vec4 spacing_bias;
+    vec4 dimensions_blend;
+};
 layout(set = 0, binding = 1, std140) uniform LightingData {
     Light lights[32];
     float light_count;
@@ -54,9 +60,8 @@ layout(set = 0, binding = 1, std140) uniform LightingData {
     vec4 environment; // intensity, max LOD, sin(rotation), cos(rotation)
     ReflectionProbe reflection_probes[4];
     vec4 reflection_metadata; // active count, excess count
-    vec4 irradiance_origin; // first cell center, intensity (zero disables GI)
-    vec4 irradiance_spacing_bias;
-    vec4 irradiance_dimensions;
+    IrradianceVolume irradiance_volumes[MAX_IRRADIANCE_VOLUMES];
+    vec4 irradiance_metadata;
     vec4 fog_parameters;
 } lighting;
 layout(set = 0, binding = 2) uniform sampler2D shadow_map;

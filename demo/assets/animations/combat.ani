@@ -1,0 +1,225 @@
+{
+  "initial": "ground",
+  "parameters": {
+    "speed": 0.0,
+    "grounded": true,
+    "rising": false,
+    "crouched": false,
+    "attacking": false
+  },
+  "states": [
+    {
+      "name": "ground",
+      "parameter": "speed",
+      "smoothing": 0.15,
+      "loop": true,
+      "motions": [
+        {
+          "threshold": 0,
+          "clip": "idle"
+        },
+        {
+          "threshold": 4,
+          "clip": "walk"
+        },
+        {
+          "threshold": 6,
+          "clip": "run"
+        }
+      ],
+      "events": [
+        {
+          "phase": 0.2,
+          "name": "footstep",
+          "value": "left"
+        },
+        {
+          "phase": 0.7,
+          "name": "footstep",
+          "value": "right"
+        }
+      ]
+    },
+    {
+      "name": "crouch",
+      "parameter": "speed",
+      "smoothing": 0.15,
+      "loop": true,
+      "motions": [
+        {
+          "threshold": 0,
+          "clip": "crouch"
+        },
+        {
+          "threshold": 2,
+          "clip": "crouch_walk"
+        }
+      ],
+      "events": [
+        {
+          "phase": 0.2,
+          "name": "footstep",
+          "value": "left"
+        },
+        {
+          "phase": 0.7,
+          "name": "footstep",
+          "value": "right"
+        }
+      ]
+    },
+    {
+      "name": "jump",
+      "parameter": "",
+      "smoothing": 0,
+      "loop": false,
+      "motions": [
+        {
+          "threshold": 0,
+          "clip": "jump"
+        }
+      ]
+    },
+    {
+      "name": "fall",
+      "parameter": "",
+      "smoothing": 0,
+      "loop": false,
+      "motions": [
+        {
+          "threshold": 0,
+          "clip": "fall"
+        }
+      ]
+    },
+    {
+      "name": "attack",
+      "loop": false,
+      "motions": [
+        {
+          "threshold": 0,
+          "clip": "attack"
+        }
+      ],
+      "events": [
+        {
+          "phase": 0.43,
+          "name": "combat.strike",
+          "value": 0
+        },
+        {
+          "phase": 0.95,
+          "name": "combat.recover",
+          "value": 0
+        }
+      ]
+    }
+  ],
+  "transitions": [
+    {
+      "from": "",
+      "to": "attack",
+      "duration": 0.08,
+      "after_finished": false,
+      "conditions": [
+        {
+          "parameter": "attacking",
+          "compare": "==",
+          "value": true
+        }
+      ]
+    },
+    {
+      "from": "",
+      "to": "jump",
+      "duration": 0.15,
+      "after_finished": false,
+      "conditions": [
+        {
+          "parameter": "grounded",
+          "compare": "==",
+          "value": false
+        },
+        {
+          "parameter": "rising",
+          "compare": "==",
+          "value": true
+        },
+        {
+          "parameter": "attacking",
+          "compare": "==",
+          "value": false
+        }
+      ]
+    },
+    {
+      "from": "",
+      "to": "fall",
+      "duration": 0.15,
+      "after_finished": false,
+      "conditions": [
+        {
+          "parameter": "grounded",
+          "compare": "==",
+          "value": false
+        },
+        {
+          "parameter": "rising",
+          "compare": "==",
+          "value": false
+        },
+        {
+          "parameter": "attacking",
+          "compare": "==",
+          "value": false
+        }
+      ]
+    },
+    {
+      "from": "",
+      "to": "crouch",
+      "duration": 0.15,
+      "after_finished": false,
+      "conditions": [
+        {
+          "parameter": "grounded",
+          "compare": "==",
+          "value": true
+        },
+        {
+          "parameter": "crouched",
+          "compare": "==",
+          "value": true
+        },
+        {
+          "parameter": "attacking",
+          "compare": "==",
+          "value": false
+        }
+      ]
+    },
+    {
+      "from": "",
+      "to": "ground",
+      "duration": 0.15,
+      "after_finished": false,
+      "conditions": [
+        {
+          "parameter": "grounded",
+          "compare": "==",
+          "value": true
+        },
+        {
+          "parameter": "crouched",
+          "compare": "==",
+          "value": false
+        },
+        {
+          "parameter": "attacking",
+          "compare": "==",
+          "value": false
+        }
+      ]
+    }
+  ]
+}

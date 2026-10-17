@@ -228,7 +228,7 @@ namespace Comet {
         [[nodiscard]] Result<void, GraphicsError> render_view(ViewState& view,
             const RenderFrame::View& input, const RenderWorld& world, bool has_scene,
             std::vector<QueueSemaphoreSubmit>& waits, RenderDiagnostics* diagnostics,
-            const ResolvedIrradianceVolume* irradiance);
+            std::span<const ResolvedIrradianceVolume> irradiance);
 
         const Window& m_window;
         std::unique_ptr<RenderContext> m_render_context;

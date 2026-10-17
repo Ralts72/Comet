@@ -1,0 +1,54 @@
+{
+  "fields": {
+    "health": {
+      "type": "integer",
+      "min": 1,
+      "max": 10000
+    },
+    "damage": {
+      "type": "integer",
+      "min": 1,
+      "max": 1000
+    },
+    "range": {
+      "type": "number",
+      "min": 0.25,
+      "max": 5
+    },
+    "cooldown": {
+      "type": "number",
+      "min": 0.1,
+      "max": 5
+    },
+    "hit_particles": {
+      "type": "integer",
+      "min": 1,
+      "max": 64
+    },
+    "opponents": {
+      "type": "integer",
+      "min": 0,
+      "max": 16
+    }
+  },
+  "rows": [
+    {
+      "id": "player",
+      "health": 120,
+      "damage": 35,
+      "range": 1.9,
+      "cooldown": 0.8,
+      "hit_particles": 18,
+      "opponents": 2
+    },
+    {
+      "id": "guard",
+      "health": 90,
+      "damage": 12,
+      "range": 1.7,
+      "cooldown": 1.15,
+      "hit_particles": 12,
+      "opponents": 0
+    }
+  ]
+}

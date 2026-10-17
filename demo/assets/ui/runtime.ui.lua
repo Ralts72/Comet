@@ -14,13 +14,28 @@ return ui.settings {
         },
     },
     model = {fps_text = "0 FPS", character_game = false, character_status = "",
-        next_level = false, return_level = false, course_actions = false},
+        next_level = false, return_level = false, course_actions = false,
+        combat_game = false, combat_health = "", combat_status = "", combat_target = ""},
     required_elements = {"hud", "fps", "notice"},
     on_frame = function(self, api, frame)
         local fps = math.floor(math.max(0, math.min(frame.fps, 100000)) + 0.5)
         api.set("fps_text", tostring(fps) .. " FPS")
         local score = api.session_get("character.score")
-        local available = frame.game_available and type(score) == "number"
+        local combat = frame.game_available and api.session_get("demo.mode") == "combat"
+        api.set("combat_game", combat)
+        if combat then
+            local health = math.floor(api.session_get("combat.health.player") or 0)
+            local maximum = math.floor(api.session_get("combat.maximum") or 0)
+            local defeated = math.floor(api.session_get("combat.defeated") or 0)
+            local total = math.floor(api.session_get("combat.total") or 0)
+            api.set("combat_health", "生命：" .. health .. " / " .. maximum)
+            local status = "击败守卫：" .. defeated .. " / " .. total
+            if health <= 0 then status = "你已倒下，按 R / Start 重新挑战"
+            elseif defeated >= total then status = "挑战完成！按 R / Start 重新挑战" end
+            api.set("combat_status", status)
+            api.set("combat_target", api.session_get("combat.target") or "")
+        end
+        local available = not combat and frame.game_available and type(score) == "number"
         local level = api.session_get("character.level") or 1
         api.set("character_game", available)
         api.set("next_level", available and level == 1 and api.session_get("character.finished") == true)
@@ -40,6 +55,7 @@ return ui.settings {
     end,
     on_present = function(self, api)
         api.set("course_actions", self.state.available and not self.state.open
+            and api.session_get("demo.mode") ~= "combat"
             and type(api.session_get("character.score")) == "number")
     end,
     on_event = function(self, api, operation)

@@ -16,7 +16,7 @@ body {
     text-align: right;
 }
 #fps { margin-right: 16dp; color: #b6c3d7; }
-#game-hint {
+#game-hint, #combat-hint {
     position: absolute;
     left: 22dp;
     bottom: 18dp;

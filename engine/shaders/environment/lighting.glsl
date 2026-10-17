@@ -69,7 +69,7 @@ vec3 environment_specular_radiance(vec3 position, vec3 normal, vec3 view, float 
 vec3 evaluate_environment(vec3 position, vec3 normal, vec3 view, vec3 base_color,
     float metallic, float roughness) {
     if(lighting.environment.x <= 0.0 && lighting.reflection_metadata.x <= 0.0
-        && lighting.irradiance_origin.w <= 0.0)
+        && lighting.irradiance_metadata.x <= 0.0)
         return vec3(0.0);
     float n_dot_v = clamp(dot(normal, view), 0.0, 1.0);
     if(n_dot_v <= 0.0)

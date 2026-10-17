@@ -15,6 +15,7 @@ script.properties = {
 }
 
 function script:on_start()
+    comet.session_set("demo.mode", "character")
     self.controls = {
         movement_reference = self.parameters.camera,
         facing = self.parameters.visual,

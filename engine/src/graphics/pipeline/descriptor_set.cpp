@@ -49,6 +49,28 @@ namespace Comet {
         device.get().updateDescriptorSets(writes, {});
     }
 
+    void DescriptorSet::write_sampled_images(
+        Device& device, uint32_t binding, std::span<const ImageView* const> images) const {
+        if(images.empty())
+            return;
+        std::vector<vk::DescriptorImageInfo> infos;
+        infos.reserve(images.size());
+        for(const auto* image : images)
+            infos.emplace_back(
+                vk::Sampler{}, image->get(), vk::ImageLayout::eShaderReadOnlyOptimal);
+        const vk::WriteDescriptorSet write(m_descriptor_set, binding, 0,
+            static_cast<uint32_t>(infos.size()), vk::DescriptorType::eSampledImage, infos.data());
+        device.get().updateDescriptorSets(write, {});
+    }
+
+    void DescriptorSet::write_sampler(
+        Device& device, uint32_t binding, const Sampler& sampler) const {
+        const vk::DescriptorImageInfo info(sampler.get(), {}, {});
+        const vk::WriteDescriptorSet write(
+            m_descriptor_set, binding, 0, 1, vk::DescriptorType::eSampler, &info);
+        device.get().updateDescriptorSets(write, {});
+    }
+
     void DescriptorSetLayoutBindings::add_binding(uint32_t binding, const DescriptorType type,
         const Flags<ShaderStage> stage_flags, uint32_t count) {
         m_bindings.emplace_back(binding, Graphics::description_type_to_vk(type), count,

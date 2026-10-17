@@ -160,6 +160,12 @@ namespace CometEditor::Tests {
         EXPECT_NE(fingerprint(), with_gi);
         volume.edit_component<IrradianceVolumeComponent>([](auto& value) { value.intensity = 1; });
         EXPECT_EQ(fingerprint(), with_gi);
+        volume.edit_component<IrradianceVolumeComponent>(
+            [](auto& value) { value.blend_distance = 2; });
+        EXPECT_NE(fingerprint(), with_gi);
+        volume.edit_component<IrradianceVolumeComponent>(
+            [](auto& value) { value.blend_distance = 1; });
+        EXPECT_EQ(fingerprint(), with_gi);
         gi.probes[0].coefficients[0].x = 1;
         ASSERT_TRUE(gi.save(gi_path));
         EXPECT_NE(fingerprint(), with_gi);
