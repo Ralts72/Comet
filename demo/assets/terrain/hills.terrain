@@ -1,0 +1,54 @@
+{
+  "resolution": 65,
+  "heightmap": "hills.png",
+  "width": 64,
+  "depth": 64,
+  "height_scale": 16,
+  "chunk_cells": 16,
+  "skirt_depth": 2,
+  "collision": true,
+  "albedo_resolution": 512,
+  "layers": [
+    {
+      "color": [
+        0.14,
+        0.29,
+        0.045
+      ],
+      "texture": "",
+      "tiling": 16
+    },
+    {
+      "color": [
+        0.34,
+        0.29,
+        0.23
+      ],
+      "texture": "",
+      "tiling": 16
+    },
+    {
+      "color": [
+        0.8,
+        0.84,
+        0.88
+      ],
+      "texture": "",
+      "tiling": 16
+    }
+  ],
+  "slope_start": 0.06,
+  "slope_end": 0.27,
+  "height_start": 0.57,
+  "height_end": 0.8,
+  "roughness": 0.9,
+  "vegetation": {
+    "count": 256,
+    "seed": 71,
+    "min_height": 0.6,
+    "max_height": 1.5,
+    "max_slope": 35,
+    "min_elevation": 0,
+    "max_elevation": 0.65
+  }
+}

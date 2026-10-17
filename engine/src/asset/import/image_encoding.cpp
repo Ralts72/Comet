@@ -6,6 +6,24 @@
 #include <cmath>
 
 namespace Comet {
+    namespace {
+        void append_image_bytes(void* target, void* data, int bytes) {
+            static_cast<std::string*>(target)->append(
+                static_cast<const char*>(data), std::size_t(bytes));
+        }
+    }
+    Result<std::string> encode_png_rgba(const TextureData& image) {
+        if(image.width <= 0 || image.height <= 0 || image.width > 8192 || image.height > 8192
+            || (image.format != Format::R8G8B8A8_UNORM && image.format != Format::R8G8B8A8_SRGB)
+            || image.mip_levels != 1 || image.cubemap
+            || image.pixels.size() != size_t(image.width) * image.height * 4)
+            return Result<std::string>::failure("PNG 需要有效的单层 RGBA8 图像");
+        std::string encoded;
+        if(!stbi_write_png_to_func(append_image_bytes, &encoded, image.width, image.height, 4,
+               image.pixels.data(), image.width * 4))
+            return Result<std::string>::failure("PNG 编码失败");
+        return Result<std::string>::success(std::move(encoded));
+    }
     Result<std::string> encode_image(
         const TextureData& image, std::string_view extension, float exposure) {
         using Encoded = Result<std::string>;
@@ -18,15 +36,11 @@ namespace Comet {
             return Encoded::failure(decoded.error());
         auto pixels = std::move(decoded).value();
         std::string encoded;
-        const auto append = [](void* target, void* data, int bytes) {
-            static_cast<std::string*>(target)->append(
-                static_cast<const char*>(data), std::size_t(bytes));
-        };
         int written = 0;
         if(extension == ".hdr") {
             // stb 的 HDR 写入接受浮点 RGB(A)，忽略 alpha，不应用曝光或色调映射。
-            written = stbi_write_hdr_to_func(append, &encoded, image.width, image.height, 4,
-                reinterpret_cast<const float*>(pixels.pixels.data()));
+            written = stbi_write_hdr_to_func(append_image_bytes, &encoded, image.width,
+                image.height, 4, reinterpret_cast<const float*>(pixels.pixels.data()));
         } else {
             std::vector<uint8_t> display(pixels.pixels.size() * 4);
             for(std::size_t i = 0; i < pixels.pixels.size(); ++i) {
@@ -42,8 +56,8 @@ namespace Comet {
                 }
                 display[i * 4 + 3] = 255;
             }
-            written = stbi_write_png_to_func(
-                append, &encoded, image.width, image.height, 4, display.data(), image.width * 4);
+            return encode_png_rgba(
+                {.width = image.width, .height = image.height, .pixels = std::move(display)});
         }
         if(!written)
             return Encoded::failure("图像编码失败");

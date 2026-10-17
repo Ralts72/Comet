@@ -2,6 +2,7 @@
 
 #include "animation/animation_data.h"
 #include "asset/handle.h"
+#include "asset/data/mesh_lod.h"
 
 namespace Comet {
     struct ModelData {
@@ -9,6 +10,8 @@ namespace Comet {
         struct Part {
             AssetHandle mesh;
             AssetHandle material;
+            MeshLod lod;
+            bool collision = false;
         };
         struct Node {
             std::string key;

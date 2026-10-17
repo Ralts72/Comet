@@ -17,6 +17,9 @@ namespace Comet {
         static constexpr uint32_t MAX_CAPACITY = 4096;
         static constexpr uint32_t MAX_GPU_CAPACITY = 65536;
         ParticleSimulation simulation = ParticleSimulation::CPU;
+        bool gpu_dynamics = false;
+        float turbulence = 0;
+        float turbulence_frequency = 1;
         bool enabled = true;
         uint32_t capacity = 128;
         uint32_t seed = 1;
@@ -88,9 +91,10 @@ namespace Comet {
         double time = 0;
         Math::Vec3 position{0};
         uint32_t count = 0;
+        uint64_t id = 0;
     };
 
-    // Main 发布的世界空间数据；Render 只上传，不访问实体或模拟状态。
+    // Main 发布自有快照；Render 不访问实体或 Main 上的可变模拟状态。
     struct COMET_API ParticleSnapshot {
         struct Batch {
             AssetHandle texture;

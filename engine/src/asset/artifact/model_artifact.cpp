@@ -14,7 +14,7 @@
 namespace Comet {
     namespace {
         constexpr std::string_view MAGIC = "COMETMOD";
-        constexpr uint32_t FORMAT_VERSION = 1;
+        constexpr uint32_t FORMAT_VERSION = 2;
         constexpr size_t MAX_INDEX_BYTES = 32 * 1024 * 1024;
         constexpr size_t MAX_STRING = 64 * 1024;
 
@@ -63,10 +63,19 @@ namespace Comet {
                     || !Math::is_finite(Math::Vec4(rotation.x, rotation.y, rotation.z, rotation.w))
                     || std::abs(glm::length(rotation) - 1.f) > 1e-3f)
                     return false;
-                for(const auto& part : node.parts)
+                for(const auto& part : node.parts) {
+                    const auto& lod = part.lod;
                     if(!matches(part.mesh, AssetType::Mesh)
-                        || !matches(part.material, AssetType::Material))
+                        || !matches(part.material, AssetType::Material)
+                        || (lod.level1 && !matches(lod.level1, AssetType::Mesh))
+                        || (lod.level2 && (!lod.level1 || !matches(lod.level2, AssetType::Mesh)))
+                        || !std::isfinite(lod.level1_height) || !std::isfinite(lod.level2_height)
+                        || !std::isfinite(lod.hysteresis) || lod.level1_height <= 0
+                        || lod.level1_height > 1 || lod.level2_height <= 0
+                        || lod.level2_height >= lod.level1_height || lod.hysteresis < 0
+                        || lod.hysteresis > .5f || lod.preview != MeshLod::Preview::Auto)
                         return false;
+                }
             }
             std::vector<uint8_t> visited(nodes.size());
             for(uint32_t start = 0; start < nodes.size(); ++start) {
@@ -131,6 +140,12 @@ namespace Comet {
                 for(const auto& part : node.parts) {
                     writer.write_u64(part.mesh.value());
                     writer.write_u64(part.material.value());
+                    writer.write_u64(part.lod.level1.value());
+                    writer.write_u64(part.lod.level2.value());
+                    writer.write_float(part.lod.level1_height);
+                    writer.write_float(part.lod.level2_height);
+                    writer.write_float(part.lod.hysteresis);
+                    writer.write_u32(part.collision ? 1 : 0);
                 }
             }
             writer.write_u32(uint32_t(artifact.model.scenes.size()));
@@ -198,7 +213,7 @@ namespace Comet {
                         &t.scale.y, &t.scale.z})
                     if(!reader.read_float(*value))
                         return std::nullopt;
-                if(!read_count(reader, count, 16))
+                if(!read_count(reader, count, 48))
                     return std::nullopt;
                 node.parts.resize(count);
                 for(auto& part : node.parts) {
@@ -206,6 +221,17 @@ namespace Comet {
                     if(!reader.read_u64(mesh) || !reader.read_u64(material))
                         return std::nullopt;
                     part = {AssetHandle{mesh}, AssetHandle{material}};
+                    uint64_t first, second;
+                    uint32_t collision;
+                    if(!reader.read_u64(first) || !reader.read_u64(second)
+                        || !reader.read_float(part.lod.level1_height)
+                        || !reader.read_float(part.lod.level2_height)
+                        || !reader.read_float(part.lod.hysteresis) || !reader.read_u32(collision)
+                        || collision > 1)
+                        return std::nullopt;
+                    part.lod.level1 = AssetHandle{first};
+                    part.lod.level2 = AssetHandle{second};
+                    part.collision = collision != 0;
                 }
             }
             if(!read_count(reader, count, 8))

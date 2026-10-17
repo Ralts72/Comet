@@ -376,7 +376,7 @@ namespace Comet {
         for(const auto& [id, emitter] : m_emitters)
             if(emitter.gpu_count)
                 snapshot->gpu_emitters.push_back({emitter.settings, emitter.gpu_spawns, m_time,
-                    Math::Vec3(emitter.pose[3]), emitter.gpu_count});
+                    Math::Vec3(emitter.pose[3]), emitter.gpu_count, id});
         snapshot->instances.reserve(m_count);
         std::vector<const Emitter*> emitters;
         emitters.reserve(m_emitters.size());

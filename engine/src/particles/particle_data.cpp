@@ -11,8 +11,12 @@ namespace Comet {
             return Result<void>::failure("无效的粒子模拟方式");
         const bool gpu = simulation == ParticleSimulation::GPU;
         const uint32_t limit = gpu ? MAX_GPU_CAPACITY : MAX_CAPACITY;
-        if(gpu && collision != ParticleCollision::None)
-            return Result<void>::failure("GPU 粒子不执行物理查询；碰撞粒子请使用 CPU 模式");
+        if(gpu && !gpu_dynamics && collision != ParticleCollision::None)
+            return Result<void>::failure("GPU 深度碰撞需要启用有状态模拟；Jolt 碰撞使用 CPU 模式");
+        if(!std::isfinite(turbulence) || turbulence < 0 || turbulence > 1000
+            || !std::isfinite(turbulence_frequency) || turbulence_frequency <= 0
+            || turbulence_frequency > 100)
+            return Result<void>::failure("GPU 扰动强度须为 0～1000，频率须为 (0,100]");
         if(capacity == 0 || capacity > limit || burst > limit || !std::isfinite(rate) || rate < 0
             || rate > (gpu ? 1000000 : 10000) || !std::isfinite(lifetime) || lifetime < 0.01f
             || lifetime > 60 || !std::isfinite(speed) || speed < 0 || speed > 1000

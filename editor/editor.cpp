@@ -1075,6 +1075,8 @@ namespace {
                 return m_assets->apply_animation_edit(edit);
             if(std::holds_alternative<CometEditor::AudioEdit>(edit.value))
                 return m_assets->apply_audio_edit(edit);
+            if(std::holds_alternative<CometEditor::TerrainEdit>(edit.value))
+                return m_assets->apply_terrain_edit(edit);
             return m_assets->apply_texture_edit(edit);
         }
 
@@ -1122,6 +1124,10 @@ namespace {
                 if(record && record->type == Comet::AssetType::AnimationLibrary)
                     m_inspector_panel->asset_inspector().complete_asset_read(
                         *request, m_assets->read_animation_library(*request));
+                else if(record && record->type == Comet::AssetType::Model
+                        && record->path.extension() == ".terrain")
+                    m_inspector_panel->asset_inspector().complete_asset_read(
+                        *request, m_assets->read_terrain(*request));
                 else if(record && record->type == Comet::AssetType::Data)
                     m_inspector_panel->asset_inspector().complete_asset_read(
                         *request, m_assets->read_data(*request));
@@ -1132,10 +1138,15 @@ namespace {
                     m_inspector_panel->asset_inspector().complete_asset_read(
                         *request, m_assets->read_material(*request));
             }
+            if(const auto destination = m_project_panel->take_create_terrain_request()) {
+                auto report = m_assets->create_terrain(*destination);
+                m_project_panel->complete_create_source(*destination, report);
+                accept_asset_report(std::move(report));
+            }
             if(const auto destination =
                     m_project_panel->take_create_animation_controller_request()) {
                 auto report = m_assets->create_animation_controller(*destination);
-                m_project_panel->complete_create_animation_controller(*destination, report);
+                m_project_panel->complete_create_source(*destination, report);
                 accept_asset_report(std::move(report));
             }
             if(const auto create = m_project_panel->take_create_material_request()) {

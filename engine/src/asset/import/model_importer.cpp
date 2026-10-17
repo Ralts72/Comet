@@ -1,4 +1,5 @@
 #include "asset/import/model_importer.h"
+#include "asset/import/terrain_importer.h"
 #include "asset/import/gltf_mesh.h"
 #include "common/file_io.h"
 #include "asset/serialization/metadata_serializer.h"
@@ -379,6 +380,8 @@ namespace Comet {
 
     Result<ModelImporter::SourceInfo> ModelImporter::inspect_source(
         const std::filesystem::path& source, const AssetImportLimits& limits) {
+        if(source_extension(source) == ".terrain")
+            return TerrainImporter::inspect_source(source, limits);
         auto plan = inspect(source, limits);
         if(!plan)
             return Result<SourceInfo>::failure(
@@ -397,6 +400,8 @@ namespace Comet {
 
     Result<ModelImportData> ModelImporter::import(const std::filesystem::path& source,
         std::size_t memory_budget, const AssetImportLimits& limits) const {
+        if(source_extension(source) == ".terrain")
+            return TerrainImporter{}.import(source, memory_budget, limits);
         const auto failure = [&source](const std::string& message) {
             return Result<Model>::failure(
                 "Cannot import model '" + source.string() + "': " + message);
@@ -574,6 +579,21 @@ namespace Comet {
             }
             parts.push_back({handle.value(), material});
             result.meshes.push_back({handle.value(), std::move(mesh.data)});
+        }
+        for(size_t i = 0; i < imported.meshes.size(); ++i) {
+            const auto& mesh = imported.meshes[i];
+            for(size_t level = 0; level < mesh.lods.size(); ++level) {
+                const auto selected = mesh.lods[level];
+                if(selected == ModelImportData::NONE)
+                    continue;
+                if(selected >= parts.size() || selected == i)
+                    return Bound::failure("Model references an invalid LOD mesh");
+                if(level == 0)
+                    parts[i].lod.level1 = parts[selected].mesh;
+                else
+                    parts[i].lod.level2 = parts[selected].mesh;
+            }
+            parts[i].collision = mesh.collision;
         }
         for(size_t index = 0; index < imported.nodes.size(); ++index) {
             auto& node = imported.nodes[index];

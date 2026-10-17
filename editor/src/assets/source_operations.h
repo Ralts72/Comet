@@ -1,4 +1,5 @@
 #pragma once
+#include "asset/data/terrain_data.h"
 
 #include "asset/content_fwd.h"
 
@@ -45,6 +46,10 @@ namespace CometEditor::AssetSourceOperations {
         std::unique_ptr<State> m_state;
     };
 
+    [[nodiscard]] Comet::AssetScanReport create_terrain(Comet::AssetDatabase& database,
+        const std::filesystem::path& destination, const Comet::TerrainData& data);
+    [[nodiscard]] Comet::AssetScanReport save_terrain(Comet::AssetDatabase& database,
+        const Comet::AssetTarget& target, const Comet::TerrainData& data);
     [[nodiscard]] Comet::AssetScanReport create_prefab(Comet::AssetDatabase& database,
         const std::filesystem::path& destination, const Comet::Prefab& prefab,
         const Comet::ComponentRegistry& registry);

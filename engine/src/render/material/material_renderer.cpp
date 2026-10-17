@@ -1,5 +1,7 @@
 #include "render/passes/volumetric_fog_pass.h"
 #include "render/material/material_renderer.h"
+#include "pbr_oit_frag.h"
+#include "unlit_oit_frag.h"
 #include "pbr_gbuffer_frag.h"
 #include "unlit_gbuffer_frag.h"
 #include "render/scene/draw_order.h"
@@ -60,7 +62,9 @@ namespace Comet {
 
     uint64_t MaterialRenderer::get_pipeline_creations() const {
         return m_pipeline_manager.get_pipeline_creations()
-               + (m_gbuffer_pipelines ? m_gbuffer_pipelines->get_pipeline_creations() : 0);
+               + (m_gbuffer_pipelines ? m_gbuffer_pipelines->get_pipeline_creations() : 0)
+               + (m_transparency_pipelines ? m_transparency_pipelines->get_pipeline_creations()
+                                           : 0);
     }
 
     MaterialRenderer::Statistics MaterialRenderer::get_statistics() const {
@@ -112,10 +116,13 @@ namespace Comet {
         Device& device, PipelineManager& pipelines, RenderResources& resources,
         const uint32_t frame_slot_count, const SampleCount samples, const MaterialShaders* shaders,
         MaterialPrograms* programs, std::optional<float> max_anisotropy,
-        PipelineManager* gbuffer_pipelines) {
+        PipelineManager* gbuffer_pipelines, PipelineManager* transparency_pipelines,
+        std::shared_ptr<DescriptorSetLayout> transparency_depth) {
         auto candidate = std::unique_ptr<MaterialRenderer>(
             new MaterialRenderer(device, pipelines, samples, programs));
         candidate->m_gbuffer_pipelines = gbuffer_pipelines;
+        candidate->m_transparency_pipelines = transparency_pipelines;
+        candidate->m_transparency_depth = std::move(transparency_depth);
         if(auto result = candidate->initialize(
                pipelines, resources, frame_slot_count, samples, shaders, max_anisotropy);
             !result) {
@@ -237,9 +244,19 @@ namespace Comet {
                 return Result<void, GraphicsError>::failure(shader.error());
             gbuffer_fragment = std::move(shader).value();
         }
+        std::shared_ptr<Shader> weighted_fragment;
+        if(m_transparency_pipelines && static_mesh_bounds && code.fragment_entry == "main"
+            && code.fragment == builtins.at(name).fragment) {
+            const auto words = name == "pbr" ? std::span<const uint32_t>(PBR_OIT_FRAG)
+                                             : std::span<const uint32_t>(UNLIT_OIT_FRAG);
+            auto shader = Shader::create(m_device, name + " weighted transparency", words);
+            if(!shader)
+                return Result<void, GraphicsError>::failure(shader.error());
+            weighted_fragment = std::move(shader).value();
+        }
         auto candidate = create_pipeline(pipelines, vertex.value(), fragment.value(),
             reflected.value(), samples, descriptor_layout, INVALID_ASSET_HANDLE, instanced_vertex,
-            static_mesh_bounds, gbuffer_fragment);
+            static_mesh_bounds, gbuffer_fragment, weighted_fragment);
         if(!candidate)
             return Result<void, GraphicsError>::failure(candidate.error());
         if(old != m_pipelines.end() && old->second->pipeline == candidate.value()->pipeline
@@ -455,7 +472,8 @@ namespace Comet {
             const std::shared_ptr<Shader>& fragment, std::shared_ptr<const MaterialLayout> layout,
             const SampleCount samples, std::shared_ptr<DescriptorSetLayout> material_layout,
             const AssetHandle shader_program, const std::shared_ptr<Shader>& instanced_vertex,
-            const bool static_mesh_bounds, const std::shared_ptr<Shader>& gbuffer_fragment) {
+            const bool static_mesh_bounds, const std::shared_ptr<Shader>& gbuffer_fragment,
+            const std::shared_ptr<Shader>& weighted_fragment) {
         using Creation = Result<std::shared_ptr<const PipelineState>, GraphicsError>;
         if(!layout)
             return Creation::failure({"Missing material layout"});
@@ -486,6 +504,7 @@ namespace Comet {
         state->fragment = fragment;
         state->instanced_vertex = instanced_vertex;
         state->gbuffer_fragment = gbuffer_fragment;
+        state->weighted_fragment = weighted_fragment;
         auto defaults = create_surface_pipelines(pipelines, *state, {});
         if(!defaults)
             return Creation::failure(defaults.error());
@@ -563,6 +582,25 @@ namespace Comet {
                 return Creation::failure(instanced.error());
             result.instanced_pipeline = std::move(instanced).value();
         }
+        if(m_weighted && m_transparency_pipelines && program.weighted_fragment
+            && surface.alpha_mode == AlphaMode::Blend) {
+            auto weighted = config;
+            weighted.set_multisample_state(SampleCount::Count1, false);
+            weighted.depth_stencil_state.depth_test_enable = false;
+            weighted.set_color_blend_attachment_state({.blend_enable = true,
+                .src_color_blend_factor = BlendFactor::One,
+                .dst_color_blend_factor = BlendFactor::One,
+                .src_alpha_blend_factor = BlendFactor::One,
+                .dst_alpha_blend_factor = BlendFactor::One});
+            auto layout = shader_layout;
+            layout.descriptor_set_layouts.push_back(m_transparency_depth);
+            auto created =
+                m_transparency_pipelines->create_pipeline(program.layout->get_name() + " weighted",
+                    layout, weighted, program.vertex, program.weighted_fragment);
+            if(!created)
+                return Creation::failure(created.error());
+            result.weighted_pipeline = std::move(created).value();
+        }
         if(m_gbuffer_pipelines && program.gbuffer_fragment
             && surface.alpha_mode != AlphaMode::Blend) {
             config.color_blend_state.colorWriteMask =
@@ -616,7 +654,11 @@ namespace Comet {
         const auto revision = material.resource->get_revision();
         const PreparedInputKey input{frame_serial, revision, material.resource.get(),
             material.overrides.get(), pipeline.get()};
-        if(cached.used && cached.prepared_input == input)
+        const bool needs_weighted =
+            m_weighted && pipeline->weighted_fragment && cached.resources
+            && cached.resources->prepared->surface.alpha_mode == AlphaMode::Blend
+            && !cached.resources->draws.weighted_pipeline;
+        if(cached.used && cached.prepared_input == input && !needs_weighted)
             return Preparation::success(cached.resources);
         cached.used = true;
         cached.overrides = material.overrides;
@@ -647,7 +689,7 @@ namespace Comet {
             return keep_previous({preparation.error()});
         const auto& prepared = preparation.value();
         if(cached.resources && cached.resources->prepared == prepared
-            && cached.resources->pipeline == pipeline)
+            && cached.resources->pipeline == pipeline && !needs_weighted)
             return complete();
         if(cached.failed_candidate == prepared && cached.failed_pipeline.lock() == pipeline
             && frame_serial < cached.retry_after_serial) {
@@ -747,8 +789,9 @@ namespace Comet {
     }
 
     Result<void, GraphicsError> MaterialRenderer::prepare_draws(FrameScheduler& frames,
-        const RenderSubmission& submission, const RenderGeometry& geometry) {
+        const RenderSubmission& submission, const RenderGeometry& geometry, bool weighted) {
         clear_draws();
+        m_weighted = weighted;
         m_statistics = {};
         if(!frames.is_recording_frame() || &frames.get_device() != &m_device
             || frames.get_current_frame_slot_index() >= m_instances.size())
@@ -792,6 +835,12 @@ namespace Comet {
         record_draws(frames, std::span(m_draw_queue).subspan(offset + first, count), waits);
     }
 
+    void MaterialRenderer::record_weighted(FrameScheduler& frames, const DescriptorSet& depth,
+        std::vector<QueueSemaphoreSubmit>& waits) {
+        record_draws(frames, std::span(m_draw_queue).last(m_transparent_depths.size()), waits,
+            DrawPhase::Weighted, &depth);
+    }
+
     Result<void, GraphicsError> MaterialRenderer::upload_instances(FrameScheduler& frames) {
         auto& instances = m_instances.at(frames.get_current_frame_slot_index());
         auto uploaded = instances.upload(m_device, m_instance_transforms);
@@ -806,7 +855,7 @@ namespace Comet {
 
     void MaterialRenderer::record_draws(FrameScheduler& frames,
         const std::span<const DrawItem> queue, std::vector<QueueSemaphoreSubmit>& waits,
-        DrawPhase phase) {
+        DrawPhase phase, const DescriptorSet* depth) {
         const auto slot = frames.get_current_frame_slot_index();
         auto& command = frames.get_current_command_buffer();
         if(!m_instance_transforms.empty())
@@ -819,13 +868,18 @@ namespace Comet {
             const bool instanced = draw.instance_count > 1;
             const auto& pipelines = draw.mirrored ? *material->mirrored_draws : material->draws;
             const bool deferred = bool(pipelines.gbuffer_pipeline);
-            if((phase == DrawPhase::GBuffer) != deferred)
+            if(phase == DrawPhase::Weighted && !pipelines.weighted_pipeline)
                 continue;
-            const auto& pipeline =
-                phase == DrawPhase::GBuffer
-                    ? (instanced ? pipelines.gbuffer_instanced_pipeline
-                                 : pipelines.gbuffer_pipeline)
-                    : (instanced ? pipelines.instanced_pipeline : pipelines.pipeline);
+            if(phase == DrawPhase::Forward && m_weighted && pipelines.weighted_pipeline)
+                continue;
+            if(phase != DrawPhase::Weighted && (phase == DrawPhase::GBuffer) != deferred)
+                continue;
+            auto pipeline = instanced ? pipelines.instanced_pipeline : pipelines.pipeline;
+            if(phase == DrawPhase::GBuffer)
+                pipeline =
+                    instanced ? pipelines.gbuffer_instanced_pipeline : pipelines.gbuffer_pipeline;
+            else if(phase == DrawPhase::Weighted)
+                pipeline = pipelines.weighted_pipeline;
             if(active_pipeline != pipeline.get()) {
                 command.bind_pipeline(*pipeline);
                 active_pipeline = pipeline.get();
@@ -835,6 +889,8 @@ namespace Comet {
             if(active_material != material.get()) {
                 const std::array sets{m_view_bindings.descriptor(slot), *material->descriptor};
                 command.bind_descriptor_sets(*pipeline->get_layout(), sets);
+                if(depth)
+                    command.bind_descriptor_sets(*pipeline->get_layout(), std::span(depth, 1), 2);
                 active_material = material.get();
                 ++m_statistics.material_binds;
                 frames.retain_current_frame_resource(material);

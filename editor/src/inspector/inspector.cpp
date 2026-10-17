@@ -725,6 +725,13 @@ namespace CometEditor {
         PropertyEditResult result;
         result.include_item(ImGui::DragFloat("曝光###Exposure", &settings.exposure, 0.02f, 0.0f,
             Comet::PostProcessSettings::MAX_EXPOSURE, "%.2f", ImGuiSliderFlags_AlwaysClamp));
+        const bool weighted =
+            ImGui::Checkbox("加权透明混合（OIT）###Weighted OIT", &settings.weighted_oit);
+        result.changed |= weighted;
+        result.finished |= weighted;
+        if(ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "近似处理烟雾和内置透明网格交错；额外使用累积目标。关闭可与深度排序对照。");
         const bool toggled = ImGui::Checkbox("泛光###Bloom", &settings.bloom_enabled);
         result.changed |= toggled;
         result.finished |= toggled;

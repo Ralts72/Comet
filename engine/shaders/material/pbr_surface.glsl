@@ -16,6 +16,9 @@ layout(location = 2) out vec4 g_emission_occlusion;
 layout(location = 3) out vec4 g_geometry;
 #else
 layout(location = 0) out vec4 color;
+#ifdef COMET_OIT
+#include "../common/transparency.glsl"
+#endif
 #endif
 layout(set = 1, binding = 0, std140) uniform MaterialData {
     vec4 base_color;
@@ -108,5 +111,8 @@ void main() {
             position_dx, position_dy);
     color = vec4(clamp(apply_volumetric_fog(apply_distance_fog(result + emission),
         world_position), 0.0, 65504.0), alpha);
+#ifdef COMET_OIT
+    accumulate_transparency(color, false);
+#endif
 #endif
 }

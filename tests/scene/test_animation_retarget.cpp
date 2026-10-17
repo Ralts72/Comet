@@ -72,6 +72,66 @@ namespace Comet::Tests {
             }
         }
     }
+    TEST(AnimationRetargetTest, ChainsResampleUnequalBoneCountsAndKeepTargetLengths) {
+        AnimationData source{.mesh_node = 0};
+        source.nodes = {{"mesh"}, {"upper"}, {"lower", 1, {.translation = {0, 1, 0}}},
+            {"tip", 2, {.translation = {0, 1, 0}}}};
+        source.evaluation_order = {0, 1, 2, 3};
+        for(uint32_t i = 1; i < source.nodes.size(); ++i)
+            source.joints.push_back({i, Math::Mat4(1), BoundingBox::from_point({0, 0, 0})});
+        const auto end = Math::angle_axis(.8f, {0, 0, 1});
+        source.clips = {{"bend", 1,
+            {{2, AnimationChannel::Path::Rotation, AnimationChannel::Interpolation::Linear, {0, 1},
+                {{0, 0, 0, 1}, {end.x, end.y, end.z, end.w}}}}}};
+        auto target = source;
+        target.clips.clear();
+        target.nodes[2].name = "twist";
+        target.nodes[3].name = "lower";
+        target.nodes.push_back({"tip", 3, {.translation = {0, 1, 0}}});
+        target.evaluation_order.push_back(4);
+        target.joints.push_back({4, Math::Mat4(1), BoundingBox::from_point({0, 0, 0})});
+        AnimationRetarget settings;
+        settings.chains = {{"upper", "tip", "upper", "tip"}};
+        auto result = retarget_animation(source, target, settings);
+        ASSERT_TRUE(result) << result.error();
+        for(auto time : {0., .5, 1.}) {
+            AnimationPlayback frame{.current = {.clip = "bend", .time = time, .loop = false}};
+            auto pose = sample_animation(result.value(), &frame);
+            ASSERT_TRUE(pose) << pose.error();
+            for(size_t i = 0; i < target.nodes.size(); ++i)
+                EXPECT_EQ(
+                    pose.value().local_transforms[i].translation, target.nodes[i].rest.translation);
+            const auto expected = Math::angle_axis(float(time) * .8f * (2.f / 3), {0, 0, 1});
+            EXPECT_NEAR(
+                std::abs(glm::dot(pose.value().local_transforms[2].rotation, expected)), 1, .0001);
+            EXPECT_NEAR(std::abs(glm::dot(rotation(pose.value().bone_matrices.back()),
+                            Math::angle_axis(float(time) * .8f, {0, 0, 1}))),
+                1, .0001);
+        }
+        AnimationLibrary library;
+        library.entries = {{"bent", AssetHandle(12), "bend"}};
+        library.retargets = {{AssetHandle(12), settings}};
+        auto text = library.serialize();
+        ASSERT_TRUE(text);
+        auto restored = AnimationLibrary::deserialize(text.value());
+        ASSERT_TRUE(restored) << restored.error();
+        EXPECT_EQ(restored.value(), library);
+        settings.chains.push_back(settings.chains.front());
+        EXPECT_FALSE(retarget_animation(source, target, settings));
+        settings.chains = {{"tip", "upper", "upper", "tip"}};
+        EXPECT_FALSE(retarget_animation(source, target, settings));
+        settings.chains = {{"upper", "tip", "upper", "missing"}};
+        EXPECT_FALSE(retarget_animation(source, target, settings));
+        settings.chains = {{"upper", "tip", "upper", "tip", 0}};
+        auto rest = retarget_animation(source, target, settings);
+        ASSERT_TRUE(rest);
+        AnimationPlayback frame{.current = {.clip = "bend", .time = .5, .loop = false}};
+        EXPECT_NEAR(sample_animation(rest.value(), &frame).value().local_transforms[2].rotation.w,
+            1, .0001);
+        settings.chains.front().weight = NAN;
+        EXPECT_FALSE(settings.validate());
+    }
+
     TEST(
         AnimationRetargetTest, DifferentNamesRestAxesAndLengthsKeepTargetSkeletonAndWorldRotation) {
         const auto source = rig(false), target = rig(true);
@@ -201,6 +261,23 @@ namespace Comet::Tests {
         const auto expected = reference.value().bind(*target.value().animation);
         ASSERT_TRUE(bound) << bound.error();
         ASSERT_TRUE(expected) << expected.error();
+        auto chain_profile = AnimationLibrary::load(assets / "animations/chain_retarget.anilib");
+        ASSERT_TRUE(chain_profile) << chain_profile.error();
+        chain_profile.value().sources = definition.value().sources;
+        const auto chained = chain_profile.value().bind(*target.value().animation);
+        ASSERT_TRUE(chained) << chained.error();
+        for(double time : {0., .1, .37, .6}) {
+            AnimationPlayback frame{.current = {.clip = "retarget_walk", .time = time},
+                .root_motion = AnimationRootMotion{.node = "root"}};
+            const auto chain_pose = sample_animation(chained.value(), &frame);
+            const auto node_pose = sample_animation(bound.value(), &frame);
+            ASSERT_TRUE(chain_pose && node_pose);
+            for(size_t joint = 0; joint < chain_pose.value().matrices.size(); ++joint)
+                for(int column = 0; column < 4; ++column)
+                    EXPECT_LT(glm::length(chain_pose.value().matrices[joint][column]
+                                          - node_pose.value().matrices[joint][column]),
+                        .005f);
+        }
         auto compatible_only = definition.value();
         compatible_only.retargets.clear();
         EXPECT_FALSE(compatible_only.bind(*target.value().animation));

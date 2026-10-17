@@ -1,0 +1,16 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+layout(local_size_x=64) in;
+#include "particle_common.glsl"
+layout(std430,set=0,binding=0) readonly buffer Uniforms { Parameters parameters; };
+layout(std430,set=0,binding=2) writeonly buffer Instances { Particle particles[]; };
+layout(std430,set=0,binding=3) buffer Draw {
+    uint vertex_count, instance_count, first_vertex, first_instance;
+};
+void main() {
+    uint index=gl_GlobalInvocationID.x;
+    if(index==0) {
+        vertex_count=6; instance_count=0; first_vertex=0; first_instance=0;
+    }
+    if(index<parameters.counts.z) particles[index]=empty_particle(index);
+}

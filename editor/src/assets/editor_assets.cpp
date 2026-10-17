@@ -37,6 +37,36 @@ namespace CometEditor {
             LOG_WARN("Asset source monitor is using periodic fallback scans");
     }
 
+    Comet::Result<Comet::TerrainData> EditorAssets::read_terrain(
+        const Comet::AssetTarget& target) const {
+        const auto* record = m_database.find(target.handle);
+        if(!record || record->path.extension() != ".terrain" || !m_database.is_current(target))
+            return Comet::Result<Comet::TerrainData>::failure("Terrain read is stale");
+        return Comet::TerrainData::load(m_database.paths().assets() / record->path);
+    }
+    Comet::AssetScanReport EditorAssets::create_terrain(const std::filesystem::path& destination) {
+        auto report = AssetSourceOperations::create_terrain(m_database, destination, {});
+        accept_scan(report);
+        if(report.succeeded())
+            acknowledge(destination);
+        return report;
+    }
+    Comet::Result<void, Comet::Error> EditorAssets::apply_terrain_edit(const AssetEdit& edit) {
+        const auto* terrain = std::get_if<TerrainEdit>(&edit.value);
+        if(!terrain || edit.action != AssetEdit::Action::Apply)
+            return Comet::Result<void, Comet::Error>::failure({"Invalid terrain edit"});
+        const auto* record = m_database.find(edit.target.handle);
+        if(!record)
+            return Comet::Result<void, Comet::Error>::failure({"Terrain is no longer indexed"});
+        const auto path = record->path;
+        auto report = AssetSourceOperations::save_terrain(m_database, edit.target, terrain->after);
+        accept_scan(report);
+        if(!report.succeeded())
+            return Comet::Result<void, Comet::Error>::failure({report.issues.front().message});
+        acknowledge(path);
+        return Comet::Result<void, Comet::Error>::success();
+    }
+
     Comet::Result<Comet::GameData> EditorAssets::read_data(const Comet::AssetTarget& target) const {
         const auto* record = m_database.find(target.handle);
         if(!record || record->type != Comet::AssetType::Data || !m_database.is_current(target))

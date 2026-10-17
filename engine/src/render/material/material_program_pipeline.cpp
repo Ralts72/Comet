@@ -64,6 +64,7 @@ namespace Comet {
     }
 
     Result<void, GraphicsError> MaterialRenderer::warmup_scene(const RenderWorld& world) {
+        m_weighted = world.post_process.weighted_oit;
         const auto before = get_pipeline_creations();
         const ScopeExit count_created(
             [&] { m_warmup_pipeline_creations = get_pipeline_creations() - before; });

@@ -191,6 +191,14 @@ namespace Comet {
                 }
                 primitive.add_component<MeshRendererComponent>(
                     MeshRendererComponent{node.parts[part].mesh, node.parts[part].material});
+                if(node.parts[part].lod.level1)
+                    primitive.add_component<MeshLodComponent>(node.parts[part].lod);
+                if(node.parts[part].collision) {
+                    primitive.add_component<ColliderComponent>(ColliderComponent{
+                        .shape = ColliderShape::TriangleMesh, .mesh = node.parts[part].mesh});
+                    primitive.add_component<RigidBodyComponent>(
+                        RigidBodyComponent{.motion = BodyMotion::Static});
+                }
             }
         }
         rollback.release();

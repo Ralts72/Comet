@@ -840,6 +840,7 @@ namespace Comet {
             writer.field("bloom_strength", post_process.bloom_strength);
             writer.field("bloom_threshold", post_process.bloom_threshold);
             writer.field("ao_enabled", post_process.ao_enabled);
+            writer.field("weighted_oit", post_process.weighted_oit);
             writer.field("ao_radius", post_process.ao_radius);
             writer.field("ao_strength", post_process.ao_strength);
             if(post_process.reflections != ScreenSpaceReflectionSettings{}) {
@@ -1014,7 +1015,7 @@ namespace Comet {
                 return LoadResult::failure(context.error("post_process", "invalid object"));
             if(auto valid = context.validate_keys(post_process_node,
                    {"exposure", "bloom_enabled", "bloom_strength", "bloom_threshold", "ao_enabled",
-                       "ao_radius", "ao_strength", "screen_space_reflections"},
+                       "ao_radius", "ao_strength", "screen_space_reflections", "weighted_oit"},
                    "post_process");
                 !valid)
                 return LoadResult::failure(valid.error());
@@ -1036,6 +1037,11 @@ namespace Comet {
                 return LoadResult::failure(threshold.error());
             PostProcessSettings settings{
                 exposure.value(), enabled.value(), strength.value(), threshold.value()};
+            const auto weighted = context.read_optional_field<bool>(
+                post_process_node, "weighted_oit", "a boolean", "post_process");
+            if(!weighted)
+                return LoadResult::failure(weighted.error());
+            settings.weighted_oit = weighted.value().value_or(false);
             const auto ao_enabled = context.read_optional_field<bool>(
                 post_process_node, "ao_enabled", "a boolean", "post_process");
             const auto ao_radius = context.read_optional_field<float>(

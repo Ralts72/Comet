@@ -107,7 +107,9 @@ namespace Comet {
             PipelineManager& pipelines, RenderResources& resources, uint32_t frame_slot_count,
             SampleCount samples, const MaterialShaders* shaders = nullptr,
             MaterialPrograms* programs = nullptr, std::optional<float> max_anisotropy = {},
-            PipelineManager* gbuffer_pipelines = nullptr);
+            PipelineManager* gbuffer_pipelines = nullptr,
+            PipelineManager* transparency_pipelines = nullptr,
+            std::shared_ptr<DescriptorSetLayout> transparency_depth = nullptr);
         [[nodiscard]] Result<ShaderUpdate, GraphicsError> prepare_shaders(
             PipelineManager& pipelines, const MaterialShaders& shaders, SampleCount samples);
         // 帧边界提交任意完整顶点/片元程序对；所有候选成功后才替换。
@@ -130,7 +132,8 @@ namespace Comet {
         [[nodiscard]] ViewBindings& view_bindings() { return m_view_bindings; }
         // 几何已由所属视图选级；此处只按材质可见性准备绘制和实例数据。
         [[nodiscard]] Result<void, GraphicsError> prepare_draws(FrameScheduler& frames,
-            const RenderSubmission& submission, const RenderGeometry& geometry);
+            const RenderSubmission& submission, const RenderGeometry& geometry,
+            bool weighted = false);
         // 准备一次、按透明深度分段录制；本帧结束后释放借用的世界数据。
         [[nodiscard]] std::span<const float> transparent_depths() const {
             return m_transparent_depths;
@@ -139,6 +142,8 @@ namespace Comet {
         void record_opaque(FrameScheduler& frames, std::vector<QueueSemaphoreSubmit>& waits);
         void record_transparent(FrameScheduler& frames, size_t first, size_t count,
             std::vector<QueueSemaphoreSubmit>& waits);
+        void record_weighted(
+            FrameScheduler&, const DescriptorSet& depth, std::vector<QueueSemaphoreSubmit>& waits);
         void clear_draws() {
             m_draw_queue.clear();
             m_transparent_depths.clear();
@@ -163,6 +168,7 @@ namespace Comet {
             std::shared_ptr<Pipeline> pipeline;
             std::shared_ptr<Pipeline> instanced_pipeline;
             std::shared_ptr<Pipeline> gbuffer_pipeline, gbuffer_instanced_pipeline;
+            std::shared_ptr<Pipeline> weighted_pipeline;
         };
         struct PipelineState {
             AssetHandle shader_program;
@@ -173,7 +179,8 @@ namespace Comet {
             std::shared_ptr<Pipeline> gbuffer_pipeline, gbuffer_instanced_pipeline;
             bool static_mesh_bounds = false;
             SampleCount samples = SampleCount::Count1;
-            std::shared_ptr<Shader> vertex, fragment, instanced_vertex, gbuffer_fragment;
+            std::shared_ptr<Shader> vertex, fragment, instanced_vertex, gbuffer_fragment,
+                weighted_fragment;
         };
         struct MaterialInput {
             std::shared_ptr<const Material> source;
@@ -253,10 +260,11 @@ namespace Comet {
         [[nodiscard]] const std::shared_ptr<const PipelineState>& find_pipeline(
             const Material& material) const;
         [[nodiscard]] bool can_cull(const MaterialBinding& material) const;
-        enum class DrawPhase { Forward, GBuffer };
+        enum class DrawPhase { Forward, GBuffer, Weighted };
         [[nodiscard]] uint64_t get_pipeline_creations() const;
         void record_draws(FrameScheduler& frames, std::span<const DrawItem> queue,
-            std::vector<QueueSemaphoreSubmit>& waits, DrawPhase phase = DrawPhase::Forward);
+            std::vector<QueueSemaphoreSubmit>& waits, DrawPhase phase = DrawPhase::Forward,
+            const DescriptorSet* depth = nullptr);
         void append_material_draws(
             std::span<DrawCandidate> items, const std::shared_ptr<MaterialResources>& material);
         Result<void, GraphicsError> upload_instances(FrameScheduler& frames);
@@ -269,7 +277,8 @@ namespace Comet {
             AssetHandle shader_program = INVALID_ASSET_HANDLE,
             const std::shared_ptr<Shader>& instanced_vertex = nullptr,
             bool static_mesh_bounds = false,
-            const std::shared_ptr<Shader>& gbuffer_fragment = nullptr);
+            const std::shared_ptr<Shader>& gbuffer_fragment = nullptr,
+            const std::shared_ptr<Shader>& weighted_fragment = nullptr);
         Result<SurfacePipelines, GraphicsError> create_surface_pipelines(PipelineManager& pipelines,
             const PipelineState& program, MaterialSurface surface, bool mirrored = false);
         Result<void, GraphicsError> prepare_builtin_pipeline(PipelineManager& pipelines,
@@ -297,6 +306,9 @@ namespace Comet {
         Device& m_device;
         PipelineManager& m_pipeline_manager;
         PipelineManager* m_gbuffer_pipelines = nullptr;
+        PipelineManager* m_transparency_pipelines = nullptr;
+        std::shared_ptr<DescriptorSetLayout> m_transparency_depth;
+        bool m_weighted = false;
         SampleCount m_samples;
         MaterialPrograms* m_programs;
         std::shared_ptr<Sampler> m_sampler;

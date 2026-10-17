@@ -1,0 +1,455 @@
+{
+  "version": 2,
+  "post_process": {
+    "exposure": 1,
+    "bloom_enabled": true,
+    "bloom_strength": 0.15,
+    "bloom_threshold": 1,
+    "weighted_oit": true
+  },
+  "entities": [
+    {
+      "uuid": "936affaa-e964-58d0-a962-ecbf32451b47",
+      "components": {
+        "name": "主相机",
+        "transform": {
+          "translation": [
+            0,
+            3,
+            11
+          ],
+          "rotation": [
+            -13,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "camera": {
+          "primary": true,
+          "fov": 45,
+          "near_clip": 0.1,
+          "far_clip": 100
+        },
+        "camera_controller": {
+          "enabled": true,
+          "move_speed": 3,
+          "look_sensitivity": 0.2,
+          "look_speed": 120
+        }
+      }
+    },
+    {
+      "uuid": "2a930832-4239-5745-99d9-527d4b3def12",
+      "components": {
+        "name": "主光",
+        "transform": {
+          "translation": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            -40,
+            -25,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "light": {
+          "type": "directional",
+          "enabled": true,
+          "casts_shadow": true,
+          "color": [
+            1,
+            1,
+            1
+          ],
+          "intensity": 3,
+          "range": 10,
+          "inner_angle": 20,
+          "outer_angle": 30
+        }
+      }
+    },
+    {
+      "uuid": "6dbdbd43-6ae4-5a7b-a27f-92ba1f751f6b",
+      "components": {
+        "name": "地面",
+        "transform": {
+          "translation": [
+            0,
+            -0.15,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            10,
+            0.3,
+            6
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 9429603817048603172
+        },
+        "rigid_body": {
+          "motion": "static"
+        },
+        "collider": {
+          "half_extents": [
+            0.5,
+            0.5,
+            0.5
+          ],
+          "shape": "box",
+          "radius": 0.5,
+          "is_trigger": false
+        }
+      }
+    },
+    {
+      "uuid": "f12ef11e-0a2a-441f-b578-5456e204fb75",
+      "components": {
+        "name": "CPU 火花（相同发射参数）",
+        "transform": {
+          "translation": [
+            -3,
+            1,
+            0
+          ],
+          "rotation": [
+            180,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "particle_emitter": {
+          "capacity": 4096,
+          "rate": 1500,
+          "seed": 67,
+          "lifetime": 2.5,
+          "speed": 2,
+          "spread": 45,
+          "acceleration": [
+            0,
+            -9.8,
+            0
+          ],
+          "start_size": 0.08,
+          "end_size": 0.01,
+          "start_color": [
+            4,
+            1.3,
+            0.2,
+            1
+          ],
+          "end_color": [
+            1,
+            0.1,
+            0,
+            0
+          ],
+          "collision": "none",
+          "collision_radius": 0.025,
+          "restitution": 0.65,
+          "friction": 0.15,
+          "simulation": "cpu",
+          "enabled": false
+        }
+      }
+    },
+    {
+      "uuid": "b30039ee-0757-48b6-b915-8b95f0e889b1",
+      "components": {
+        "name": "GPU 火花（相同发射参数）",
+        "transform": {
+          "translation": [
+            3,
+            1,
+            0
+          ],
+          "rotation": [
+            180,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "particle_emitter": {
+          "capacity": 4096,
+          "rate": 1500,
+          "seed": 67,
+          "lifetime": 2.5,
+          "speed": 2,
+          "spread": 45,
+          "acceleration": [
+            0,
+            -9.8,
+            0
+          ],
+          "start_size": 0.08,
+          "end_size": 0.01,
+          "start_color": [
+            4,
+            1.3,
+            0.2,
+            1
+          ],
+          "end_color": [
+            1,
+            0.1,
+            0,
+            0
+          ],
+          "collision": "none",
+          "collision_radius": 0.025,
+          "restitution": 0.65,
+          "friction": 0.15,
+          "simulation": "gpu",
+          "enabled": false
+        }
+      }
+    },
+    {
+      "uuid": "9462295e-7948-46fb-9df4-288749d7043c",
+      "components": {
+        "name": "红／蓝交错烟雾：cpu",
+        "transform": {
+          "translation": [
+            -0.25,
+            1,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "particle_emitter": {
+          "capacity": 4096,
+          "seed": 23,
+          "rate": 400,
+          "lifetime": 2.5,
+          "speed": 0.45,
+          "spread": 20,
+          "acceleration": [
+            0,
+            0.05,
+            0
+          ],
+          "start_color": [
+            1,
+            0.1,
+            0.1,
+            0.35
+          ],
+          "end_color": [
+            1,
+            0.1,
+            0.1,
+            0
+          ],
+          "start_size": 1.4,
+          "end_size": 2.2,
+          "blend": "alpha",
+          "soft_distance": 0.5,
+          "simulation": "cpu",
+          "collision": "none"
+        }
+      }
+    },
+    {
+      "uuid": "21adb0d7-fb9a-4ab8-9ca2-83b8d6c88896",
+      "components": {
+        "name": "红／蓝交错烟雾：gpu",
+        "transform": {
+          "translation": [
+            0.25,
+            1,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "particle_emitter": {
+          "capacity": 4096,
+          "seed": 23,
+          "rate": 400,
+          "lifetime": 2.5,
+          "speed": 0.45,
+          "spread": 20,
+          "acceleration": [
+            0,
+            0.05,
+            0
+          ],
+          "start_color": [
+            0.1,
+            0.2,
+            1,
+            0.35
+          ],
+          "end_color": [
+            0.1,
+            0.2,
+            1,
+            0
+          ],
+          "start_size": 1.4,
+          "end_size": 2.2,
+          "blend": "alpha",
+          "soft_distance": 0.5,
+          "simulation": "gpu",
+          "collision": "none"
+        }
+      }
+    },
+    {
+      "uuid": "f3c5a44a-e11a-4dba-88d7-f7036efed1ea",
+      "components": {
+        "name": "GPU 压力对照：65536 火花（手动启用）",
+        "transform": {
+          "translation": [
+            0,
+            1,
+            -8
+          ],
+          "rotation": [
+            180,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "particle_emitter": {
+          "capacity": 65536,
+          "rate": 30000,
+          "seed": 67,
+          "lifetime": 2,
+          "speed": 2,
+          "spread": 45,
+          "acceleration": [
+            0,
+            -9.8,
+            0
+          ],
+          "start_size": 0.08,
+          "end_size": 0.01,
+          "start_color": [
+            4,
+            1.3,
+            0.2,
+            1
+          ],
+          "end_color": [
+            1,
+            0.1,
+            0,
+            0
+          ],
+          "collision": "none",
+          "collision_radius": 0.025,
+          "restitution": 0.65,
+          "friction": 0.15,
+          "simulation": "gpu",
+          "enabled": false,
+          "burst": 65536
+        }
+      }
+    },
+    {
+      "uuid": "e1e8352b-355f-414e-adbe-47acae482739",
+      "components": {
+        "name": "蓝色透明层",
+        "transform": {
+          "translation": [
+            -0.5,
+            1,
+            -0.8
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            2.5,
+            2.5,
+            1
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 5783275031450616072,
+          "material": 5783275031450616075
+        }
+      }
+    },
+    {
+      "uuid": "a31c5454-029f-4597-9cf2-7716b1946b42",
+      "components": {
+        "name": "红色透明层",
+        "transform": {
+          "translation": [
+            0.5,
+            1,
+            1.0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            2.5,
+            2.5,
+            1
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 5783275031450616072,
+          "material": 5783275031450616076
+        }
+      }
+    }
+  ]
+}

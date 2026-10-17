@@ -36,6 +36,11 @@ namespace CometEditor {
             Comet::AssetImportLimits limits = {},
             AssetSourceOperations::TrashMover trash_mover = {});
 
+        [[nodiscard]] Comet::Result<Comet::TerrainData> read_terrain(
+            const Comet::AssetTarget& target) const;
+        [[nodiscard]] Comet::AssetScanReport create_terrain(
+            const std::filesystem::path& destination);
+        [[nodiscard]] Comet::Result<void, Comet::Error> apply_terrain_edit(const AssetEdit& edit);
         [[nodiscard]] Comet::Result<Comet::AnimationLibrary> read_animation_library(
             const Comet::AssetTarget& target) const;
         [[nodiscard]] Comet::Result<Comet::GameData> read_data(

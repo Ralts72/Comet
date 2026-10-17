@@ -1,0 +1,114 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_samplerless_texture_functions : require
+layout(local_size_x=64) in;
+#include "particle_common.glsl"
+struct State { vec4 position_age; vec4 velocity; uvec4 metadata; };
+layout(std430,set=0,binding=0) readonly buffer Inputs {
+    Parameters parameters;
+    mat4 view_projection, inverse_view_projection;
+    vec4 timing; // runtime time, elapsed since previous snapshot, radius, restitution
+    vec4 dynamics; // turbulence acceleration, spatial frequency, friction
+    uvec4 history; // previous birth count, collision mode
+    Spawn births[];
+};
+layout(std430,set=0,binding=1) readonly buffer Previous {
+    uvec4 previous_draw;
+    State previous[];
+};
+layout(std430,set=0,binding=2) writeonly buffer Instances { Particle particles[]; };
+layout(std430,set=0,binding=3) buffer Current {
+    uint vertex_count, instance_count, first_vertex, first_instance;
+    State states[];
+};
+layout(set=0,binding=4) uniform texture2D scene_depth;
+
+bool serial_less(uvec2 first, uvec2 second) {
+    return first.y<second.y || (first.y==second.y && first.x<second.x);
+}
+vec3 surface_position(ivec2 pixel, ivec2 size) {
+    float depth=texelFetch(scene_depth,pixel,0).r;
+    vec2 ndc=(vec2(pixel)+.5)/vec2(size)*2-1;
+    vec4 world=inverse_view_projection*vec4(ndc,depth,1);
+    return world.xyz/world.w;
+}
+bool collide(vec3 old_position, inout vec3 position, inout vec3 velocity) {
+    if(history.y==0) return false;
+    vec4 projected=view_projection*vec4(position,1);
+    if(projected.w<=0) return false;
+    vec3 ndc=projected.xyz/projected.w;
+    if(any(greaterThanEqual(abs(ndc.xy),vec2(1))) || ndc.z<0 || ndc.z>1) return false;
+    ivec2 size=textureSize(scene_depth,0);
+    ivec2 pixel=clamp(ivec2((ndc.xy*.5+.5)*vec2(size)),ivec2(0),size-1);
+    float depth=texelFetch(scene_depth,pixel,0).r;
+    vec4 old_clip=view_projection*vec4(old_position,1);
+    if(depth>=1 || ndc.z<depth || old_clip.w<=0 || old_clip.z/old_clip.w>depth+1e-4) return false;
+    if(history.y==2) return true;
+    vec3 surface=surface_position(pixel,size);
+    ivec2 px=ivec2(min(pixel.x+1,size.x-1),pixel.y);
+    ivec2 py=ivec2(pixel.x,min(pixel.y+1,size.y-1));
+    vec3 normal=cross(surface_position(px,size)-surface,surface_position(py,size)-surface);
+    vec3 toward_camera=transpose(mat3(parameters.view))*vec3(0,0,1);
+    normal=length(normal)>1e-5 ? normalize(normal) : toward_camera;
+    if(dot(normal,toward_camera)<0) normal=-normal;
+    float speed=dot(velocity,normal);
+    if(speed<0) velocity=(velocity-normal*speed)*(1-dynamics.z)-normal*speed*timing.w;
+    vec4 contact=inverse_view_projection*vec4(ndc.xy,depth,1);
+    position=contact.xyz/contact.w+normal*max(timing.z,.001);
+    return false;
+}
+void main() {
+    uint index=gl_GlobalInvocationID.x;
+    if(index>=parameters.counts.y) return;
+    uint low=0, high=parameters.counts.x;
+    while(low+1<high) {
+        uint middle=(low+high)/2;
+        if(births[middle].range.x<=index) low=middle; else high=middle;
+    }
+    Spawn birth=births[low];
+    uint local=index-birth.range.x;
+    uvec2 serial=uvec2(birth.range.z+local,birth.range.w);
+    if(serial.x<birth.range.z) serial.y++;
+    float age=max(0.0,birth.timing.x-float(local)*birth.timing.y);
+    vec3 velocity=birth_velocity(birth,local,parameters);
+    vec3 position=birth.pose[3].xyz;
+    float elapsed=age;
+    bool alive=true;
+    low=0; high=history.x;
+    while(low<high) {
+        uint middle=(low+high)/2;
+        if(serial_less(previous[middle].metadata.xy,serial)) low=middle+1; else high=middle;
+    }
+    if(low<history.x && all(equal(previous[low].metadata.xy,serial))) {
+        position=previous[low].position_age.xyz;
+        velocity=previous[low].velocity.xyz;
+        elapsed=timing.y;
+        alive=previous[low].metadata.z!=0;
+    }
+    // 有界追赶；首次可见或长时间未渲染时，从当前弹道的最近 .25 秒开始。
+    if(elapsed>.25) {
+        float skipped=elapsed-.25;
+        position+=velocity*skipped+parameters.acceleration_lifetime.xyz*(.5*skipped*skipped);
+        velocity+=parameters.acceleration_lifetime.xyz*skipped;
+        elapsed=.25;
+    }
+    uint steps=min(16u,uint(ceil(max(elapsed,0.0)*60)));
+    float dt=steps>0 ? elapsed/float(steps) : 0;
+    float phase=float(random_hash(serial.x^parameters.counts.w)&65535u)*.001;
+    for(uint step=0; step<steps && alive; ++step) {
+        float time=timing.x-elapsed+float(step)*dt;
+        vec3 field=position*dynamics.y+vec3(time+phase,time*.7-phase,time*.9+phase);
+        vec3 acceleration=parameters.acceleration_lifetime.xyz
+            +vec3(sin(field.y)-cos(field.z),sin(field.z)-cos(field.x),sin(field.x)-cos(field.y))*dynamics.x;
+        vec3 next=position+velocity*dt+acceleration*(.5*dt*dt);
+        velocity+=acceleration*dt;
+        if(collide(position,next,velocity)) alive=false;
+        position=next;
+    }
+    alive=alive && age<parameters.acceleration_lifetime.w;
+    states[index]=State(vec4(position,age),vec4(velocity,0),uvec4(serial,alive ? 1u : 0u,0));
+    if(alive) {
+        uint output_index=atomicAdd(instance_count,1);
+        particles[output_index]=particle_appearance(position,age,index,parameters);
+    }
+}

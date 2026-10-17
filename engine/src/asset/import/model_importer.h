@@ -20,6 +20,8 @@ namespace Comet {
             std::optional<uint32_t> skin_node;
             uint32_t material = NONE;
             MeshData data;
+            std::array<uint32_t, 2> lods{NONE, NONE};
+            bool collision = false;
         };
         struct Node {
             std::string name;

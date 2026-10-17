@@ -57,7 +57,8 @@ namespace Comet {
             std::vector<std::shared_ptr<Sampler>> samplers) {
         DescriptorPoolSizes sizes;
         sizes.add_pool_size(DescriptorType::SampledImage, static_cast<uint32_t>(images.size()));
-        sizes.add_pool_size(DescriptorType::Sampler, static_cast<uint32_t>(samplers.size()));
+        if(!samplers.empty())
+            sizes.add_pool_size(DescriptorType::Sampler, static_cast<uint32_t>(samplers.size()));
         auto created = allocate_binding(
             device, std::move(images), std::move(layout), std::move(samplers), sizes);
         if(!created)

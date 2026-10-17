@@ -285,9 +285,35 @@ namespace CometEditor::AssetSourceOperations {
                 std::filesystem::remove(target, error);
         }
 
-        Result<std::vector<std::filesystem::path>> gltf_dependencies(
+        Result<std::vector<std::filesystem::path>> model_dependencies(
             const std::filesystem::path& source_path) {
             using Dependencies = Result<std::vector<std::filesystem::path>>;
+            if(source_extension(source_path) == ".terrain") {
+                auto terrain = Comet::TerrainData::load(source_path);
+                if(!terrain)
+                    return Dependencies::failure(terrain.error());
+                std::vector<std::filesystem::path> dependencies;
+                const auto add = [&](const std::string& value) -> Result<void> {
+                    if(value.empty())
+                        return Result<void>::success();
+                    const std::filesystem::path relative(value);
+                    if(auto valid = validate_relative(relative); !valid)
+                        return valid;
+                    if(source_extension(relative) == ".meta")
+                        return Result<void>::failure("Terrain dependencies must be image sources");
+                    dependencies.push_back(relative.lexically_normal());
+                    return Result<void>::success();
+                };
+                if(auto result = add(terrain.value().heightmap); !result)
+                    return Dependencies::failure(result.error());
+                for(const auto& layer : terrain.value().layers)
+                    if(auto result = add(layer.texture); !result)
+                        return Dependencies::failure(result.error());
+                std::ranges::sort(dependencies);
+                dependencies.erase(
+                    std::unique(dependencies.begin(), dependencies.end()), dependencies.end());
+                return Dependencies::success(std::move(dependencies));
+            }
             auto source = fastgltf::GltfDataBuffer::FromPath(source_path);
             if(!source)
                 return Dependencies::failure(
@@ -449,7 +475,7 @@ namespace CometEditor::AssetSourceOperations {
             const auto parent = std::filesystem::canonical(source.parent_path(), error);
             if(error)
                 return Result<void>::failure("Cannot resolve model directory: " + error.message());
-            const auto dependencies = gltf_dependencies(source);
+            const auto dependencies = model_dependencies(source);
             if(!dependencies)
                 return Result<void>::failure(dependencies.error());
             for(const auto& dependency : dependencies.value()) {
@@ -493,7 +519,7 @@ namespace CometEditor::AssetSourceOperations {
             }
             if(roots.empty())
                 return Result<void>::failure(
-                    "Drop PNG/JPEG textures, HDR environments, Lua scripts, WAV audio, animation controllers or glTF/GLB models (not directories)");
+                    "Drop PNG/JPEG textures, HDR environments, Lua scripts, WAV audio, animation controllers, terrain sources or glTF/GLB models (not directories)");
             for(const auto& source : sources) {
                 if(external_import_type(source))
                     continue;
@@ -530,7 +556,7 @@ namespace CometEditor::AssetSourceOperations {
             switch(*type) {
                 case AssetType::Model: {
                     // 再检查暂存副本，拒绝复制期间改变了依赖列表的源文件。
-                    const auto dependencies = gltf_dependencies(source);
+                    const auto dependencies = model_dependencies(source);
                     if(!dependencies)
                         return Result<void>::failure(dependencies.error());
                     for(const auto& dependency : dependencies.value()) {
@@ -1014,6 +1040,25 @@ namespace CometEditor::AssetSourceOperations {
             return operation_error({}, serialized.error());
         return save_text_asset(database, target, AssetType::Prefab, serialized.value());
     }
+    AssetScanReport create_terrain(AssetDatabase& database,
+        const std::filesystem::path& destination, const Comet::TerrainData& data) {
+        auto serialized = data.serialize();
+        if(!serialized)
+            return operation_error(destination, serialized.error());
+        return create_source_asset(
+            database, destination, serialized.value(), AssetType::Model, ".terrain", "Terrain");
+    }
+    AssetScanReport save_terrain(
+        AssetDatabase& database, const AssetTarget& target, const Comet::TerrainData& data) {
+        const auto* record = database.find(target.handle);
+        if(!record || record->path.extension() != ".terrain")
+            return operation_error({}, "Selected model is not a terrain source");
+        auto serialized = data.serialize();
+        if(!serialized)
+            return operation_error({}, serialized.error());
+        return save_text_asset(database, target, AssetType::Model, serialized.value());
+    }
+
     AssetScanReport create_animation_controller(AssetDatabase& database,
         const std::filesystem::path& destination, const AnimationController& data) {
         auto serialized = AnimationControllerSerializer{}.serialize(data);
@@ -1086,6 +1131,8 @@ return script
             return true;
         if(extension == ".lua")
             return record->type == AssetType::Script;
+        if(extension == ".terrain")
+            return record->type == AssetType::Model;
         if(extension == ".anilib")
             return record->type == AssetType::AnimationLibrary;
         if(extension == ".ani")

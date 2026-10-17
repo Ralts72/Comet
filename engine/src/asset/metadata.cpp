@@ -133,7 +133,7 @@ namespace Comet {
             return AssetType::Texture;
         if(extension == ".mat")
             return AssetType::Material;
-        if(extension == ".gltf" || extension == ".glb")
+        if(extension == ".gltf" || extension == ".glb" || extension == ".terrain")
             return AssetType::Model;
         if(extension == ".vert" || extension == ".frag" || extension == ".comp"
             || extension == ".geom")

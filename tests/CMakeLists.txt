@@ -33,6 +33,7 @@ set(UNIT_TEST_SOURCES
         asset/test_mesh_data.cpp
         asset/test_mesh_importer.cpp
         asset/test_model_importer.cpp
+        asset/test_terrain_importer.cpp
         asset/test_metadata.cpp
         asset/test_project_assets.cpp
         asset/test_product_index.cpp
@@ -207,7 +208,9 @@ set(INTEGRATION_SOURCES
         render/test_instanced_rendering.cpp
         render/test_decals.cpp
         render/test_outline.cpp
+        render/test_transparency.cpp
         render/test_gpu_particles.cpp
+        render/test_gpu_particle_dynamics.cpp
         render/test_deferred.cpp
         render/test_screen_space_reflections.cpp
         render/test_volumetric_fog.cpp

@@ -9,6 +9,42 @@
 namespace Comet::Tests {
     namespace SourceOperations = CometEditor::AssetSourceOperations;
 
+    TEST(AssetSourceOperationsTest, TerrainCreateSaveAndStaleEditUseTheModelSourceTransaction) {
+        TemporaryProject project;
+        AssetDatabase database(project.paths());
+        ASSERT_TRUE(database.scan().succeeded());
+        auto created = SourceOperations::create_terrain(database, "ground.terrain", {});
+        ASSERT_TRUE(created.succeeded()) << created.issues.front().message;
+        const auto* record = database.find("ground.terrain");
+        ASSERT_NE(record, nullptr);
+        EXPECT_EQ(record->type, AssetType::Model);
+        EXPECT_TRUE(SourceOperations::can_open_source(database, record->path));
+        const AssetTarget target{record->handle, database.get_revision(record->handle)};
+        auto data = TerrainData::load(project.paths().assets() / "ground.terrain");
+        ASSERT_TRUE(data);
+        data.value().width = 128;
+        EXPECT_TRUE(SourceOperations::save_terrain(database, target, data.value()).succeeded());
+        data.value().width = 256;
+        EXPECT_FALSE(SourceOperations::save_terrain(database, target, data.value()).succeeded());
+        EXPECT_EQ(
+            TerrainData::load(project.paths().assets() / "ground.terrain").value().width, 128);
+        EXPECT_FALSE(SourceOperations::create_terrain(database, "ground.terrain", {}).succeeded());
+        TemporaryDirectory external;
+        TerrainData imported;
+        imported.heightmap = "hill.png";
+        imported.layers[0].texture = "hill.png";
+        ASSERT_TRUE(imported.save(external.path() / "outside.terrain"));
+        std::filesystem::copy_file(
+            std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY) / "assets/terrain/hills.png",
+            external.path() / "hill.png");
+        std::filesystem::create_directories(project.paths().assets() / "imported");
+        const std::array inputs{external.path() / "outside.terrain"};
+        auto copied = SourceOperations::import_files(database, inputs, "imported", {});
+        ASSERT_TRUE(copied.succeeded()) << copied.issues.front().message;
+        EXPECT_TRUE(std::filesystem::exists(project.paths().assets() / "imported/hill.png"));
+        EXPECT_NE(database.find("imported/outside.terrain"), nullptr);
+    }
+
     TEST(AssetDataSourceTest, CsvImportMoveAndDeleteKeepSchemaWithTheAsset) {
         TemporaryProject project;
         TemporaryDirectory external;

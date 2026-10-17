@@ -222,6 +222,7 @@ AssetLoader 直接读索引中的 Mesh／Texture／Environment／ShaderProgram �
 
 ModelImporter 的 CPU 候选保留 glTF 节点／场景、primitive 材质关联、图片和采样设置，
 与单 Mesh 导入共用几何／骨骼解码。静态节点共用几何，不同蒙皮节点分别保存绑定空间；候选中的下标只关联源内容，不能当作持久资产句柄。
+高度场 `.terrain` 复用 Model 资产类型。TerrainImporter 只在开发导入时读取高度与层纹理，生成分块三级网格、混合底色与共用植被实例；ModelData 的 Part 可携带普通 LOD 引用和静态碰撞声明，Scene 实例化时生成既有组件。运行时、模型来源更新与只读导出沿用同一产品链，无专用 TerrainSystem，也不在 Engine tick 重建地形。
 模型 .meta 保存子资源 key 与持久句柄，AssetDatabase 按句柄索引子资源，按路径查询仍返回源模型；源与伴随文件变化会同步使子资源失效。
 唯一名称在源数组重排后保持身份；无名／重名内容使用源下标区分，不能据此承诺任意重排后的身份稳定。
 ModelArtifact 复用 Mesh／Texture 缓存与材质序列化，先按内容版本写完子资源，再发布模型索引；项目预准备能按场景子资源引用重建整个模型。
@@ -367,12 +368,14 @@ ParticlePass 在 Render 线程上传当前帧槽的 CPU 实例缓冲，支持加
 纯加法且没有透明网格时直接上传快照；存在 Alpha 粒子或透明网格时，在 Render 私有可复用数组按相机深度排序全部粒子，再合并连续同状态实例。相同深度使用原快照次序，不改写 Main 数据。
 MaterialRenderer 与 ParticlePass 分开准备资源和录制命令；SceneRenderer 先画不透明物体，再线性归并透明网格与粒子的深度流，按连续同类区间录制。网格可切开粒子批次，切换后重新绑定各自的顶点、管线与描述符；每帧结束清理借用数据。
 软交界与 AO 复用 SceneRenderer 拥有的单采样 view depth；仅在存在对应需求时分配并执行。ParticlePass 按投影恢复线性相机深度，独立保活各帧槽深度描述符，resize 或关闭效果不改写在途绑定。
-网格使用包围盒中心，粒子使用中心深度；同深度先网格后粒子。对象级排序不能精确解决相交几何或同一网格内部的透明层叠，OIT 另行扩展。
+网格使用包围盒中心，粒子使用中心深度；同深度先网格后粒子。对象级排序不能精确解决相交几何或同一网格内部的透明层叠；启用 OIT 后，内置透明网格与粒子进入共用积累阶段。
 纹理上传完成信号参与提交等待，替换资源不改写在途描述符。未指定纹理使用柔边圆形，显式引用缺失时诊断并跳过对应批次。
 暂停／单步与 Stop／切关复用 Runtime 协议；场景保存、克隆和 Prefab 不携带存活粒子。素材与触发规则继续归项目。
 Editor 的 ParticlePreview 持有单个特效代理 Scene，按需复制编辑场景的碰撞形状；独立 PhysicsService 将复制体保持静止，ParticleSystem 以现有 Runtime 推进粒子与拖尾并发布到 Edit 视口。预览不启动游戏脚本或音频，不修改原场景物理状态或撤销历史。AnimationPreview／ParticlePreview 各自持有已发布输出；Inspector 只装配目标与 UI，重置时由预览对象复核场景寿命及输出身份，只撤销自己仍拥有的发布。
 
-GPU 发射器由同一 ParticleSystem 发布有界出生批次，保留固定步时间、世界姿态和随机序号；不创建 CPU 粒子实例。GpuParticleSimulation 在每 View／帧槽上按出生年龄求值弹道、颜色、尺寸和图集，生成顶点输入与间接绘制命令。Alpha 发射器使用 GPU bitonic 深度排序；跨发射器与透明网格按发射器中心归并。RenderGraph 在 HDR 绘制前调度并计时，内部 buffer 屏障与 descriptor／pipeline／buffer owner 由模拟器和 FrameSlot 保活，不读回 GPU 状态或推进第二套时钟。碰撞继续走 CPU 路径。
+GPU 发射器由同一 ParticleSystem 发布有界出生批次，保留固定步时间、世界姿态和随机序号；不创建 CPU 粒子实例。GpuParticleSimulation 按出生年龄求值弹道与外观，生成顶点输入及间接绘制命令；有状态模式继续积分位置／速度并读取当前视图深度，碰撞边界见[使用手册](../usage.md#gpu-有状态模拟)。未启用 OIT 的 Alpha 发射器才创建并执行 GPU bitonic 排序，跨发射器与透明网格按发射器中心归并。RenderGraph 在 HDR 绘制前调度并计时。
+
+每个 ParticlePass 的 GpuParticleSimulation 持有独立历史，按场景寿命、发射器身份及连续成功帧匹配，复用出生数据暂存区；当帧未使用的历史在准备结束时清理。compute 初始化间接计数，再积分并压紧存活输出；单槽也交替状态缓冲。暂停保持状态，录制失败、场景／参数变化或帧中断会重建历史。Main 提供 Runtime 时间，GPU 不推进第二套时钟或向玩法读回状态。FrameSlot 保活上一代状态及本帧描述符、管线和缓冲，避免覆盖在途资源。
 
 ## 音频与运行域
 
@@ -434,6 +437,7 @@ Runtime、预览和姿态采样共用循环／终点时间规则。非循环片�
 
 `BoneAttachmentComponent` 使用父模型的骨骼及子实体本地偏移，不再保存另一份目标引用。组合层解析挂点父模型的 CPU 动画数据，Scene 保存绑定姿态；有挂点或固定步动画的实例在 Main 采样并发布不可变姿态，SkinningPass 直接借用，其他实例继续在 Render 采样。World 与固定步呈现插值共用父骨骼变换，不写回挂载物的本地 Transform。绑定姿态、当前姿态和来源替换分别失效，均不写入场景内容。
 
+骨骼链重定向在动画库绑定阶段按绑定姿态累计骨长重采样网格空间旋转差，输出普通局部旋转曲线；链覆盖的节点不再普通映射，根运动保持链外。此过程与原来源版本／产品绑定缓存共用，不增加运行时姿态求解器或第二套时钟。
 Editor 的动画库 Inspector 管理重定向草稿与保存／放弃，和控制器共用未保存提示、类型化 AssetEdit 与原子源写入边界；库定义与运行时 CPU 来源分别保存。`AnimationControllerEditor` 只管理状态图布局、选中项、草稿撤销及试播参数；`AssetInspector` 仍拥有资产草稿与保存请求，文件读写由宿主执行。布局与试播参数不写入 `.ani`。Play 从 Scene 的不可变播放快照读取状态与过渡进度。
 Editor 的 `AnimationPreview` 拥有所选模型的预览时钟，Inspector 在 Main 捕获帧前通过 Scene 的瞬时播放接口发布不可变快照，复用正常提取、采样和蒙皮链路。
 预览与 Animator 配置、命令历史及游戏 Runtime 分开；结束时只清理仍属于预览的发布，选择／资源／场景变化和进入 Play 时重置，不新增渲染视口。
@@ -547,6 +551,8 @@ MaterialRenderer 从本帧绑定的程序引用准备各 View，编辑器显式�
 编辑器材质手势保存原始 CPU 材质；Main 在预览、取消及撤销时捕获独立材质快照和 Shader 产物，再交给 Renderer，经 RenderThread 准备全部 View 的绑定。GPU 准备入口显式接收两种输入，不复制编辑源或补查最新注册版本；缺失的项目 Shader 不沿用旧程序。
 准备、预览、保存与取消共用源版本／Registry 发布版本校验；成功预览推进该编辑请求的发布版本。同一对象重新发布也使旧请求过期，旧请求不再保存文件或还原资源。
 GPU 候选只用于一次帧边界提交，不跨帧保存回退候选。Editor 在 GPU 准备成功后预览或保存，再由候选的 publish 接口交给 RenderThread 发布绑定；准备和发布都同步返回结果。保存失败保留草稿和预览供重试，取消按当前 View 和布局重新准备原材质。
+
+OIT 是 SceneRenderer 的可选透明阶段：现有 HDR 不透明绘制后，TransparencyPass 读取相机预深度，向两个半浮点目标积累加权颜色／alpha、光学厚度与加法颜色，再合成到 HDR；SSR／TAA／Bloom 读取合成结果。内置材质和两类粒子共用此阶段，自定义材质保持原排序入口。RenderGraph 表达颜色写入、深度采样及合成读取，关闭／resize 换代的图像和描述符由在途帧保活。
 
 ### 场景环境与 IBL
 

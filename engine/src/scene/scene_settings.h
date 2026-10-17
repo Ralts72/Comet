@@ -86,6 +86,7 @@ namespace Comet {
         float ao_radius = 0.5f;
         float ao_strength = 1.0f;
         ScreenSpaceReflectionSettings reflections;
+        bool weighted_oit = false;
 
         [[nodiscard]] bool uses_ao() const { return ao_enabled && ao_strength > 0.0f; }
         [[nodiscard]] bool uses_bloom() const { return bloom_enabled && bloom_strength > 0.0f; }

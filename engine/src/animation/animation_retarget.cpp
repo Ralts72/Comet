@@ -47,6 +47,159 @@ namespace Comet {
                         "Retargeting needs unique node names");
             return Result<std::map<std::string, uint32_t>>::success(std::move(nodes));
         }
+        struct RetargetChain {
+            std::vector<uint32_t> source, target;
+            std::vector<float> source_distance, target_distance;
+            float weight;
+        };
+        Result<std::vector<uint32_t>> chain_nodes(const AnimationData& data,
+            const std::map<std::string, uint32_t>& names, const std::string& root,
+            const std::string& tip) {
+            using Read = Result<std::vector<uint32_t>>;
+            if(!names.contains(root) || !names.contains(tip))
+                return Read::failure("Retarget chain endpoint is missing: " + root + " -> " + tip);
+            std::vector<uint32_t> path;
+            auto node = names.at(tip);
+            while(node != NO_ANIMATION_NODE) {
+                path.push_back(node);
+                if(node == names.at(root))
+                    break;
+                node = data.nodes[node].parent;
+            }
+            if(node == NO_ANIMATION_NODE || path.size() < 2
+                || std::ranges::find(path, data.mesh_node) != path.end())
+                return Read::failure("Retarget chain needs distinct ancestor/descendant bones");
+            std::ranges::reverse(path);
+            return Read::success(std::move(path));
+        }
+        Result<std::vector<float>> chain_distances(
+            const std::vector<uint32_t>& nodes, const std::vector<RestFrame>& rest) {
+            std::vector<float> distance(nodes.size(), 0);
+            for(size_t i = 1; i < nodes.size(); ++i)
+                distance[i] = distance[i - 1]
+                              + glm::length(rest[nodes[i]].position - rest[nodes[i - 1]].position);
+            if(distance.back() < 1e-5f)
+                return Result<std::vector<float>>::failure("Retarget chain has zero rest length");
+            const auto length = distance.back();
+            for(auto& value : distance)
+                value /= length;
+            return Result<std::vector<float>>::success(std::move(distance));
+        }
+        std::vector<Math::Quat> mesh_rotations(
+            const AnimationData& data, const std::vector<JointTransform>& local) {
+            std::vector<Math::Quat> rotations(local.size());
+            for(auto node : data.evaluation_order) {
+                const auto parent = data.nodes[node].parent;
+                rotations[node] = local[node].rotation;
+                if(parent != NO_ANIMATION_NODE)
+                    rotations[node] = rotations[parent] * rotations[node];
+            }
+            const auto basis = glm::inverse(rotations[data.mesh_node]);
+            for(auto& value : rotations)
+                value = glm::normalize(basis * value);
+            return rotations;
+        }
+        Result<void> bake_chains(const AnimationData& source, AnimationData& target,
+            const std::vector<RetargetChain>& chains, const std::vector<RestFrame>& source_rest,
+            const std::vector<RestFrame>& target_rest) {
+            if(chains.empty())
+                return Result<void>::success();
+            struct RotationSample {
+                uint32_t node, first, last;
+                float alpha, weight;
+            };
+            std::vector<RotationSample> samples;
+            std::vector<int> channel_for_node(target.nodes.size(), -1);
+            for(const auto& chain : chains)
+                for(size_t i = 0; i < chain.target.size(); ++i) {
+                    const float distance = chain.target_distance[i];
+                    const auto upper = std::upper_bound(
+                        chain.source_distance.begin(), chain.source_distance.end(), distance);
+                    const size_t last = std::min(
+                        size_t(upper - chain.source_distance.begin()), chain.source.size() - 1);
+                    const size_t first = last ? last - 1 : 0;
+                    const float span = chain.source_distance[last] - chain.source_distance[first];
+                    channel_for_node[chain.target[i]] = int(samples.size());
+                    samples.push_back({chain.target[i], chain.source[first], chain.source[last],
+                        span > 0 ? (distance - chain.source_distance[first]) / span : 1,
+                        chain.weight});
+                }
+            std::vector<Math::Quat> inverse_rest;
+            inverse_rest.reserve(source_rest.size());
+            for(const auto& frame : source_rest)
+                inverse_rest.push_back(glm::inverse(frame.rotation));
+            for(size_t clip_index = 0; clip_index < source.clips.size(); ++clip_index) {
+                const auto& clip = source.clips[clip_index];
+                if(clip.duration > 600)
+                    return Result<void>::failure("Chain retarget clips are limited to 600 seconds");
+                std::vector<float> times{0, clip.duration};
+                for(uint32_t frame = 1; frame < uint32_t(std::ceil(clip.duration * 60)); ++frame)
+                    times.push_back(std::min(frame / 60.f, clip.duration));
+                for(const auto& channel : clip.channels)
+                    for(auto time : channel.times) {
+                        times.push_back(time);
+                        if(channel.interpolation == AnimationChannel::Interpolation::Step
+                            && time > 0)
+                            times.push_back(std::nextafter(time, 0.f));
+                    }
+                std::ranges::sort(times);
+                times.erase(std::unique(times.begin(), times.end()), times.end());
+                if(times.size() > 65536)
+                    return Result<void>::failure("Chain retarget sample budget exceeded");
+                if(times.size() * samples.size() > 4 * 1024 * 1024)
+                    return Result<void>::failure("Chain retarget key budget exceeded");
+                std::vector<AnimationChannel> baked;
+                baked.reserve(samples.size());
+                for(const auto& sample : samples) {
+                    baked.push_back({sample.node, AnimationChannel::Path::Rotation,
+                        AnimationChannel::Interpolation::Linear, times, {}});
+                    baked.back().values.reserve(times.size());
+                }
+                for(auto time : times) {
+                    AnimationPlayback frame{
+                        .current = {.clip = clip.name, .time = time, .loop = false}};
+                    auto first = sample_animation(source, &frame, false);
+                    auto second = sample_animation(target, &frame, false);
+                    if(!first || !second)
+                        return Result<void>::failure(!first ? first.error() : second.error());
+                    const auto from = mesh_rotations(source, first.value().local_transforms);
+                    auto to = mesh_rotations(target, second.value().local_transforms);
+                    auto desired = to;
+                    for(const auto& sample : samples) {
+                        const auto first = from[sample.first] * inverse_rest[sample.first];
+                        const auto last = from[sample.last] * inverse_rest[sample.last];
+                        const auto delta = glm::normalize(glm::slerp(first, last, sample.alpha));
+                        desired[sample.node] = glm::normalize(glm::slerp(to[sample.node],
+                            delta * target_rest[sample.node].rotation, sample.weight));
+                    }
+                    // 按目标父序重建局部旋转，父链与子链可共同受原有躯干／根运动驱动。
+                    for(auto node : target.evaluation_order) {
+                        const auto parent = target.nodes[node].parent;
+                        if(channel_for_node[node] >= 0) {
+                            auto local = desired[node];
+                            if(parent != NO_ANIMATION_NODE)
+                                local = glm::inverse(to[parent]) * local;
+                            else
+                                local = glm::inverse(target_rest.back().rotation) * local;
+                            local = glm::normalize(local);
+                            auto& values = baked[channel_for_node[node]].values;
+                            if(!values.empty()
+                                && glm::dot(local, Math::Quat(values.back().w, values.back().x,
+                                                       values.back().y, values.back().z))
+                                       < 0)
+                                local = -local;
+                            values.push_back({local.x, local.y, local.z, local.w});
+                            to[node] = desired[node];
+                        } else if(parent != NO_ANIMATION_NODE)
+                            to[node] = to[parent] * second.value().local_transforms[node].rotation;
+                    }
+                }
+                auto& output = target.clips[clip_index].channels;
+                output.insert(output.end(), std::make_move_iterator(baked.begin()),
+                    std::make_move_iterator(baked.end()));
+            }
+            return Result<void>::success();
+        }
         bool channel_moves(const AnimationChannel& channel, const JointTransform& rest) {
             const bool cubic =
                 channel.interpolation == AnimationChannel::Interpolation::CubicSpline;
@@ -74,9 +227,15 @@ namespace Comet {
         }
     }
     Result<void> AnimationRetarget::validate() const {
-        if(nodes.size() > 4096 || translations.size() > 128 || !std::isfinite(translation_scale)
-            || translation_scale < 0)
+        if(nodes.size() > 4096 || translations.size() > 128 || chains.size() > 32
+            || !std::isfinite(translation_scale) || translation_scale < 0)
             return Result<void>::failure("Invalid retarget settings");
+        for(const auto& chain : chains)
+            if(chain.source_root.empty() || chain.source_tip.empty() || chain.target_root.empty()
+                || chain.target_tip.empty() || chain.source_root == chain.source_tip
+                || chain.target_root == chain.target_tip || !std::isfinite(chain.weight)
+                || chain.weight < 0 || chain.weight > 1)
+                return Result<void>::failure("Invalid retarget chain endpoints or weight");
         std::unordered_set<std::string> targets;
         for(const auto& [source, target] : nodes)
             if(source.empty() || target.empty() || !targets.insert(target).second)
@@ -102,9 +261,42 @@ namespace Comet {
         for(const auto& [from, to] : settings.nodes)
             if(!source_names.value().contains(from) || !target_names.value().contains(to))
                 return Bound::failure("Retarget mapping node is missing: " + from + " -> " + to);
+        auto source_rest = rest_frames(source), target_rest = rest_frames(target);
+        if(!source_rest)
+            return Bound::failure(source_rest.error());
+        if(!target_rest)
+            return Bound::failure(target_rest.error());
+        std::vector<RetargetChain> chains;
+        std::vector<bool> source_chained(source.nodes.size()), target_chained(target.nodes.size());
+        for(const auto& chain : settings.chains) {
+            auto from =
+                chain_nodes(source, source_names.value(), chain.source_root, chain.source_tip);
+            auto to =
+                chain_nodes(target, target_names.value(), chain.target_root, chain.target_tip);
+            if(!from || !to)
+                return Bound::failure(!from ? from.error() : to.error());
+            auto first = chain_distances(from.value(), source_rest.value());
+            auto second = chain_distances(to.value(), target_rest.value());
+            if(!first || !second)
+                return Bound::failure(!first ? first.error() : second.error());
+            for(auto node : from.value()) {
+                if(source_chained[node])
+                    return Bound::failure("Source retarget chains overlap");
+                source_chained[node] = true;
+            }
+            for(auto node : to.value()) {
+                if(target_chained[node])
+                    return Bound::failure("Target retarget chains overlap");
+                target_chained[node] = true;
+            }
+            chains.push_back({std::move(from).value(), std::move(to).value(),
+                std::move(first).value(), std::move(second).value(), chain.weight});
+        }
         std::vector<uint32_t> mapping(source.nodes.size(), NO_ANIMATION_NODE);
         std::vector<uint32_t> reverse(target.nodes.size(), NO_ANIMATION_NODE);
         for(uint32_t i = 0; i < source.nodes.size(); ++i) {
+            if(source_chained[i])
+                continue;
             const auto alias = settings.nodes.find(source.nodes[i].name);
             const auto& name = alias != settings.nodes.end() ? alias->second : source.nodes[i].name;
             const auto found = target_names.value().find(name);
@@ -115,7 +307,7 @@ namespace Comet {
                     return Bound::failure("Retarget mesh node must map to the target mesh node");
                 destination = target.mesh_node;
             }
-            if(destination == NO_ANIMATION_NODE)
+            if(destination == NO_ANIMATION_NODE || target_chained[destination])
                 continue;
             if(reverse[destination] != NO_ANIMATION_NODE)
                 return Bound::failure(
@@ -128,7 +320,7 @@ namespace Comet {
                    && std::ranges::any_of(target.joints,
                        [&](const SkinJoint& other) { return other.node == mapping[joint.node]; });
         });
-        if(!mapped_joint)
+        if(!mapped_joint && chains.empty())
             return Bound::failure("Retarget mapping contains no corresponding skin joints");
         const auto mapped_parent = [](const AnimationData& data, uint32_t node,
                                        const std::vector<uint32_t>& map) {
@@ -154,14 +346,19 @@ namespace Comet {
                 return Bound::failure("Translation node is not mapped: " + name);
             translated.insert(found->second);
         }
-        auto source_rest = rest_frames(source), target_rest = rest_frames(target);
-        if(!source_rest)
-            return Bound::failure(source_rest.error());
-        if(!target_rest)
-            return Bound::failure(target_rest.error());
         float scale = settings.translation_scale;
         if(scale == 0) {
             std::vector<float> ratios;
+            for(const auto& chain : chains) {
+                float first = 0, second = 0;
+                for(size_t i = 1; i < chain.source.size(); ++i)
+                    first += glm::length(source_rest.value()[chain.source[i]].position
+                                         - source_rest.value()[chain.source[i - 1]].position);
+                for(size_t i = 1; i < chain.target.size(); ++i)
+                    second += glm::length(target_rest.value()[chain.target[i]].position
+                                          - target_rest.value()[chain.target[i - 1]].position);
+                ratios.push_back(second / first);
+            }
             for(uint32_t i = 0; i < source.nodes.size(); ++i) {
                 if(mapping[i] == NO_ANIMATION_NODE)
                     continue;
@@ -202,6 +399,14 @@ namespace Comet {
                 if(mesh_ancestor == from && channel_moves(channel, source.nodes[from].rest))
                     return Bound::failure(
                         "Retargeting requires a static mesh basis: " + source.nodes[from].name);
+                if(source_chained[from]) {
+                    if(channel.path != AnimationChannel::Path::Rotation
+                        && channel_moves(channel, source.nodes[from].rest))
+                        return Bound::failure(
+                            "Chain retargeting keeps target translations and scales: "
+                            + source.nodes[from].name);
+                    continue;
+                }
                 if(to == NO_ANIMATION_NODE) {
                     if(channel_moves(channel, source.nodes[from].rest))
                         for(uint32_t i = 0; i < source.nodes.size(); ++i) {
@@ -261,6 +466,10 @@ namespace Comet {
             }
             output.clips.push_back(std::move(converted));
         }
+        if(auto baked =
+                bake_chains(source, output, chains, source_rest.value(), target_rest.value());
+            !baked)
+            return Bound::failure(baked.error());
         if(auto valid = validate_animation(output); !valid)
             return Bound::failure(valid.error());
         return Bound::success(std::move(output));

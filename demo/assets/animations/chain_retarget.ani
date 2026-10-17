@@ -1,0 +1,20 @@
+{
+  "library": "2915578460161407962",
+  "initial": "walk",
+  "parameters": {},
+  "states": [
+    {
+      "name": "walk",
+      "parameter": "",
+      "smoothing": 0,
+      "loop": true,
+      "motions": [
+        {
+          "threshold": 0,
+          "clip": "retarget_walk"
+        }
+      ]
+    }
+  ],
+  "transitions": []
+}

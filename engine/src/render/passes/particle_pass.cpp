@@ -1,5 +1,7 @@
 #include "render/passes/volumetric_fog_pass.h"
 #include "render/passes/particle_pass.h"
+#include "render/passes/transparency_pass.h"
+#include "billboard_oit_frag.h"
 #include "render/passes/gpu_particle_simulation.h"
 
 #include "graphics/command/command_buffer.h"
@@ -41,16 +43,18 @@ namespace Comet {
         for(auto& binding : m_depth_bindings)
             binding.reset();
     }
-    Result<void, GraphicsError> ParticlePass::prepare_gpu(
-        FrameScheduler& frames, const ViewProjectMatrix& camera, const RenderWorld& world) {
+    Result<void, GraphicsError> ParticlePass::prepare_gpu(FrameScheduler& frames,
+        const ViewProjectMatrix& camera, const RenderWorld& world, bool sorted,
+        const std::shared_ptr<ImageView>& depth) {
         return m_gpu->prepare(frames, camera,
             world.particles ? std::span(world.particles->gpu_emitters)
-                            : std::span<const GpuParticleEmitter>{});
+                            : std::span<const GpuParticleEmitter>{},
+            sorted, depth, world.scene_lifetime);
     }
 
     Result<std::unique_ptr<ParticlePass>, GraphicsError> ParticlePass::create(Device& device,
         PipelineManager& pipelines, RenderResources& resources, const uint32_t frame_slots,
-        const SampleCount samples) {
+        const SampleCount samples, TransparencyPass* transparency) {
         using Creation = Result<std::unique_ptr<ParticlePass>, GraphicsError>;
         static_assert(sizeof(BillboardCamera) == 96);
         if(frame_slots == 0)
@@ -109,6 +113,26 @@ namespace Comet {
                 return Creation::failure(pipeline.error());
             pass->m_pipelines[static_cast<size_t>(blend)] = std::move(pipeline).value();
         }
+        if(transparency) {
+            auto fragment = Shader::create(device, "billboard weighted", BILLBOARD_OIT_FRAG);
+            if(!fragment)
+                return Creation::failure(fragment.error());
+            auto weighted_layout = layout;
+            weighted_layout.descriptor_set_layouts.push_back(transparency->depth_layout());
+            auto weighted_config = config;
+            weighted_config.set_multisample_state(SampleCount::Count1, false);
+            weighted_config.depth_stencil_state.depth_test_enable = false;
+            weighted_config.set_color_blend_attachment_state({.blend_enable = true,
+                .src_color_blend_factor = BlendFactor::One,
+                .dst_color_blend_factor = BlendFactor::One,
+                .src_alpha_blend_factor = BlendFactor::One,
+                .dst_alpha_blend_factor = BlendFactor::One});
+            auto pipeline = transparency->pipelines().create_pipeline("billboard weighted",
+                weighted_layout, weighted_config, vertex.value(), fragment.value());
+            if(!pipeline)
+                return Creation::failure(pipeline.error());
+            pass->m_weighted_pipelines.fill(pipeline.value());
+        }
         auto white = resources.try_create_texture(
             TextureData{.width = 1, .height = 1, .pixels = {255, 255, 255, 255}});
         if(!white)
@@ -136,7 +160,8 @@ namespace Comet {
     }
 
     Result<void, GraphicsError> ParticlePass::prepare_instances(const ParticleSnapshot& particles,
-        std::span<const ParticleSnapshot::Batch> batches, const Math::Mat4& view, bool ordered) {
+        std::span<const ParticleSnapshot::Batch> batches, const Math::Mat4& view, bool ordered,
+        bool weighted) {
         using Prepared = Result<void, GraphicsError>;
         uint32_t covered = 0;
         for(const auto& batch : batches) {
@@ -148,12 +173,14 @@ namespace Comet {
                 || batch.soft_distance > 1000)
                 return Prepared::failure({"Invalid particle soft distance"});
             covered += batch.count;
-            ordered |= batch.blend == ParticleBlend::Alpha && batch.count != 0;
+            ordered |= !weighted && batch.blend == ParticleBlend::Alpha && batch.count != 0;
         }
         if(covered != particles.instances.size())
             return Prepared::failure({"Particle batches do not cover the snapshot"});
-        ordered |= std::ranges::any_of(particles.gpu_emitters,
-            [](const auto& emitter) { return emitter.settings.blend == ParticleBlend::Alpha; });
+        ordered |=
+            !weighted && std::ranges::any_of(particles.gpu_emitters, [](const auto& emitter) {
+                return emitter.settings.blend == ParticleBlend::Alpha;
+            });
         if(!ordered) {
             for(uint32_t source = 0; source < batches.size(); ++source) {
                 const auto& batch = batches[source];
@@ -220,7 +247,8 @@ namespace Comet {
 
     Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> ParticlePass::prepare(
         FrameScheduler& frames, const ViewProjectMatrix& camera, const RenderWorld& world,
-        const bool sort_for_meshes, std::shared_ptr<ImageView> scene_depth, const FogVolume* fog) {
+        const bool sort_for_meshes, std::shared_ptr<ImageView> scene_depth, const FogVolume* fog,
+        bool weighted) {
         using Prepared = Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>;
         clear_draws();
         if(!world.particles
@@ -241,7 +269,8 @@ namespace Comet {
             batches = std::span(&untextured, 1);
         else if(world.particle_textures.size() != batches.size() + particles.gpu_emitters.size())
             return Prepared::failure({"Particle texture bindings do not match the snapshot"});
-        if(auto prepared = prepare_instances(particles, batches, camera.view, sort_for_meshes);
+        if(auto prepared = prepare_instances(
+               particles, batches, camera.view, !weighted && sort_for_meshes, weighted);
             !prepared)
             return Prepared::failure(prepared.error());
         if(particles.uses_soft_depth() && !scene_depth)
@@ -336,7 +365,8 @@ namespace Comet {
             }
             source.binding = binding;
             frames.retain_current_frame_resource(binding);
-            frames.retain_current_frame_resource(m_pipelines[static_cast<size_t>(batch.blend)]);
+            frames.retain_current_frame_resource(
+                (weighted ? m_weighted_pipelines : m_pipelines)[static_cast<size_t>(batch.blend)]);
             const auto& completion = texture->get_ready_completion();
             if(completion.is_valid())
                 merge_semaphore_wait(
@@ -347,7 +377,8 @@ namespace Comet {
         return Prepared::success(std::move(waits));
     }
 
-    void ParticlePass::record(FrameScheduler& frames, const uint32_t first, const uint32_t count) {
+    void ParticlePass::record(FrameScheduler& frames, const uint32_t first, const uint32_t count,
+        const DescriptorSet* depth) {
         if(!count)
             return;
         const auto& command = frames.get_current_command_buffer();
@@ -359,14 +390,17 @@ namespace Comet {
             const auto& source = m_sources[batch->source];
             if(!source.binding)
                 continue;
-            const auto& pipeline = m_pipelines[static_cast<size_t>(source.blend)];
+            const auto& pipeline =
+                (depth ? m_weighted_pipelines : m_pipelines)[static_cast<size_t>(source.blend)];
             const auto& layout = *pipeline->get_layout();
             if(active_pipeline != pipeline.get()) {
                 command.bind_pipeline(*pipeline);
                 command.push_constants(layout, Flags<ShaderStage>(ShaderStage::Vertex), 0,
                     &m_camera, sizeof(m_camera));
-                const auto& depth = m_depth_bindings.at(frames.get_current_frame_slot_index());
-                command.bind_descriptor_sets(layout, std::span(&depth->descriptor, 1), 1);
+                const auto& soft_depth = m_depth_bindings.at(frames.get_current_frame_slot_index());
+                command.bind_descriptor_sets(layout, std::span(&soft_depth->descriptor, 1), 1);
+                if(depth)
+                    command.bind_descriptor_sets(layout, std::span(depth, 1), 2);
                 active_pipeline = pipeline.get();
             }
             command.bind_descriptor_sets(layout, std::span(&source.binding->descriptor, 1));

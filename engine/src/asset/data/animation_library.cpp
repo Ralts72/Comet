@@ -18,7 +18,7 @@ namespace Comet {
         Result<AnimationRetarget> read_retarget(Json::Node node, const Json::Context& context) {
             using Read = Result<AnimationRetarget>;
             if(auto keys = context.validate_keys(
-                   node, {"mesh", "nodes", "translations", "translation_scale"});
+                   node, {"mesh", "nodes", "translations", "translation_scale", "chains"});
                 !keys)
                 return Read::failure(keys.error());
             AnimationRetarget result;
@@ -56,6 +56,37 @@ namespace Comet {
                     if(!name)
                         return Read::failure(name.error());
                     result.translations.push_back(std::move(name).value());
+                }
+            }
+            auto chains = context.find(node, "chains");
+            if(!chains)
+                return Read::failure(chains.error());
+            if(chains.value()) {
+                auto values = context.array(*chains.value(), "chains");
+                if(!values)
+                    return Read::failure(values.error());
+                for(auto value : values.value()) {
+                    if(auto keys = context.validate_keys(value,
+                           {"source_root", "source_tip", "target_root", "target_tip", "weight"});
+                        !keys)
+                        return Read::failure(keys.error());
+                    AnimationRetarget::Chain chain;
+                    for(const auto& [name, field] : {std::pair{"source_root", &chain.source_root},
+                            std::pair{"source_tip", &chain.source_tip},
+                            std::pair{"target_root", &chain.target_root},
+                            std::pair{"target_tip", &chain.target_tip}}) {
+                        auto text = context.read_field<std::string>(value, name, "a bone name");
+                        if(!text)
+                            return Read::failure(text.error());
+                        *field = std::move(text).value();
+                    }
+                    auto weight =
+                        context.read_optional_field<float>(value, "weight", "a finite weight");
+                    if(!weight)
+                        return Read::failure(weight.error());
+                    if(weight.value())
+                        chain.weight = *weight.value();
+                    result.chains.push_back(std::move(chain));
                 }
             }
             return Read::success(std::move(result));
@@ -246,6 +277,20 @@ namespace Comet {
                 for(const auto& name : settings.translations)
                     writer.value(name);
                 writer.end_array();
+                if(!settings.chains.empty()) {
+                    writer.key("chains");
+                    writer.begin_array();
+                    for(const auto& chain : settings.chains) {
+                        writer.begin_object();
+                        writer.field("source_root", chain.source_root);
+                        writer.field("source_tip", chain.source_tip);
+                        writer.field("target_root", chain.target_root);
+                        writer.field("target_tip", chain.target_tip);
+                        writer.field("weight", chain.weight);
+                        writer.end_object();
+                    }
+                    writer.end_array();
+                }
                 writer.end_object();
             }
             writer.end_array();

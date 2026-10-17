@@ -1,0 +1,272 @@
+{
+  "version": 3,
+  "guid": 2313596253160777748,
+  "type": "model",
+  "subresources": [
+    {
+      "key": "material/name/15:terrain/surface",
+      "guid": 4773159269961137638,
+      "type": "material"
+    },
+    {
+      "key": "material/name/18:vegetation/surface",
+      "guid": 11563266521972483123,
+      "type": "material"
+    },
+    {
+      "key": "mesh/name/11:terrain/0/0/primitive/0",
+      "guid": 921170467985378400,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/11:terrain/0/0/primitive/1",
+      "guid": 13438481656637782658,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/11:terrain/0/0/primitive/2",
+      "guid": 14250894960733926525,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/12:terrain/0/16/primitive/0",
+      "guid": 15155526054731133801,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/12:terrain/0/16/primitive/1",
+      "guid": 2322637174673653185,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/12:terrain/0/16/primitive/2",
+      "guid": 179033433819780138,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/12:terrain/0/32/primitive/0",
+      "guid": 1400787261727460795,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/12:terrain/0/32/primitive/1",
+      "guid": 5659205595110401925,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/12:terrain/0/32/primitive/2",
+      "guid": 10452567944373397513,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/12:terrain/0/48/primitive/0",
+      "guid": 3361690674367341906,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/12:terrain/0/48/primitive/1",
+      "guid": 6642326248928989501,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/12:terrain/0/48/primitive/2",
+      "guid": 3671761065350979293,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/12:terrain/16/0/primitive/0",
+      "guid": 17519247551581698172,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/12:terrain/16/0/primitive/1",
+      "guid": 17838862923185834455,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/12:terrain/16/0/primitive/2",
+      "guid": 13088107542687779716,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/12:terrain/32/0/primitive/0",
+      "guid": 1381283217798071124,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/12:terrain/32/0/primitive/1",
+      "guid": 13750524892767967701,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/12:terrain/32/0/primitive/2",
+      "guid": 14222393498906322599,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/12:terrain/48/0/primitive/0",
+      "guid": 18236443612644843984,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/12:terrain/48/0/primitive/1",
+      "guid": 4413843200839942,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/12:terrain/48/0/primitive/2",
+      "guid": 3774952612794460629,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/13:terrain/16/16/primitive/0",
+      "guid": 9428873784082888748,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/13:terrain/16/16/primitive/1",
+      "guid": 17684701779505185689,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/13:terrain/16/16/primitive/2",
+      "guid": 12156415354278221401,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/13:terrain/16/32/primitive/0",
+      "guid": 11597500435110175490,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/13:terrain/16/32/primitive/1",
+      "guid": 255183214837899460,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/13:terrain/16/32/primitive/2",
+      "guid": 11861967428820243029,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/13:terrain/16/48/primitive/0",
+      "guid": 7042388501344204392,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/13:terrain/16/48/primitive/1",
+      "guid": 4580458122929355908,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/13:terrain/16/48/primitive/2",
+      "guid": 2761438985680494206,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/13:terrain/32/16/primitive/0",
+      "guid": 3375654367291068829,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/13:terrain/32/16/primitive/1",
+      "guid": 2419556911067203098,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/13:terrain/32/16/primitive/2",
+      "guid": 8499662336786289473,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/13:terrain/32/32/primitive/0",
+      "guid": 16010326088359380694,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/13:terrain/32/32/primitive/1",
+      "guid": 11959657027235177416,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/13:terrain/32/32/primitive/2",
+      "guid": 15214034754356632191,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/13:terrain/32/48/primitive/0",
+      "guid": 1897380142941380393,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/13:terrain/32/48/primitive/1",
+      "guid": 11247007391260040867,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/13:terrain/32/48/primitive/2",
+      "guid": 8902744154809198779,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/13:terrain/48/16/primitive/0",
+      "guid": 15061349520183236091,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/13:terrain/48/16/primitive/1",
+      "guid": 10283714971644482135,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/13:terrain/48/16/primitive/2",
+      "guid": 648550372806829012,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/13:terrain/48/32/primitive/0",
+      "guid": 4984341064819268625,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/13:terrain/48/32/primitive/1",
+      "guid": 1894877869366396064,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/13:terrain/48/32/primitive/2",
+      "guid": 11102096594845639568,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/13:terrain/48/48/primitive/0",
+      "guid": 12077734239783368849,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/13:terrain/48/48/primitive/1",
+      "guid": 3376067917267724107,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/13:terrain/48/48/primitive/2",
+      "guid": 9525283294882200890,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/16:vegetation/blade/primitive/0",
+      "guid": 1517106356194469555,
+      "type": "mesh"
+    },
+    {
+      "key": "texture/name/14:terrain/albedo/srgb",
+      "guid": 2267576054535237409,
+      "type": "texture"
+    },
+    {
+      "key": "texture/name/16:vegetation/blade/srgb",
+      "guid": 1895559463472348908,
+      "type": "texture"
+    }
+  ]
+}

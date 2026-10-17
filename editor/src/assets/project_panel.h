@@ -58,7 +58,8 @@ namespace CometEditor {
         void render() override;
         [[nodiscard]] std::optional<std::filesystem::path>
         take_create_animation_controller_request();
-        void complete_create_animation_controller(
+        [[nodiscard]] std::optional<std::filesystem::path> take_create_terrain_request();
+        void complete_create_source(
             const std::filesystem::path& path, const Comet::AssetScanReport& report);
         void update_scan_report(Comet::AssetScanReport scan_report);
         [[nodiscard]] bool take_refresh_request();
@@ -89,8 +90,10 @@ namespace CometEditor {
             Comet::Math::Vec2 position) const;
 
     private:
+        void request_create_terrain(const std::filesystem::path& directory);
         void request_create_animation_controller(const std::filesystem::path& directory);
         std::optional<std::filesystem::path> m_pending_animation_create;
+        std::optional<std::filesystem::path> m_pending_terrain_create;
         void render_thumbnail(const Comet::AssetRecord& asset);
         struct ThumbnailBinding {
             std::weak_ptr<const Comet::TextureData> source;

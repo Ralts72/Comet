@@ -396,6 +396,8 @@ namespace CometEditor {
             if(ImGui::MenuItem(
                    "新建材质...###New Material...", nullptr, false, !m_material_layouts.empty()))
                 request_create_material({});
+            if(ImGui::MenuItem("新建地形###New Terrain"))
+                request_create_terrain({});
             if(ImGui::MenuItem("新建动画控制器###New Animation Controller"))
                 request_create_animation_controller({});
             if(ImGui::MenuItem("新建脚本...###New Script..."))
@@ -429,6 +431,8 @@ namespace CometEditor {
             if(ImGui::MenuItem(
                    "新建材质...###New Material...", nullptr, false, !m_material_layouts.empty()))
                 request_create_material(directory);
+            if(ImGui::MenuItem("新建地形###New Terrain"))
+                request_create_terrain(directory);
             if(ImGui::MenuItem("新建动画控制器###New Animation Controller"))
                 request_create_animation_controller(directory);
             if(ImGui::MenuItem("新建脚本...###New Script..."))
@@ -450,6 +454,19 @@ namespace CometEditor {
         m_create_requested = true;
     }
 
+    void ProjectPanel::request_create_terrain(const std::filesystem::path& directory) {
+        for(unsigned index = 1;; ++index) {
+            const auto destination = directory / ("Terrain" + std::to_string(index) + ".terrain");
+            if(!m_database.find(destination)
+                && !std::filesystem::exists(m_asset_root / destination)) {
+                m_pending_terrain_create = destination;
+                break;
+            }
+        }
+    }
+    std::optional<std::filesystem::path> ProjectPanel::take_create_terrain_request() {
+        return std::exchange(m_pending_terrain_create, std::nullopt);
+    }
     void ProjectPanel::request_create_animation_controller(const std::filesystem::path& directory) {
         std::filesystem::path destination;
         for(unsigned index = 1;; ++index) {
@@ -463,7 +480,7 @@ namespace CometEditor {
     std::optional<std::filesystem::path> ProjectPanel::take_create_animation_controller_request() {
         return std::exchange(m_pending_animation_create, std::nullopt);
     }
-    void ProjectPanel::complete_create_animation_controller(
+    void ProjectPanel::complete_create_source(
         const std::filesystem::path& path, const Comet::AssetScanReport& report) {
         m_operation_error.clear();
         if(!report.succeeded()) {

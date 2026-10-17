@@ -1,0 +1,60 @@
+{
+  "clips": [
+    {
+      "name": "retarget_walk",
+      "mesh": "501798315270321838",
+      "clip": "stride"
+    }
+  ],
+  "retargets": [
+    {
+      "mesh": "501798315270321838",
+      "nodes": {
+        "src_spine_01": "spine_01",
+        "src_foot_l": "foot_l",
+        "src_calf_l": "calf_l",
+        "src_thigh_l": "thigh_l",
+        "src_foot_r": "foot_r",
+        "src_calf_r": "calf_r",
+        "src_thigh_r": "thigh_r",
+        "src_pelvis": "pelvis",
+        "src_root": "root"
+      },
+      "translations": [
+        "src_root",
+        "src_pelvis"
+      ],
+      "translation_scale": 0,
+      "chains": [
+        {
+          "source_root": "src_thigh_l",
+          "source_tip": "src_foot_l",
+          "target_root": "thigh_l",
+          "target_tip": "foot_l",
+          "weight": 1
+        },
+        {
+          "source_root": "src_thigh_r",
+          "source_tip": "src_foot_r",
+          "target_root": "thigh_r",
+          "target_tip": "foot_r",
+          "weight": 1
+        },
+        {
+          "source_root": "upperarm_l",
+          "source_tip": "hand_l",
+          "target_root": "upperarm_l",
+          "target_tip": "hand_l",
+          "weight": 1
+        },
+        {
+          "source_root": "upperarm_r",
+          "source_tip": "hand_r",
+          "target_root": "upperarm_r",
+          "target_tip": "hand_r",
+          "weight": 1
+        }
+      ]
+    }
+  ]
+}

@@ -28,6 +28,8 @@ namespace CometEditor {
         void complete_asset_read(
             const Comet::AssetTarget& request, Comet::Result<Comet::GameData> result);
         void complete_asset_read(
+            const Comet::AssetTarget& request, Comet::Result<Comet::TerrainData> result);
+        void complete_asset_read(
             const Comet::AssetTarget& request, Comet::Result<Comet::AnimationLibrary> result);
         void render(std::uint64_t generation, bool allow_drop);
         void set_material_layouts(
@@ -61,6 +63,7 @@ namespace CometEditor {
         void render_unsaved_animation();
         [[nodiscard]] bool animation_dirty() const;
         void render_data();
+        void render_terrain();
         void render_texture(const Comet::AssetRecord& record);
         void render_audio(const Comet::AssetRecord& record);
         void render_material(
@@ -86,6 +89,8 @@ namespace CometEditor {
         std::optional<Comet::AudioImportSettings> m_audio_import_settings;
         std::optional<Comet::MaterialData> m_material_data;
         std::optional<Comet::GameData> m_data;
+        std::optional<Comet::TerrainData> m_terrain_data;
+        std::optional<Comet::TerrainData> m_terrain_saved;
         std::optional<Comet::AnimationLibrary> m_library_data;
         std::optional<Comet::AnimationLibrary> m_library_saved;
         std::optional<Comet::MaterialData> m_material_before;

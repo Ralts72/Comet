@@ -225,6 +225,26 @@ namespace CometEditor {
                         settings.translations.begin() + *remove_translation);
                 if(ImGui::SmallButton("添加位移骨骼"))
                     settings.translations.emplace_back();
+                ImGui::SeparatorText("骨骼链重定向");
+                ImGui::TextWrapped(
+                    "指定源与目标链的起点、末端；中间骨骼数可以不同。按累计骨长传递旋转，链内配置优先于单骨骼映射。");
+                std::optional<size_t> removed_chain;
+                for(size_t i = 0; i < settings.chains.size(); ++i) {
+                    ImGui::PushID(int(i));
+                    Ui::input_text("源链起点", settings.chains[i].source_root);
+                    Ui::input_text("源链末端", settings.chains[i].source_tip);
+                    Ui::input_text("目标链起点", settings.chains[i].target_root);
+                    Ui::input_text("目标链末端", settings.chains[i].target_tip);
+                    ImGui::SliderFloat("链权重", &settings.chains[i].weight, 0, 1);
+                    if(ImGui::SmallButton("删除链"))
+                        removed_chain = i;
+                    ImGui::Separator();
+                    ImGui::PopID();
+                }
+                if(removed_chain)
+                    settings.chains.erase(settings.chains.begin() + *removed_chain);
+                if(ImGui::SmallButton("添加骨骼链"))
+                    settings.chains.emplace_back();
                 ImGui::TextWrapped(
                     "目标骨长保持不变；只转移所选骨骼的平移。自动比例使用对应骨段长度比的中位数；在控制器中选择目标模型试播验证映射。");
             }

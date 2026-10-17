@@ -49,6 +49,7 @@ set(COMET_ASSET_DATA_SOURCES
     src/asset/data/material_data.cpp
     src/asset/data/game_data.cpp
     src/asset/data/irradiance_data.cpp
+    src/asset/data/terrain_data.cpp
     src/asset/data/navigation_data.cpp
     src/asset/data/texture_sampling.cpp
     src/asset/data/cubemap_sampling.cpp
@@ -162,6 +163,7 @@ set(COMET_ASSET_PIPELINE_SOURCES
     src/asset/import/mesh_geometry.cpp
     src/asset/import/gltf_mesh.cpp
     src/asset/import/model_importer.cpp
+    src/asset/import/terrain_importer.cpp
     src/asset/import/import_service.cpp
     src/asset/import/asset_task_queue.cpp
     src/asset/import/texture_importer.cpp
@@ -239,6 +241,8 @@ set(COMET_RENDER_SOURCES
     src/render/passes/bloom_pass.cpp
     src/render/passes/skybox_pass.cpp
     src/render/passes/depth_pass.cpp
+    src/render/passes/transparency_pass.cpp
+    src/render/passes/transparency_pass.h
     src/render/passes/outline_pass.cpp
     src/render/passes/temporal_pass.cpp
     src/render/passes/decal_pass.cpp

@@ -25,6 +25,7 @@
 #include "diagnostics/profiler.h"
 #include "render/passes/particle_pass.h"
 #include "render/passes/outline_pass.h"
+#include "render/passes/transparency_pass.h"
 #include "render/passes/temporal_pass.h"
 #include "render/passes/decal_pass.h"
 #include "render/passes/deferred_pass.h"
@@ -56,6 +57,10 @@ namespace Comet {
         std::shared_ptr<DeferredPass::Resources> deferred_resources;
         std::vector<RenderGraph::ResourceId> gbuffer_resources;
         std::optional<RenderGraph::PassId> gbuffer_pass;
+        std::unique_ptr<TransparencyPass> transparency;
+        std::shared_ptr<TransparencyPass::Resources> transparency_resources;
+        std::array<RenderGraph::ResourceId, 3> transparency_images;
+        std::optional<RenderGraph::PassId> transparency_pass, transparency_composite;
         std::unique_ptr<MaterialRenderer> materials;
         RenderGeometry view_geometry;
         std::unique_ptr<DebugRenderer> debug;
@@ -215,9 +220,14 @@ namespace Comet {
                 return Creation::failure(deferred.error());
             next->deferred = std::move(deferred).value();
         }
+        auto transparency = TransparencyPass::create(m_device, m_frame_slot_count);
+        if(!transparency)
+            return Creation::failure(transparency.error());
+        next->transparency = std::move(transparency).value();
         auto materials = MaterialRenderer::create(m_device, *next->pipelines, resources,
             m_frame_slot_count, samples, m_programs.builtin_overrides(), &m_programs,
-            quality.max_anisotropy, next->deferred ? &next->deferred->pipelines() : nullptr);
+            quality.max_anisotropy, next->deferred ? &next->deferred->pipelines() : nullptr,
+            &next->transparency->pipelines(), next->transparency->depth_layout());
         if(!materials)
             return Creation::failure(materials.error());
         next->materials = std::move(materials).value();
@@ -239,8 +249,8 @@ namespace Comet {
         if(!debug)
             return Creation::failure(debug.error());
         next->debug = std::move(debug).value();
-        auto particles = ParticlePass::create(
-            m_device, *next->pipelines, resources, m_frame_slot_count, samples);
+        auto particles = ParticlePass::create(m_device, *next->pipelines, resources,
+            m_frame_slot_count, samples, next->transparency.get());
         if(!particles)
             return Creation::failure(particles.error());
         next->particles = std::move(particles).value();
@@ -360,9 +370,48 @@ namespace Comet {
             Flags<PipelineStage>(PipelineStage::FragmentShader)});
         // 粒子 buffer 的阶段内同步由模拟器负责；有序图在 HDR 绘制前调度并计时。
         std::optional<RenderGraph::PassId> gpu_particles_pass;
-        if(requirements.gpu_particles)
-            gpu_particles_pass = graph.add_pass({"GPU particles", {}});
+        if(requirements.gpu_particles) {
+            RenderGraph::Pass simulation{"GPU particles", {}};
+            if(requirements.gpu_dynamics)
+                simulation.uses.push_back({*view_depth_resource, ResourceUsage::SampledRead,
+                    Flags<PipelineStage>(PipelineStage::ComputeShader)});
+            gpu_particles_pass = graph.add_pass(std::move(simulation));
+        }
         const auto scene_pass_id = graph.add_pass(std::move(scene));
+        std::array<RenderGraph::ResourceId, 3> transparency_images{};
+        std::optional<RenderGraph::PassId> transparency_pass, transparency_composite;
+        std::shared_ptr<TransparencyPass::Resources> transparency_resources;
+        if(requirements.weighted_transparency) {
+            transparency_resources = state.transparency_resources;
+            if(!transparency_resources
+                || transparency_resources->output->get_size() != source_size) {
+                auto created = state.transparency->create_resources(source_size);
+                if(!created)
+                    return Result<void, GraphicsError>::failure(created.error());
+                transparency_resources = std::move(created).value();
+            }
+            auto access = *resolve_resource_state(ResourceUsage::ColorAttachmentWrite);
+            access.stages |= PipelineStage::FragmentShader;
+            for(size_t i = 0; i < transparency_images.size(); ++i)
+                transparency_images[i] = graph.import_image("transparency " + std::to_string(i),
+                    {.resource = access,
+                        .subresources = {.aspects = Flags<ImageAspect>(ImageAspect::Color)}});
+            const Flags<PipelineStage> fragment(PipelineStage::FragmentShader);
+            RenderGraph::Pass accumulate{"weighted transparency",
+                {{*view_depth_resource, ResourceUsage::SampledRead, fragment},
+                    {shadow, ResourceUsage::SampledRead, fragment},
+                    {transparency_images[0], ResourceUsage::ColorAttachmentWrite, {}},
+                    {transparency_images[1], ResourceUsage::ColorAttachmentWrite, {}}}};
+            if(fog_resource)
+                accumulate.uses.push_back({*fog_resource, ResourceUsage::SampledRead, fragment});
+            transparency_pass = graph.add_pass(std::move(accumulate));
+            transparency_composite = graph.add_pass({"transparency composite",
+                {{output, ResourceUsage::SampledRead, fragment},
+                    {transparency_images[0], ResourceUsage::SampledRead, fragment},
+                    {transparency_images[1], ResourceUsage::SampledRead, fragment},
+                    {transparency_images[2], ResourceUsage::ColorAttachmentWrite, {}}}});
+            output = transparency_images[2];
+        }
         std::optional<RenderGraph::ResourceId> reflection_resource;
         std::optional<RenderGraph::PassId> reflection_pass;
         if(state.deferred && settings.uses_reflections()) {
@@ -479,6 +528,10 @@ namespace Comet {
                 return Result<void, GraphicsError>::failure(prepared.error());
             outline_resources = std::move(prepared).value();
         }
+        state.transparency_resources = std::move(transparency_resources);
+        state.transparency_images = transparency_images;
+        state.transparency_pass = transparency_pass;
+        state.transparency_composite = transparency_composite;
         state.outline_resources = std::move(outline_resources);
         state.outline_masks = outline_masks;
         state.outline_mask_pass = outline_mask_pass;
@@ -620,7 +673,8 @@ namespace Comet {
         const auto graph_needs = [&](const PostProcessSettings& post,
                                      const ViewRequirements& view) {
             return std::tuple(view.shadows, view.needs_depth(post, bool(m_state->temporal)),
-                view.fog, view.outline, view.gpu_particles, post.uses_bloom(),
+                view.fog, view.outline, view.gpu_particles, view.weighted_transparency,
+                view.gpu_dynamics, post.uses_bloom(),
                 bool(m_state->deferred) && post.uses_reflections());
         };
         if(graph_needs(settings, requirements)
@@ -917,7 +971,11 @@ namespace Comet {
                 && std::ranges::any_of(submission.world.render_items,
                     [](const auto& item) { return item.outline.active(); }),
             bool(submission.view_project_matrix) && submission.world.particles
-                && !submission.world.particles->gpu_emitters.empty()};
+                && !submission.world.particles->gpu_emitters.empty(),
+            bool(submission.view_project_matrix) && m_post_process.weighted_oit,
+            bool(submission.view_project_matrix) && submission.world.particles
+                && std::ranges::any_of(submission.world.particles->gpu_emitters,
+                    [](const auto& emitter) { return emitter.settings.gpu_dynamics; })};
         if(requirements != m_state->requirements || (requirements.decals && !m_state->decals)) {
             if(auto rebuilt = configure_effects(m_post_process, requirements); !rebuilt)
                 return RenderResult::failure(rebuilt.error());
@@ -953,7 +1011,8 @@ namespace Comet {
             m_state->requirements.fog ? &m_state->fog_frame : nullptr);
         if(!prepared)
             return RenderResult::failure(prepared.error());
-        if(auto draws = m_state->materials->prepare_draws(frames, submission, *main_geometry);
+        if(auto draws = m_state->materials->prepare_draws(
+               frames, submission, *main_geometry, requirements.weighted_transparency);
             !draws)
             return RenderResult::failure(draws.error());
         const auto& graph = m_state->graph;
@@ -982,6 +1041,11 @@ namespace Comet {
             const auto images = m_state->outline->mask_images(image);
             for(size_t i = 0; i < images.size(); ++i)
                 bindings[m_state->outline_masks[i].index] = images[i]->get_image();
+        }
+        if(m_state->transparency_resources) {
+            const auto images = TransparencyPass::images(*m_state->transparency_resources, image);
+            for(size_t i = 0; i < images.size(); ++i)
+                bindings[m_state->transparency_images[i].index] = images[i]->get_image();
         }
         m_state->transient_resources.bind_resources(bindings, image);
         auto waits = std::move(prepared).value();
@@ -1021,7 +1085,24 @@ namespace Comet {
                 m_state->materials->view_bindings().descriptor(slot));
             return Result<void, GraphicsError>::success();
         }
-        const auto opaque_hdr = m_state->hdr_target->get_color_view(slot);
+        const auto original_hdr = m_state->hdr_target->get_color_view(slot);
+        const auto opaque_hdr = m_state->transparency_resources
+                                    ? m_state->transparency_resources->output->get_color_view(slot)
+                                    : original_hdr;
+        if(m_state->transparency_pass && pass == *m_state->transparency_pass) {
+            auto depth = m_state->transparency->begin(
+                frames, m_state->transparency_resources, m_state->view_depth->get_depth_view(slot));
+            if(!depth)
+                return Result<void, GraphicsError>::failure(depth.error());
+            m_state->materials->record_weighted(frames, depth.value(), waits);
+            m_state->particles->record(frames, 0, m_state->particles->queue_size(), &depth.value());
+            m_state->transparency_resources->accumulation->end_render_target(
+                frames.get_current_command_buffer());
+            return Result<void, GraphicsError>::success();
+        }
+        if(m_state->transparency_composite && pass == *m_state->transparency_composite)
+            return m_state->transparency->composite(
+                frames, m_state->transparency_resources, original_hdr);
         const auto reflected_hdr =
             m_state->reflection_pass
                 ? ScreenSpaceReflectionPass::output(*m_state->reflection_resources, slot)
@@ -1037,8 +1118,10 @@ namespace Comet {
         const auto final_hdr =
             m_state->outline_resources ? m_state->outline_resources->images.at(slot) : resolved_hdr;
         if(m_state->gpu_particles_pass && pass == *m_state->gpu_particles_pass)
-            return m_state->particles->prepare_gpu(
-                frames, *submission.view_project_matrix, submission.world);
+            return m_state->particles->prepare_gpu(frames, *submission.view_project_matrix,
+                submission.world, !m_state->requirements.weighted_transparency,
+                m_state->requirements.gpu_dynamics ? m_state->view_depth->get_depth_view(slot)
+                                                   : nullptr);
         if(m_state->outline_composite_pass && pass == *m_state->outline_composite_pass)
             return m_state->outline->composite(frames, m_state->outline_resources, resolved_hdr,
                 m_state->view_depth->get_depth_view(slot), m_state->output_target->get_size());
@@ -1108,10 +1191,12 @@ namespace Comet {
         if(submission.view_project_matrix) {
             auto particles = m_state->particles->prepare(frames, *submission.view_project_matrix,
                 submission.world, !m_state->materials->transparent_depths().empty(),
-                m_state->requirements.soft_particles
+                (m_state->requirements.soft_particles
+                    || m_state->requirements.weighted_transparency)
                     ? m_state->view_depth->get_depth_view(frames.get_current_frame_slot_index())
                     : nullptr,
-                m_state->requirements.fog ? &m_state->fog_frame : nullptr);
+                m_state->requirements.fog ? &m_state->fog_frame : nullptr,
+                m_state->requirements.weighted_transparency);
             if(!particles)
                 return Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>::failure(
                     particles.error());
@@ -1159,6 +1244,10 @@ namespace Comet {
     void SceneRenderer::record_transparent(
         FrameScheduler& frames, std::vector<QueueSemaphoreSubmit>& waits) {
         const auto meshes = m_state->materials->transparent_depths();
+        if(m_state->requirements.weighted_transparency) {
+            m_state->materials->record_transparent(frames, 0, meshes.size(), waits);
+            return;
+        }
         const auto particles = m_state->particles->depths();
         if(meshes.empty()) {
             m_state->particles->record(frames, 0, m_state->particles->queue_size());
@@ -1248,6 +1337,8 @@ namespace Comet {
         if(m_state->temporal)
             if(auto resolved = m_state->temporal->output())
                 return resolved;
+        if(m_state->transparency_resources)
+            return m_state->transparency_resources->output->get_color_view(slot);
         return m_state->hdr_target->get_color_view(slot);
     }
 

@@ -80,6 +80,8 @@ namespace CometEditor {
         m_audio_import_settings.reset();
         m_material_data.reset();
         m_data.reset();
+        m_terrain_data.reset();
+        m_terrain_saved.reset();
         m_library_data.reset();
         m_library_saved.reset();
         m_controller_data.reset();
@@ -187,6 +189,10 @@ namespace CometEditor {
             ImGui::TextColored(ImVec4(0.9f, 0.25f, 0.2f, 1.0f), "%s", m_asset_error.c_str());
         }
 
+        if(record->type == Comet::AssetType::Model && record->path.extension() == ".terrain") {
+            render_terrain();
+            return;
+        }
         if(record->type == Comet::AssetType::AnimationLibrary) {
             if(m_library_data)
                 render_animation_library();
@@ -585,6 +591,8 @@ namespace CometEditor {
         m_audio_import_settings.reset();
         m_material_data.reset();
         m_data.reset();
+        m_terrain_data.reset();
+        m_terrain_saved.reset();
         m_library_data.reset();
         m_library_saved.reset();
         m_controller_data.reset();
@@ -611,7 +619,8 @@ namespace CometEditor {
         if(record.type != Comet::AssetType::Material
             && record.type != Comet::AssetType::AnimationController
             && record.type != Comet::AssetType::Data
-            && record.type != Comet::AssetType::AnimationLibrary) {
+            && record.type != Comet::AssetType::AnimationLibrary
+            && !(record.type == Comet::AssetType::Model && record.path.extension() == ".terrain")) {
             return;
         }
 
@@ -695,6 +704,13 @@ namespace CometEditor {
         if(m_loaded_target != edit.target)
             return;
         m_asset_error = std::move(error);
+        if(const auto* terrain = std::get_if<TerrainEdit>(&edit.value)) {
+            if(succeeded) {
+                m_terrain_saved = terrain->after;
+                m_loaded_target.revision = m_asset_database.get_revision(edit.target.handle);
+            }
+            return;
+        }
         const auto* controller = std::get_if<AnimationControllerEdit>(&edit.value);
         const auto* library = std::get_if<AnimationLibraryEdit>(&edit.value);
         if(controller || library) {

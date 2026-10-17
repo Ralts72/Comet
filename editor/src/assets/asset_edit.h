@@ -1,6 +1,7 @@
 #pragma once
 
 #include "asset/handle.h"
+#include "asset/data/terrain_data.h"
 #include "animation/animation_controller.h"
 #include "asset/data/animation_library.h"
 #include "asset/import_settings.h"
@@ -29,6 +30,11 @@ namespace CometEditor {
         Comet::AnimationLibrary after;
     };
 
+    struct TerrainEdit {
+        Comet::TerrainData before;
+        Comet::TerrainData after;
+    };
+
     struct AudioEdit {
         Comet::AudioImportSettings before;
         Comet::AudioImportSettings after;
@@ -38,7 +44,7 @@ namespace CometEditor {
         enum class Action { Apply, Preview, Commit, Cancel };
         Comet::AssetTarget target;
         std::variant<MaterialEdit, TextureEdit, AnimationControllerEdit, AnimationLibraryEdit,
-            AudioEdit>
+            AudioEdit, TerrainEdit>
             value;
         Action action = Action::Apply;
     };

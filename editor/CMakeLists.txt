@@ -102,6 +102,7 @@ add_library(editor_ui STATIC
         src/inspector/inspector.cpp
         src/inspector/asset_inspector.cpp
         src/inspector/asset_inspector_animation.cpp
+        src/inspector/asset_inspector_terrain.cpp
         src/inspector/property_editor_registry.cpp
         src/scene/hierarchy.cpp
         src/scene/entity_reference.cpp

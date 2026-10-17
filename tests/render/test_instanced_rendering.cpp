@@ -345,6 +345,23 @@ namespace Comet::Tests {
                 submit(device, frames, drawn.value());
             }
             frames.wait_for_all_slots();
+            world.post_process.weighted_oit = true;
+            ASSERT_TRUE(scene.value()->prepare_post_process(world.post_process));
+            ASSERT_TRUE(scene.value()->warmup_scene(world));
+            const auto weighted_warmed =
+                scene.value()->get_material_statistics().pipeline_creations;
+            EXPECT_GT(weighted_warmed, warmed);
+            ASSERT_TRUE(scene.value()->warmup_scene(world));
+            EXPECT_EQ(scene.value()->get_material_statistics().warmup_pipeline_creations, 0u);
+            begin_frame(frames);
+            RenderGeometry geometry;
+            geometry.prepare(world);
+            auto drawn = scene.value()->render(
+                frames, {world, ViewProjectMatrix{Math::Mat4(1), Math::Mat4(1)}}, geometry);
+            ASSERT_TRUE(drawn) << drawn.error();
+            EXPECT_EQ(scene.value()->get_material_statistics().pipeline_creations, weighted_warmed);
+            submit(device, frames, drawn.value());
+            frames.wait_for_all_slots();
         }
     }
 

@@ -8,6 +8,10 @@
 #include "render/frame_scheduler.h"
 #include "particle_simulation_comp.h"
 #include "particle_sort_comp.h"
+#include "particle_dynamics_comp.h"
+#include "particle_initialize_comp.h"
+#include "graphics/resource/image_view.h"
+#include <unordered_map>
 #include <array>
 #include <bit>
 #include <cmath>
@@ -25,52 +29,79 @@ namespace Comet {
             Math::Vec4 atlas, animation;
             std::array<uint32_t, 4> counts;
         };
+        struct DynamicParameters {
+            Parameters base;
+            Math::Mat4 view_projection, inverse_view_projection;
+            Math::Vec4 timing, dynamics;
+            std::array<uint32_t, 4> history;
+        };
         static_assert(sizeof(Spawn) == 96 && sizeof(Parameters) == 176);
+        static_assert(sizeof(DynamicParameters) == 352);
     }
     struct GpuParticleSimulation::Program {
         std::shared_ptr<DescriptorSetLayout> descriptors;
         vk::UniquePipelineLayout layout;
-        vk::UniquePipeline simulate, sort;
+        vk::UniquePipeline simulate, sort, initialize;
     };
     struct GpuParticleSimulation::Resources {
         std::shared_ptr<Program> program;
         std::shared_ptr<CPUBuffer> spawns, parameters;
-        std::shared_ptr<Buffer> instances, indirect;
+        std::shared_ptr<Buffer> instances, indirect, alternate, previous;
+        std::shared_ptr<ImageView> depth;
         std::unique_ptr<DescriptorPool> pool;
         std::vector<DescriptorSet> descriptors;
         uint32_t capacity = 0;
     };
+    struct GpuParticleSimulation::Dynamics {
+        struct History {
+            std::shared_ptr<Buffer> state;
+            ParticleEmitterComponent settings;
+            double time;
+            uint64_t serial;
+            uint32_t count;
+        };
+        std::unordered_map<uint64_t, History> history;
+        uint64_t lifetime = 0;
+        std::vector<Spawn> births;
+    };
     GpuParticleSimulation::GpuParticleSimulation(Device& device, uint32_t slots)
-        : m_device(device), m_frames(slots) {}
+        : m_device(device), m_dynamics(std::make_unique<Dynamics>()), m_frames(slots) {}
     GpuParticleSimulation::~GpuParticleSimulation() = default;
     void GpuParticleSimulation::reset() {
         for(auto& frame : m_frames)
             frame.clear();
         m_outputs.clear();
+        m_dynamics->history.clear();
     }
-    Result<void, GraphicsError> GpuParticleSimulation::initialize() {
+    Result<void, GraphicsError> GpuParticleSimulation::initialize(bool dynamic, bool sorted) {
         using Initialized = Result<void, GraphicsError>;
-        if(m_program)
+        auto& program = dynamic ? m_dynamic_program : m_program;
+        if(program && (!sorted || program->sort))
             return Initialized::success();
-        auto next = std::make_shared<Program>();
-        DescriptorSetLayoutBindings bindings;
-        for(uint32_t i = 0; i < 4; ++i)
-            bindings.add_binding(
-                i, DescriptorType::StorageBuffer, Flags<ShaderStage>(ShaderStage::Compute));
-        auto descriptors = DescriptorSetLayout::create(m_device, bindings);
-        if(!descriptors)
-            return Initialized::failure(descriptors.error());
-        next->descriptors = std::move(descriptors).value();
-        const auto set = next->descriptors->get();
-        const vk::PushConstantRange constants(vk::ShaderStageFlagBits::eCompute, 0, 8);
-        const vk::PipelineLayoutCreateInfo layout_info({}, 1, &set, 1, &constants);
-        auto layout = Graphics::create_handle<vk::PipelineLayout>(
-            m_device.get(), "Create particle simulation layout", [&](auto* out) noexcept {
-                return m_device.get().createPipelineLayout(&layout_info, nullptr, out);
-            });
-        if(!layout)
-            return Initialized::failure(layout.error());
-        next->layout = std::move(layout).value();
+        auto next = program ? program : std::make_shared<Program>();
+        if(!program) {
+            DescriptorSetLayoutBindings bindings;
+            for(uint32_t i = 0; i < 4; ++i)
+                bindings.add_binding(
+                    i, DescriptorType::StorageBuffer, Flags<ShaderStage>(ShaderStage::Compute));
+            if(dynamic)
+                bindings.add_binding(
+                    4, DescriptorType::SampledImage, Flags<ShaderStage>(ShaderStage::Compute));
+            auto descriptors = DescriptorSetLayout::create(m_device, bindings);
+            if(!descriptors)
+                return Initialized::failure(descriptors.error());
+            next->descriptors = std::move(descriptors).value();
+            const auto set = next->descriptors->get();
+            const vk::PushConstantRange constants(vk::ShaderStageFlagBits::eCompute, 0, 8);
+            const vk::PipelineLayoutCreateInfo layout_info({}, 1, &set, 1, &constants);
+            auto layout = Graphics::create_handle<vk::PipelineLayout>(
+                m_device.get(), "Create particle simulation layout", [&](auto* out) noexcept {
+                    return m_device.get().createPipelineLayout(&layout_info, nullptr, out);
+                });
+            if(!layout)
+                return Initialized::failure(layout.error());
+            next->layout = std::move(layout).value();
+        }
         const auto compile = [&](std::string_view name, const auto& code,
                                  vk::UniquePipeline& output) -> Initialized {
             auto shader = Shader::create(m_device, std::string(name), code);
@@ -88,55 +119,70 @@ namespace Comet {
             output = std::move(pipeline).value();
             return Initialized::success();
         };
-        if(auto result =
-                compile("GPU particle simulation", PARTICLE_SIMULATION_COMP, next->simulate);
-            !result)
-            return result;
-        if(auto result = compile("GPU particle depth sort", PARTICLE_SORT_COMP, next->sort);
-            !result)
-            return result;
-        m_program = std::move(next);
+        const auto code = dynamic ? std::span<const uint32_t>(PARTICLE_DYNAMICS_COMP)
+                                  : std::span<const uint32_t>(PARTICLE_SIMULATION_COMP);
+        if(!next->simulate)
+            if(auto result = compile("GPU particle simulation", code, next->simulate); !result)
+                return result;
+        if(dynamic && !next->initialize)
+            if(auto result =
+                    compile("GPU particle initialize", PARTICLE_INITIALIZE_COMP, next->initialize);
+                !result)
+                return result;
+        if(sorted && !next->sort)
+            if(auto result = compile("GPU particle depth sort", PARTICLE_SORT_COMP, next->sort);
+                !result)
+                return result;
+        program = std::move(next);
         return Initialized::success();
     }
     Result<std::shared_ptr<GpuParticleSimulation::Resources>, GraphicsError> GpuParticleSimulation::
-        allocate(uint32_t count, size_t batches) {
+        allocate(uint32_t count, size_t batches, bool dynamic) {
         using Allocated = Result<std::shared_ptr<Resources>, GraphicsError>;
         auto next = std::make_shared<Resources>();
-        next->program = m_program;
+        next->program = dynamic ? m_dynamic_program : m_program;
         next->capacity = std::bit_ceil(count);
         auto spawns =
             Buffer::try_create_cpu_buffer(m_device, Flags<BufferUsage>(BufferUsage::Storage),
-                std::bit_ceil(batches * sizeof(Spawn)), true, nullptr, "GPU particle births");
-        auto parameters =
-            Buffer::try_create_cpu_buffer(m_device, Flags<BufferUsage>(BufferUsage::Storage),
-                sizeof(Parameters), true, nullptr, "GPU particle parameters");
+                std::bit_ceil(batches * sizeof(Spawn) + (dynamic ? sizeof(DynamicParameters) : 0)),
+                true, nullptr, "GPU particle births");
+        if(!spawns)
+            return Allocated::failure({"Cannot allocate GPU particle births", spawns.result()});
+        next->spawns = std::move(spawns).value();
+        if(dynamic)
+            next->parameters = next->spawns;
+        else {
+            auto parameters =
+                Buffer::try_create_cpu_buffer(m_device, Flags<BufferUsage>(BufferUsage::Storage),
+                    sizeof(Parameters), true, nullptr, "GPU particle parameters");
+            if(!parameters)
+                return Allocated::failure(
+                    {"Cannot allocate GPU particle parameters", parameters.result()});
+            next->parameters = std::move(parameters).value();
+        }
         auto instances = Buffer::try_create_gpu_buffer(m_device,
             Flags<BufferUsage>(BufferUsage::Storage) | BufferUsage::Vertex | BufferUsage::CopySrc,
             next->capacity * sizeof(ParticleInstance), true, "GPU particle instances");
         auto indirect = Buffer::try_create_gpu_buffer(m_device,
             Flags<BufferUsage>(BufferUsage::Storage) | BufferUsage::Indirect | BufferUsage::CopySrc,
-            sizeof(vk::DrawIndirectCommand), true, "GPU particle draw");
-        if(!spawns)
-            return Allocated::failure({"Cannot allocate GPU particle births", spawns.result()});
-        if(!parameters)
-            return Allocated::failure(
-                {"Cannot allocate GPU particle parameters", parameters.result()});
+            sizeof(vk::DrawIndirectCommand) + (dynamic ? next->capacity * 48 : 0), true,
+            "GPU particle draw/state");
         if(!instances)
             return Allocated::failure(
                 {"Cannot allocate GPU particle instances", instances.result()});
         if(!indirect)
             return Allocated::failure({"Cannot allocate GPU particle draw", indirect.result()});
-        next->spawns = std::move(spawns).value();
-        next->parameters = std::move(parameters).value();
         next->instances = std::move(instances).value();
         next->indirect = std::move(indirect).value();
         DescriptorPoolSizes sizes;
         sizes.add_pool_size(DescriptorType::StorageBuffer, 4);
+        if(dynamic)
+            sizes.add_pool_size(DescriptorType::SampledImage, 1);
         auto pool = DescriptorPool::create(m_device, 1, sizes);
         if(!pool)
             return Allocated::failure(pool.error());
         next->pool = std::move(pool).value();
-        auto descriptors = next->pool->allocate_descriptor_set(*m_program->descriptors, 1);
+        auto descriptors = next->pool->allocate_descriptor_set(*next->program->descriptors, 1);
         if(!descriptors)
             return Allocated::failure(descriptors.error());
         next->descriptors = std::move(descriptors).value();
@@ -153,23 +199,27 @@ namespace Comet {
         return Allocated::success(std::move(next));
     }
     Result<void, GraphicsError> GpuParticleSimulation::prepare(FrameScheduler& frames,
-        const ViewProjectMatrix& camera, std::span<const GpuParticleEmitter> emitters) {
+        const ViewProjectMatrix& camera, std::span<const GpuParticleEmitter> emitters, bool sorted,
+        const std::shared_ptr<ImageView>& depth, uint64_t scene_lifetime) {
         using Prepared = Result<void, GraphicsError>;
         if(!frames.is_recording_frame() || &frames.get_device() != &m_device
             || frames.get_current_frame_slot_index() >= m_frames.size())
             return Prepared::failure({"Invalid GPU particle frame"});
+        if(m_dynamics->lifetime != scene_lifetime) {
+            reset();
+            m_dynamics->lifetime = scene_lifetime;
+        }
         m_outputs.clear();
+        const auto serial = frames.get_current_frame_serial();
         if(emitters.empty()) {
             reset();
             return Prepared::success();
         }
-        if(auto result = initialize(); !result)
-            return result;
         auto& cache = m_frames.at(frames.get_current_frame_slot_index());
         cache.resize(emitters.size());
         const auto command = frames.get_current_command_buffer().get();
         uint32_t total = 0;
-        std::vector<Spawn> births;
+        auto& births = m_dynamics->births;
         for(size_t i = 0; i < emitters.size(); ++i) {
             const auto& emitter = emitters[i];
             if(!emitter.settings.validate()
@@ -178,6 +228,13 @@ namespace Comet {
                 || emitter.count > ParticleSnapshot::MAX_GPU_PARTICLES - total
                 || emitter.spawns.empty())
                 return Prepared::failure({"Invalid GPU particle snapshot"});
+            const bool dynamic = emitter.settings.gpu_dynamics;
+            if(dynamic && !depth)
+                return Prepared::failure({"GPU dynamics requires view depth"});
+            const bool needs_sort = sorted && emitter.settings.blend == ParticleBlend::Alpha;
+            if(auto result = initialize(dynamic, needs_sort); !result)
+                return result;
+            const auto& program = dynamic ? m_dynamic_program : m_program;
             total += emitter.count;
             births.clear();
             births.reserve(emitter.spawns.size());
@@ -189,15 +246,18 @@ namespace Comet {
                     return Prepared::failure({"Invalid GPU particle birth range"});
                 births.push_back(
                     {spawn.pose, {float(emitter.time - spawn.time), float(spawn.spacing), 0, 0},
-                        {offset, spawn.count, uint32_t(spawn.first), 0}});
+                        {offset, spawn.count, uint32_t(spawn.first), uint32_t(spawn.first >> 32)}});
                 offset += spawn.count;
             }
             if(offset != emitter.count)
                 return Prepared::failure({"GPU particle births do not cover the emitter"});
             auto& resources = cache[i];
-            if(!resources || resources->capacity < std::bit_ceil(emitter.count)
-                || resources->spawns->get_size() < births.size() * sizeof(Spawn)) {
-                auto next = allocate(emitter.count, births.size());
+            if(!resources || resources->program != program
+                || resources->capacity < std::bit_ceil(emitter.count)
+                || resources->spawns->get_size()
+                       < births.size() * sizeof(Spawn)
+                             + (dynamic ? sizeof(DynamicParameters) : 0)) {
+                auto next = allocate(emitter.count, births.size(), dynamic);
                 if(!next)
                     return Prepared::failure(next.error());
                 resources = std::move(next).value();
@@ -213,8 +273,72 @@ namespace Comet {
                     float(settings.frame_count), 0},
                 {settings.frame_rate, settings.loop_animation ? 1.f : 0.f, 0, 0},
                 {uint32_t(births.size()), emitter.count, padded, settings.seed}};
-            resources->spawns->write(births.data(), births.size() * sizeof(Spawn));
-            resources->parameters->write(&parameters);
+            if(dynamic) {
+                const uint64_t id = emitter.id ? emitter.id : i + 1;
+                auto found = m_dynamics->history.find(id);
+                if(found != m_dynamics->history.end()) {
+                    auto previous_settings = found->second.settings;
+                    previous_settings.enabled = settings.enabled;
+                    if(found->second.serial + 1 != serial || previous_settings != settings
+                        || found->second.time > emitter.time)
+                        found = m_dynamics->history.end();
+                }
+                auto previous = resources->indirect;
+                uint32_t previous_count = 0;
+                double elapsed = 0;
+                if(found != m_dynamics->history.end()) {
+                    previous = found->second.state;
+                    previous_count = found->second.count;
+                    elapsed = emitter.time - found->second.time;
+                    if(previous == resources->indirect) {
+                        if(!resources->alternate) {
+                            auto buffer = Buffer::try_create_gpu_buffer(m_device,
+                                Flags<BufferUsage>(BufferUsage::Storage) | BufferUsage::Indirect
+                                    | BufferUsage::CopySrc,
+                                resources->indirect->get_size(), true,
+                                "GPU particle alternate state");
+                            if(!buffer)
+                                return Prepared::failure(
+                                    {"Cannot allocate alternate particle state", buffer.result()});
+                            resources->alternate = std::move(buffer).value();
+                        }
+                        std::swap(resources->indirect, resources->alternate);
+                    }
+                }
+                resources->previous = previous;
+                resources->depth = depth;
+                const auto vp = camera.projection * camera.view;
+                const DynamicParameters extra{parameters, vp, Math::inverse(vp),
+                    {float(emitter.time), float(elapsed), settings.collision_radius,
+                        settings.restitution},
+                    {settings.turbulence, settings.turbulence_frequency, settings.friction, 0},
+                    {previous_count, static_cast<uint32_t>(settings.collision), 0, 0}};
+                resources->spawns->write(&extra, sizeof(extra));
+                resources->spawns->write(
+                    births.data(), births.size() * sizeof(Spawn), sizeof(extra));
+                const std::array<std::shared_ptr<Buffer>, 4> buffers{
+                    resources->spawns, previous, resources->instances, resources->indirect};
+                std::array<vk::DescriptorBufferInfo, 4> infos;
+                std::array<vk::WriteDescriptorSet, 5> writes;
+                for(uint32_t binding = 0; binding < buffers.size(); ++binding) {
+                    infos[binding] = vk::DescriptorBufferInfo(
+                        buffers[binding]->get(), 0, buffers[binding]->get_size());
+                    writes[binding] =
+                        vk::WriteDescriptorSet(resources->descriptors.front().get(), binding, 0, 1,
+                            vk::DescriptorType::eStorageBuffer, nullptr, &infos[binding]);
+                }
+                const vk::DescriptorImageInfo image(
+                    {}, depth->get(), vk::ImageLayout::eShaderReadOnlyOptimal);
+                writes[4] = vk::WriteDescriptorSet(resources->descriptors.front().get(), 4, 0, 1,
+                    vk::DescriptorType::eSampledImage, &image);
+                m_device.get().updateDescriptorSets(writes, {});
+                m_dynamics->history.insert_or_assign(
+                    id, Dynamics::History{
+                            resources->indirect, settings, emitter.time, serial, emitter.count});
+            } else {
+                resources->spawns->write(births.data(), births.size() * sizeof(Spawn));
+                resources->parameters->write(&parameters);
+            }
             // 槽已等待完成；显式覆盖上一轮绘制／复制的读取，再发布本轮 compute 输出。
             const vk::MemoryBarrier before(
                 vk::AccessFlagBits::eVertexAttributeRead | vk::AccessFlagBits::eIndirectCommandRead
@@ -226,12 +350,20 @@ namespace Comet {
                                         | vk::PipelineStageFlagBits::eTransfer
                                         | vk::PipelineStageFlagBits::eComputeShader,
                 vk::PipelineStageFlagBits::eComputeShader, {}, before, {}, {});
-            command.bindPipeline(vk::PipelineBindPoint::eCompute, m_program->simulate.get());
-            command.bindDescriptorSets(vk::PipelineBindPoint::eCompute, m_program->layout.get(), 0,
+            command.bindDescriptorSets(vk::PipelineBindPoint::eCompute, program->layout.get(), 0,
                 resources->descriptors.front().get(), {});
+            if(dynamic) {
+                command.bindPipeline(vk::PipelineBindPoint::eCompute, program->initialize.get());
+                command.dispatch((padded + 63) / 64, 1, 1);
+                const vk::MemoryBarrier initialized(vk::AccessFlagBits::eShaderWrite,
+                    vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite);
+                command.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
+                    vk::PipelineStageFlagBits::eComputeShader, {}, initialized, {}, {});
+            }
+            command.bindPipeline(vk::PipelineBindPoint::eCompute, program->simulate.get());
             command.dispatch((padded + 63) / 64, 1, 1);
-            if(settings.blend == ParticleBlend::Alpha) {
-                command.bindPipeline(vk::PipelineBindPoint::eCompute, m_program->sort.get());
+            if(needs_sort) {
+                command.bindPipeline(vk::PipelineBindPoint::eCompute, program->sort.get());
                 const vk::MemoryBarrier between(vk::AccessFlagBits::eShaderWrite,
                     vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite);
                 for(uint32_t stage = 2; stage <= padded; stage *= 2)
@@ -239,7 +371,7 @@ namespace Comet {
                         command.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
                             vk::PipelineStageFlagBits::eComputeShader, {}, between, {}, {});
                         const std::array constants{stage, stride};
-                        command.pushConstants(m_program->layout.get(),
+                        command.pushConstants(program->layout.get(),
                             vk::ShaderStageFlagBits::eCompute, 0, sizeof(constants),
                             constants.data());
                         command.dispatch((padded + 63) / 64, 1, 1);
@@ -254,6 +386,8 @@ namespace Comet {
             frames.retain_current_frame_resource(resources);
             m_outputs.push_back({resources->instances, resources->indirect, emitter.count});
         }
+        std::erase_if(m_dynamics->history,
+            [serial](const auto& entry) { return entry.second.serial != serial; });
         return Prepared::success();
     }
 }
