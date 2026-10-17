@@ -2,7 +2,6 @@
 #include "asset/data/script_sources.h"
 
 #include <algorithm>
-#include <charconv>
 
 namespace Comet {
     using namespace ScriptSource;
@@ -84,12 +83,7 @@ namespace Comet {
             return std::nullopt;
         if(text->empty())
             return AssetHandle{};
-        AssetHandle::ValueType id = 0;
-        const auto parsed = std::from_chars(text->data(), text->data() + text->size(), id);
-        if(parsed.ec != std::errc{} || parsed.ptr != text->data() + text->size() || id == 0
-            || text->front() == '0')
-            return std::nullopt;
-        return AssetHandle{id};
+        return AssetHandle::parse(*text);
     }
 
     Result<std::vector<AssetReference>, Error> Script::asset_references(

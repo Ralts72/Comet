@@ -18,6 +18,19 @@ namespace Comet {
             return PlayerSettings<T>::load(project.id(), defaults);
         }
 
+        template<typename T>
+        Result<T> load_cached_settings(std::optional<PlayerSettings<T>>& cache,
+            const Project& project, T defaults,
+            const std::optional<std::filesystem::path>& directory, std::string_view name) {
+            if(!cache) {
+                auto loaded = load_settings(project, defaults, directory, name);
+                if(!loaded)
+                    return Result<T>::failure(loaded.error());
+                cache = std::move(loaded).value();
+            }
+            return Result<T>::success(cache->settings());
+        }
+
         Result<void> ui_result(const Result<void, Error>& result) {
             if(!result)
                 return Result<void>::failure(result.error().message);
@@ -132,13 +145,10 @@ namespace Comet {
     }
 
     Result<void> PlayerSettingsOwner::ensure_display() {
-        if(!m_display) {
-            auto loaded =
-                load_settings(m_project, m_project.display_settings(), m_directory, "display");
-            if(!loaded)
-                return Result<void>::failure(loaded.error());
-            m_display = std::move(loaded).value();
-        }
+        if(auto loaded = load_cached_settings(
+               m_display, m_project, m_project.display_settings(), m_directory, "display");
+            !loaded)
+            return Result<void>::failure(loaded.error());
         if(!is_play() && !m_display_preview)
             m_display_preview = std::make_unique<DisplaySettingsPreview>(*m_display);
         return Result<void>::success();
@@ -163,25 +173,13 @@ namespace Comet {
     }
 
     Result<QualitySettings> PlayerSettingsOwner::load_quality() {
-        if(!m_quality) {
-            auto loaded =
-                load_settings(m_project, m_project.quality_settings(), m_directory, "quality");
-            if(!loaded)
-                return Result<QualitySettings>::failure(loaded.error());
-            m_quality = std::move(loaded).value();
-        }
-        return Result<QualitySettings>::success(m_quality->settings());
+        return load_cached_settings(
+            m_quality, m_project, m_project.quality_settings(), m_directory, "quality");
     }
 
     Result<AudioSettings> PlayerSettingsOwner::load_audio() {
-        if(!m_audio) {
-            auto loaded =
-                load_settings(m_project, m_project.audio_settings(), m_directory, "audio");
-            if(!loaded)
-                return Result<AudioSettings>::failure(loaded.error());
-            m_audio = std::move(loaded).value();
-        }
-        return Result<AudioSettings>::success(m_audio->settings());
+        return load_cached_settings(
+            m_audio, m_project, m_project.audio_settings(), m_directory, "audio");
     }
 
     Result<void> PlayerSettingsOwner::apply_input(InputOverrides overrides) {

@@ -25,4 +25,15 @@ namespace Comet::Tests {
         EXPECT_TRUE(second);
         EXPECT_NE(first, second);
     }
+
+    TEST(AssetHandleTest, ParsesCanonicalDecimalIdentitiesWithoutPrecisionLoss) {
+        EXPECT_EQ(AssetHandle::parse("1"), AssetHandle(1));
+        EXPECT_EQ(AssetHandle::parse("18446744073709551615"), AssetHandle(UINT64_MAX));
+        for(const auto* text :
+            {"", "0", "01", "+1", "-1", " 1", "1 ", "1.0", "1e2", "18446744073709551616"}) {
+            SCOPED_TRACE(text);
+            EXPECT_FALSE(AssetHandle::parse(text));
+        }
+        EXPECT_FALSE(AssetHandle::parse(std::string_view("1\0hidden", 8)));
+    }
 }

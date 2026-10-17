@@ -286,6 +286,42 @@ namespace Comet::Tests {
             .max_results = 1, .max_time = std::chrono::seconds(1)};
     };
 
+    TEST_F(AssetCompletionBudgetTest, ChangedInputsRejectBothNewAndCachedCandidatesBeforeScan) {
+        constexpr AssetHandle handle(84);
+        const auto buffer = project.add_external_mesh(handle);
+        ASSERT_TRUE(manager.scan().succeeded());
+        ASSERT_TRUE(manager.import_mesh(handle));
+        ASSERT_TRUE(manager.load_mesh(handle));
+
+        bool modified = false;
+        for(const auto mode : {AssetImportMode::Force, AssetImportMode::IfNeeded}) {
+            const auto original = registry.resolve<Mesh>(handle);
+            const auto creations = factory.mesh_creation_count();
+            ASSERT_TRUE(manager.import_mesh_async(handle, mode));
+            scheduler.wait_idle();
+            const auto revision = manager.get_database().get_revision(handle);
+            modified = !modified;
+            TemporaryProject::write_external_mesh_buffer(buffer, modified);
+
+            EXPECT_TRUE(completed_handles(manager.process_completions(one_result)).empty());
+            EXPECT_EQ(manager.get_database().get_revision(handle), revision);
+            EXPECT_EQ(registry.resolve<Mesh>(handle), original);
+            EXPECT_EQ(factory.mesh_creation_count(), creations);
+            const auto cached = MeshArtifact::load(artifact_path(handle), handle);
+            ASSERT_TRUE(cached);
+            EXPECT_FALSE(
+                import_inputs_are_current(project.paths().assets(), cached->source_inputs));
+
+            ASSERT_TRUE(manager.import_mesh_async(handle, AssetImportMode::Force));
+            EXPECT_EQ(drain(), std::vector<AssetHandle>{handle});
+            EXPECT_NE(registry.resolve<Mesh>(handle), original);
+            const auto refreshed = MeshArtifact::load(artifact_path(handle), handle);
+            ASSERT_TRUE(refreshed);
+            EXPECT_TRUE(
+                import_inputs_are_current(project.paths().assets(), refreshed->source_inputs));
+        }
+    }
+
     TEST_F(AssetCompletionBudgetTest, UnpublishedResultsRetainSlotsAndCountBudget) {
         constexpr AssetHandle fourth(44);
         project.add_mesh(fourth, R"({"attributes":{"POSITION":0},"indices":1})", "meshes/44.gltf");

@@ -2,7 +2,6 @@
 #include "common/json.h"
 #include "common/file_io.h"
 #include <algorithm>
-#include <charconv>
 #include <unordered_set>
 
 namespace Comet {
@@ -11,13 +10,10 @@ namespace Comet {
             auto text = context.read_field<std::string>(node, "mesh", "an asset handle string");
             if(!text)
                 return Result<AssetHandle>::failure(text.error());
-            uint64_t handle = 0;
-            const auto parsed = std::from_chars(
-                text.value().data(), text.value().data() + text.value().size(), handle);
-            if(parsed.ec != std::errc{} || parsed.ptr != text.value().data() + text.value().size()
-                || !handle)
+            const auto handle = AssetHandle::parse(text.value());
+            if(!handle)
                 return Result<AssetHandle>::failure("Invalid animation source handle");
-            return Result<AssetHandle>::success(AssetHandle(handle));
+            return Result<AssetHandle>::success(*handle);
         }
         Result<AnimationRetarget> read_retarget(Json::Node node, const Json::Context& context) {
             using Read = Result<AnimationRetarget>;
@@ -44,10 +40,7 @@ namespace Comet {
                         field.value, field.key, "a target node name");
                     if(!name)
                         return Read::failure(name.error());
-                    if(!result.nodes.emplace(std::string(field.key), std::move(name).value())
-                            .second)
-                        return Read::failure(
-                            "Duplicate retarget source node: " + std::string(field.key));
+                    result.nodes.emplace(std::string(field.key), std::move(name).value());
                 }
             }
             auto translations = context.find(node, "translations");

@@ -370,6 +370,10 @@ namespace Comet::Tests {
         const std::filesystem::path source = directory.write_text("triangle.gltf",
             make_triangle_gltf(R"({"attributes":{"POSITION":0},"indices":1})", "triangle.bin"));
 
+        const auto inspected = MeshImporter::inspect_source(source);
+        ASSERT_TRUE(inspected) << inspected.error();
+        EXPECT_EQ(inspected.value().working_bytes, MeshImporter::working_bytes(source).value());
+        EXPECT_EQ(inspected.value().dependencies, std::vector<std::filesystem::path>{buffer});
         const MeshImportData result = MeshImporter{}.import_with_dependencies(source).value();
 
         EXPECT_EQ(result.data.vertices.size(), 3);

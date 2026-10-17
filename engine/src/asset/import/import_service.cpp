@@ -250,17 +250,28 @@ namespace Comet {
     Result<MeshArtifact> ImportService::build_mesh_artifact(const AssetHandle handle,
         const std::filesystem::path& source_path, const std::size_t memory_budget) const {
         const auto absolute_source = m_paths.assets() / source_path;
+        const auto inspected = MeshImporter::inspect_source(absolute_source, m_limits);
+        if(!inspected)
+            return Result<MeshArtifact>::failure(inspected.error());
+        if(inspected.value().working_bytes > memory_budget)
+            return Result<MeshArtifact>::failure("Mesh exceeds its reserved CPU memory budget");
+        const auto before = capture_import_inputs(
+            m_paths.assets(), absolute_source, inspected.value().dependencies);
+        if(!before)
+            return Result<MeshArtifact>::failure(before.error());
         auto imported =
             MeshImporter{}.import_with_dependencies(absolute_source, memory_budget, m_limits);
         if(!imported)
             return Result<MeshArtifact>::failure(imported.error());
-        auto inputs = capture_import_inputs(
+        const auto after = capture_import_inputs(
             m_paths.assets(), absolute_source, imported.value().source_dependencies);
-        if(!inputs)
-            return Result<MeshArtifact>::failure(inputs.error());
+        if(!after)
+            return Result<MeshArtifact>::failure(after.error());
+        if(after.value() != before.value())
+            return Result<MeshArtifact>::failure("Mesh inputs changed during import");
         return Result<MeshArtifact>::success({.handle = handle,
             .importer_version = MeshImporter::VERSION,
-            .source_inputs = std::move(inputs).value(),
+            .source_inputs = before.value(),
             .data = std::move(imported).value().data});
     }
 }

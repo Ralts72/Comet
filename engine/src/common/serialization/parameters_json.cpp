@@ -56,9 +56,7 @@ namespace Comet::Json {
             if(!valid_parameter_value(value.value()))
                 return Result<ParameterMap>::failure(
                     context.error(field_location, "invalid parameter value"));
-            if(!parameters.emplace(field.key, std::move(value).value()).second)
-                return Result<ParameterMap>::failure(
-                    context.error(field_location, "duplicate parameter"));
+            parameters.emplace(field.key, std::move(value).value());
         }
         return Result<ParameterMap>::success(std::move(parameters));
     }

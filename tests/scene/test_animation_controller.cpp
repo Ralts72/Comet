@@ -50,6 +50,13 @@ namespace Comet::Tests {
         EXPECT_FALSE(door_controller().validate_parameters({{"open", 1.f}}));
         EXPECT_FALSE(
             serializer.deserialize(R"({"parameters":{},"states":[],"transitions":[],"typo":1})"));
+        for(const auto* value : {R"({"open":true,"open":false})", R"({"open":"yes"})",
+                R"({"open":[1,2,3]})", R"({"open":{}})", R"({"open":1e100})"}) {
+            auto invalid = text.value();
+            const auto start = invalid.find('{', invalid.find("\"parameters\""));
+            invalid.replace(start, invalid.find('}', start) - start + 1, value);
+            EXPECT_FALSE(serializer.deserialize(invalid)) << value;
+        }
     }
     TEST(AnimationControllerTest,
         RunsWithoutCharacterAndKeepsInstancesPauseAndSnapshotsIndependent) {

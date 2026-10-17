@@ -6,6 +6,8 @@
 #include <compare>
 #include <cstdint>
 #include <functional>
+#include <optional>
+#include <string_view>
 
 namespace Comet {
     using AssetRevision = std::uint64_t;
@@ -20,6 +22,8 @@ namespace Comet {
         explicit constexpr AssetHandle(const ValueType value) noexcept : m_value(value) {}
 
         [[nodiscard]] static AssetHandle generate();
+        // 非零、无前导零的十进制身份；文本引用不经过浮点数转换。
+        [[nodiscard]] static std::optional<AssetHandle> parse(std::string_view text) noexcept;
 
         [[nodiscard]] constexpr ValueType value() const noexcept { return m_value; }
 

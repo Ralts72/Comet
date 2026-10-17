@@ -531,6 +531,11 @@ namespace Comet {
             return ImportPublication::success(std::nullopt);
         }
         auto& artifact = candidate.result.value();
+        if(!import_inputs_are_current(m_database.paths().assets(), artifact.source_inputs)) {
+            LOG_DEBUG("Discarded mesh candidate with changed inputs for asset handle {}",
+                candidate.handle.value());
+            return ImportPublication::success(std::nullopt);
+        }
         if(candidate.reused_artifact) {
             complete_mesh_import(
                 candidate.handle, candidate.revision, artifact.source_dependencies());
@@ -805,7 +810,8 @@ namespace Comet {
             return Result<void, Error>::failure({imported.error()});
         }
         auto& artifact = imported.value();
-        if(!m_database.is_current(handle, revision)) {
+        if(!m_database.is_current(handle, revision)
+            || !import_inputs_are_current(m_database.paths().assets(), artifact.source_inputs)) {
             LOG_DEBUG("Discarded stale mesh import for asset handle {} (revision {})",
                 handle.value(), revision);
             return Result<void, Error>::failure({"Mesh import revision is stale"});

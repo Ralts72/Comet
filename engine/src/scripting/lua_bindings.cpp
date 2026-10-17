@@ -1,6 +1,5 @@
 #include "scripting/lua_bindings.h"
 #include "asset/data/game_data.h"
-#include <charconv>
 #include "animation/animation_controller.h"
 #include "asset/registry.h"
 #include "asset/script.h"
@@ -50,14 +49,12 @@ namespace Comet::LuaBindings {
                 luaL_error(state, "Data asset requires an identity string");
             size_t size = 0;
             const char* text = lua_tolstring(state, 1, &size);
-            uint64_t identity = 0;
-            const auto parsed = std::from_chars(text, text + size, identity);
-            if(!size || parsed.ec != std::errc{} || parsed.ptr != text + size || !identity
-                || *text == '0')
+            const auto identity = AssetHandle::parse(std::string_view(text, size));
+            if(!identity)
                 luaL_error(state, "Invalid data asset identity");
             auto& context = current(state);
             context.return_data =
-                context.assets ? context.assets->resolve<GameData>(AssetHandle(identity)) : nullptr;
+                context.assets ? context.assets->resolve<GameData>(*identity) : nullptr;
             if(!context.return_data)
                 luaL_error(state, "Data asset is not loaded; assign a data property in the scene");
             return *context.return_data;

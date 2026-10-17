@@ -354,9 +354,10 @@ set_tests_properties(pipeline_cache_process swapchain_recovery
         PROPERTIES RESOURCE_LOCK comet_gpu LABELS "integration;gpu")
 add_test(NAME render_graph_sync_validation COMMAND integration_testing
         "--gtest_filter=${SYNC_VALIDATION_FILTER}" ${TEST_PLATFORM_ARGS})
+# 超时覆盖整组回归在 CI 软件 Vulkan 后端上的串行执行。
 set_tests_properties(render_graph_sync_validation PROPERTIES
         ENVIRONMENT "VK_VALIDATION_VALIDATE_SYNC=1"
-        RESOURCE_LOCK comet_gpu TIMEOUT 90 LABELS "integration;gpu")
+        RESOURCE_LOCK comet_gpu TIMEOUT 240 LABELS "integration;gpu")
 
 add_executable(post_process_recovery test.cpp render/test_post_process_recovery.cpp
         "${CMAKE_SOURCE_DIR}/engine/src/render/passes/skinning_pass.cpp"

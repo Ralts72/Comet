@@ -199,8 +199,9 @@ App 的显示试用由 DisplaySettingsPreview 保存前态和 15 秒期限；确
 | --- | --- | --- |
 | `common/file_io` | 文本读取、有大小上限的二进制读取、原子文本／二进制分块写入 | 文件是否可缺失、预算和业务提交顺序 |
 | `common/binary` | 小端整数／浮点数、带长度的字符串读写、分块 FNV-1a 哈希 | Magic、版本、长度前缀宽度、字段限制与领域校验 |
-| `common/serialization/parameters_json` | 参数名称、容量、重复键、有限数值与向量校验及编解码 | 允许类型、Scene 实体 UUID 回调及存档值范围 |
+| `common/serialization/parameters_json` | 参数名称、容量、有限数值与向量编解码，复用对象键校验 | 允许类型、Scene 实体 UUID 回调、动画参数与存档值范围 |
 | `common/json` | simdjson 解析、对象／数组检查、必填与可选标量字段读取、固定长度浮点向量读写、键校验、可选路径查找、可缺失文件读取、原子保存、Writer、编解码与 Serializer 文件入口 | 项目、场景、材质等 Schema 与版本，缺省值、颜色及数值范围的领域校验 |
+| `asset/handle` | 资产身份与规范十进制字符串解析 | 引用是否必填、未分配的格式与资产类型 |
 
 项目、资产、开发者 Profile 与快捷键共用 JSON 工具。JSON DOM 借用 parser；`Json::deserialize` 的回调必须返回拥有数据的结果。
 快捷键冲突、资产身份、范围等属于具体功能，不放入通用 Reader。
@@ -209,13 +210,14 @@ Editor 的窗口、最近项目、项目会话与玩家输入／显示／画质�
 资产 Serializer 不再拥有通用 JSON 文件工具。场景描述符共用于保存、恢复、编辑与内容复制；内容 clone 直接走内存快照，不通过 JSON 往返。
 Mesh、Texture、ShaderProgram、Environment Artifact 与导入指纹共用二进制基础工具；各资产保留独立头部、版本与校验规则。
 ImportInputSnapshot 统一校验源文件首项、规范化相对路径及依赖有序唯一；文件数量／大小限制和实际内容复核由各调用方负责。
+独立 Mesh 与 Model 在导入前后比较源文件和依赖指纹，主线程发布候选前再次复核；网格依赖来自导入前的检查，不在导入结束后重新读取源文件补齐。
 Environment 按纹理读取，发布时将头部和四份纹理存储分块原子写入，避免再复制一份完整像素 payload。
 TextureArtifact 保存导入设置与完整二维 mip 链，ImportService 按源指纹、算法版本和设置复用缓存；预准备工具、加载与重新导入共用该入口。
 TextureImporter 的文件与内存入口共用解码、用途设置和 mip 生成，GLB 内嵌图片无需先写临时文件。
 纹理产物发布不等于运行资源发布，AssetManager 仍在 GPU 候选完成后复核 revision。开发模式的模型／纹理／环境源版本、设置与 metadata 检查归 ImportService，导入准备与 Loader 共用；Loader 保留索引、CPU 缓存和运行发布。只读产品不检查开发源码，当前仍共用一个 engine 的导入编译依赖。
 导出项目以根目录 `assets.index.json` 初始化同一 AssetDatabase 的只读模式：稳定身份、运行文件、依赖及纹理采样方式一次读取，不扫描源文件或写 sidecar。
 桌面打包由 `tools/export_app.py` 自动增量构建既有 `app-release`，再组合资源导出；构建失败即停止。Editor 仅收集输出路径／关卡，在后台调用同一工具，并在主线程显示阶段与日志。macOS 随包携带动态库、MoltenVK、配置、字体与图标，运行时通过可执行文件位置解析资源；产品日志／缓存写入项目 UUID 对应的用户目录。
-AssetLoader 直接读索引中的 Mesh／Texture／Environment／ShaderProgram 产品；模型子资源已展开，场景中的 Prefab 来源基线不进入运行产品。
+AssetLoader 直接读索引中的 Mesh／Texture／Environment／ShaderProgram 产品；模型子资源已展开，场景中的 Prefab 来源基线不进入运行产品。Data／Navigation／AnimationLibrary 共用文件型内容装载；内容读取和动画来源绑定完成后，才由现有发布入口复核索引及 Registry 版本并注册资源。
 环境产品继续使用任务队列与 CPU 预算，Lua 模块保持项目内相对路径。导出工具负责内容转换和依赖闭包，宿主打包层负责可执行文件、动态库、引擎字体与图标。
 
 ModelImporter 的 CPU 候选保留 glTF 节点／场景、primitive 材质关联、图片和采样设置，

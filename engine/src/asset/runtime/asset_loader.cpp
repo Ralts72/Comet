@@ -70,6 +70,22 @@ namespace Comet {
                 return LoadResult::failure({"Failed to publish runtime asset"});
             return candidate;
         }
+
+        template<typename T, typename Read>
+        Result<std::shared_ptr<T>, Error> load_content_asset(const AssetDatabase& database,
+            AssetRegistry& registry, AssetHandle handle, AssetType type, Read&& read) {
+            using Loaded = Result<std::shared_ptr<T>, Error>;
+            return load_runtime_asset<T>(
+                database, registry, handle, type, [&](const AssetRecord& record) -> Loaded {
+                    auto path = database.paths().resolve_asset_path(record.path);
+                    if(!path)
+                        return Loaded::failure({path.error()});
+                    auto content = read(path.value());
+                    if(!content)
+                        return Loaded::failure(Error{content.error()});
+                    return Loaded::success(std::make_shared<T>(std::move(content).value()));
+                });
+        }
     }
 
     AssetLoader::AssetLoader(AssetDatabase& database, AssetRegistry& registry,
@@ -118,30 +134,29 @@ namespace Comet {
 
     Result<std::shared_ptr<AnimationLibrary>, Error> AssetLoader::load_animation_library(
         AssetHandle handle) {
-        using Loaded = Result<std::shared_ptr<AnimationLibrary>, Error>;
-        return load_runtime_asset<AnimationLibrary>(m_database, m_registry, handle,
-            AssetType::AnimationLibrary, [&](const AssetRecord& record) -> Loaded {
-                auto library = AnimationLibrary::load(m_database.paths().assets() / record.path);
+        using Read = Result<AnimationLibrary, Error>;
+        return load_content_asset<AnimationLibrary>(m_database, m_registry, handle,
+            AssetType::AnimationLibrary, [&](const std::filesystem::path& path) -> Read {
+                auto library = AnimationLibrary::load(path);
                 if(!library)
-                    return Loaded::failure({library.error()});
+                    return Read::failure({library.error()});
                 for(const auto& entry : library.value().entries) {
                     if(const auto found = library.value().sources.find(entry.mesh);
                         found != library.value().sources.end()) {
                         if(!found->second->find_clip(entry.clip))
-                            return Loaded::failure(
+                            return Read::failure(
                                 {"Animation source has no requested clip: " + entry.clip});
                         continue;
                     }
                     auto mesh = read_mesh_data(entry.mesh);
                     if(!mesh)
-                        return Loaded::failure(mesh.error());
+                        return Read::failure(mesh.error());
                     if(!mesh.value().animation || !mesh.value().animation->find_clip(entry.clip))
-                        return Loaded::failure(
+                        return Read::failure(
                             {"Animation source has no requested clip: " + entry.clip});
                     library.value().sources.emplace(entry.mesh, mesh.value().animation);
                 }
-                return Loaded::success(
-                    std::make_shared<AnimationLibrary>(std::move(library).value()));
+                return Read::success(std::move(library).value());
             });
     }
     Result<std::shared_ptr<AnimationController>, Error> AssetLoader::load_animation_controller(
@@ -171,33 +186,14 @@ namespace Comet {
     }
 
     Result<std::shared_ptr<GameData>, Error> AssetLoader::load_data(AssetHandle handle) {
-        return load_runtime_asset<GameData>(m_database, m_registry, handle, AssetType::Data,
-            [&](const AssetRecord& record) -> Result<std::shared_ptr<GameData>, Error> {
-                auto path = m_database.paths().resolve_asset_path(record.path);
-                if(!path)
-                    return Result<std::shared_ptr<GameData>, Error>::failure({path.error()});
-                auto data = GameData::load(path.value());
-                if(!data)
-                    return Result<std::shared_ptr<GameData>, Error>::failure({data.error()});
-                return Result<std::shared_ptr<GameData>, Error>::success(
-                    std::make_shared<GameData>(std::move(data).value()));
-            });
+        return load_content_asset<GameData>(
+            m_database, m_registry, handle, AssetType::Data, GameData::load);
     }
 
     Result<std::shared_ptr<NavigationData>, Error> AssetLoader::load_navigation(
         AssetHandle handle) {
-        return load_runtime_asset<NavigationData>(m_database, m_registry, handle,
-            AssetType::Navigation,
-            [&](const AssetRecord& record) -> Result<std::shared_ptr<NavigationData>, Error> {
-                auto path = m_database.paths().resolve_asset_path(record.path);
-                if(!path)
-                    return Result<std::shared_ptr<NavigationData>, Error>::failure({path.error()});
-                auto data = NavigationData::load(path.value());
-                if(!data)
-                    return Result<std::shared_ptr<NavigationData>, Error>::failure({data.error()});
-                return Result<std::shared_ptr<NavigationData>, Error>::success(
-                    std::make_shared<NavigationData>(std::move(data).value()));
-            });
+        return load_content_asset<NavigationData>(
+            m_database, m_registry, handle, AssetType::Navigation, NavigationData::load);
     }
 
     Result<std::shared_ptr<Prefab>, Error> AssetLoader::load_prefab(

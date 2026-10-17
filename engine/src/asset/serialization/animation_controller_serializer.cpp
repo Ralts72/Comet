@@ -1,7 +1,7 @@
 #include "asset/serialization/animation_controller_serializer.h"
 #include "common/json.h"
+#include "common/serialization/parameters_json.h"
 #include <array>
-#include <charconv>
 
 namespace Comet {
     namespace {
@@ -64,13 +64,10 @@ namespace Comet {
             if(auto read = field(root, context, "library", library); !read)
                 return Read::failure(read.error());
             if(!library.empty()) {
-                uint64_t handle = 0;
-                const auto parsed =
-                    std::from_chars(library.data(), library.data() + library.size(), handle);
-                if(parsed.ec != std::errc{} || parsed.ptr != library.data() + library.size()
-                    || !handle)
+                const auto handle = AssetHandle::parse(library);
+                if(!handle)
                     return Read::failure("Invalid animation library handle");
-                result.library = AssetHandle(handle);
+                result.library = *handle;
             }
             auto layer_node = context.find(root, "layers");
             if(!layer_node)
@@ -114,16 +111,10 @@ namespace Comet {
             auto parameters_node = context.required_child(root, "parameters");
             if(!parameters_node)
                 return Read::failure(parameters_node.error());
-            auto parameters = context.object(parameters_node.value(), "parameters");
+            auto parameters = Json::read_parameters(parameters_node.value(), context, "parameters");
             if(!parameters)
                 return Read::failure(parameters.error());
-            for(const auto entry : parameters.value()) {
-                auto value = scalar(entry.value, context, entry.key);
-                if(!value)
-                    return Read::failure(value.error());
-                if(!result.parameters.emplace(std::string(entry.key), value.value()).second)
-                    return Read::failure(context.error("parameters", "duplicate name"));
-            }
+            result.parameters = std::move(parameters).value();
             auto states = array(root, "states", context);
             if(!states)
                 return Read::failure(states.error());
@@ -266,12 +257,10 @@ namespace Comet {
             writer.end_array();
         }
         writer.key("parameters");
-        writer.begin_object();
-        for(const auto& [name, value] : data.parameters) {
-            writer.key(name);
-            write_scalar(writer, value);
-        }
-        writer.end_object();
+        if(auto written = Json::write_parameters(
+               writer, data.parameters, {"animation controller", "<memory>"}, "parameters");
+            !written)
+            return Result<std::string>::failure(written.error());
         writer.key("states");
         writer.begin_array();
         for(const auto& state : data.states) {

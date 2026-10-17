@@ -1,7 +1,6 @@
 #include "asset/data/game_data.h"
 #include "common/json.h"
 
-#include <charconv>
 #include <set>
 
 namespace Comet {
@@ -172,15 +171,12 @@ namespace Comet {
                 if((field.min && scalar < *field.min) || (field.max && scalar > *field.max))
                     return Result<void>::failure("number outside declared range");
             } else if(field.type == "asset") {
-                uint64_t handle = 0;
                 if(!text || text->empty())
                     return Result<void>::failure("expected a nonempty asset identity string");
-                const auto parsed =
-                    std::from_chars(text->data(), text->data() + text->size(), handle);
-                if(parsed.ec != std::errc{} || parsed.ptr != text->data() + text->size() || !handle
-                    || text->front() == '0')
+                const auto handle = AssetHandle::parse(*text);
+                if(!handle)
                     return Result<void>::failure("invalid asset identity");
-                references.push_back({AssetHandle(handle), *field.asset_type});
+                references.push_back({*handle, *field.asset_type});
             } else if(field.type == "string" && !text)
                 return Result<void>::failure("expected string");
             else if(field.type == "bool" && !std::holds_alternative<bool>(value.value))

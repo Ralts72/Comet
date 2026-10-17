@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <functional>
 #include <random>
 
@@ -23,6 +24,16 @@ namespace Comet {
         while(value == 0) {
             value = generator();
         }
+        return AssetHandle(value);
+    }
+
+    std::optional<AssetHandle> AssetHandle::parse(std::string_view text) noexcept {
+        if(text.empty() || text.front() == '0')
+            return std::nullopt;
+        ValueType value = 0;
+        const auto parsed = std::from_chars(text.data(), text.data() + text.size(), value);
+        if(parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size())
+            return std::nullopt;
         return AssetHandle(value);
     }
 }
