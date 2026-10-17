@@ -15,6 +15,75 @@
 #include <limits>
 
 namespace Comet::Tests {
+    TEST(ParticleSystemTest, ShortLivedParticlesExpireWithinTheirEmissionStep) {
+        for(auto simulation : {ParticleSimulation::CPU, ParticleSimulation::GPU}) {
+            SCOPED_TRACE(static_cast<int>(simulation));
+            Scene scene;
+            auto source = scene.create_entity();
+            ParticleEmitterComponent settings;
+            settings.simulation = simulation;
+            settings.rate = 256;
+            settings.lifetime = .03125f;
+            source.add_component<ParticleEmitterComponent>(settings);
+            SceneRuntime runtime;
+            ASSERT_TRUE(runtime.set_settings({.fixed_delta = .125}));
+            ASSERT_TRUE(runtime.add_system(std::make_unique<ParticleSystem>()));
+            ASSERT_TRUE(runtime.start(scene));
+            for(int step = 0; step < 4; ++step) {
+                ASSERT_TRUE(runtime.advance(.125));
+                const auto snapshot = scene.get_particles();
+                ASSERT_TRUE(snapshot);
+                if(simulation == ParticleSimulation::CPU)
+                    EXPECT_EQ(snapshot->instances.size(), 8u);
+                else {
+                    ASSERT_EQ(snapshot->gpu_emitters.size(), 1u);
+                    const auto& emitter = snapshot->gpu_emitters.front();
+                    EXPECT_EQ(emitter.count, 8u);
+                    ASSERT_EQ(emitter.spawns.size(), 1u);
+                    EXPECT_LT(emitter.time - emitter.spawns.front().time, settings.lifetime);
+                }
+            }
+        }
+    }
+
+    TEST(ParticleSystemTest, QueuedBurstsApplyTheSameResetRulesAsSourceChanges) {
+        for(const auto& [before, after] :
+            {std::pair{ParticleSimulation::CPU, ParticleSimulation::GPU},
+                std::pair{ParticleSimulation::GPU, ParticleSimulation::CPU},
+                std::pair{ParticleSimulation::GPU, ParticleSimulation::GPU}}) {
+            SCOPED_TRACE(static_cast<int>(before));
+            SCOPED_TRACE(static_cast<int>(after));
+            Scene scene;
+            auto source = scene.create_entity();
+            ParticleEmitterComponent settings;
+            settings.simulation = before;
+            settings.rate = 0;
+            source.add_component<ParticleEmitterComponent>(settings);
+            SceneRuntime runtime;
+            ASSERT_TRUE(runtime.add_system(std::make_unique<ParticleSystem>()));
+            ASSERT_TRUE(runtime.start(scene));
+            ASSERT_TRUE(scene.request_particle_burst(source, 3));
+            source.edit_component<ParticleEmitterComponent>([&](auto& emitter) {
+                emitter.simulation = after;
+                emitter.start_color = {0, 1, 0, 1};
+            });
+            ASSERT_TRUE(scene.request_particle_burst(source, 2));
+            ASSERT_TRUE(runtime.advance(0));
+            const auto snapshot = scene.get_particles();
+            ASSERT_TRUE(snapshot);
+            if(after == ParticleSimulation::CPU) {
+                EXPECT_TRUE(snapshot->gpu_emitters.empty());
+                EXPECT_EQ(snapshot->instances.size(), 2u);
+            } else {
+                EXPECT_TRUE(snapshot->instances.empty());
+                ASSERT_EQ(snapshot->gpu_emitters.size(), 1u);
+                EXPECT_EQ(snapshot->gpu_emitters.front().count, 2u);
+                EXPECT_EQ(
+                    snapshot->gpu_emitters.front().settings.start_color, (Math::Vec4{0, 1, 0, 1}));
+            }
+        }
+    }
+
     TEST(ParticleSystemTest, GpuBirthBatchesStayBoundedPreservePosesAndFollowRuntimeLifetime) {
         Scene scene;
         auto source = scene.create_entity();

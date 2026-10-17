@@ -43,7 +43,12 @@ namespace Comet {
             std::shared_ptr<ImageView> scene_depth = {}, const FogVolume* fog = nullptr);
         [[nodiscard]] std::span<const float> depths() const { return m_depths; }
         // 透明队列条目数：CPU 粒子各一项，GPU 发射器各一项（其内部由 GPU 排序）。
-        [[nodiscard]] uint32_t instance_count() const { return m_instance_count; }
+        [[nodiscard]] uint32_t queue_size() const {
+            if(m_draw_batches.empty())
+                return 0;
+            const auto& last = m_draw_batches.back();
+            return last.first + last.count;
+        }
         void record(FrameScheduler& frames, uint32_t first, uint32_t count);
         void clear_draws();
 
@@ -84,7 +89,6 @@ namespace Comet {
         std::vector<float> m_depths;
         BillboardCamera m_camera;
         Math::Vec4 m_depth_coefficients{};
-        uint32_t m_instance_count = 0;
         std::vector<std::shared_ptr<CPUBuffer>> m_buffers;
         std::shared_ptr<Texture> m_white;
         std::shared_ptr<Sampler> m_sampler;

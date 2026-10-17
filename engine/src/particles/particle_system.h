@@ -51,6 +51,7 @@ namespace Comet {
             bool emitting = false;
         };
         Result<void, Error> synchronize(Scene& scene);
+        bool configure(Emitter&, const ParticleEmitterComponent&);
         Result<void, Error> emit(
             Emitter& emitter, uint32_t count, double delta = 0, double previous = 0);
         void emit_gpu(Emitter&, uint32_t count, double delta, double previous);

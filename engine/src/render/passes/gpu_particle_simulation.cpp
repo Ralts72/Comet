@@ -169,6 +169,7 @@ namespace Comet {
         cache.resize(emitters.size());
         const auto command = frames.get_current_command_buffer().get();
         uint32_t total = 0;
+        std::vector<Spawn> births;
         for(size_t i = 0; i < emitters.size(); ++i) {
             const auto& emitter = emitters[i];
             if(!emitter.settings.validate()
@@ -178,7 +179,7 @@ namespace Comet {
                 || emitter.spawns.empty())
                 return Prepared::failure({"Invalid GPU particle snapshot"});
             total += emitter.count;
-            std::vector<Spawn> births;
+            births.clear();
             births.reserve(emitter.spawns.size());
             uint32_t offset = 0;
             for(const auto& spawn : emitter.spawns) {

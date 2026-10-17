@@ -1161,7 +1161,7 @@ namespace Comet {
         const auto meshes = m_state->materials->transparent_depths();
         const auto particles = m_state->particles->depths();
         if(meshes.empty()) {
-            m_state->particles->record(frames, 0, m_state->particles->instance_count());
+            m_state->particles->record(frames, 0, m_state->particles->queue_size());
             return;
         }
         if(particles.empty()) {

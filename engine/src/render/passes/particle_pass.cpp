@@ -216,7 +216,6 @@ namespace Comet {
         m_draw_batches.clear();
         m_sources.clear();
         m_depths.clear();
-        m_instance_count = 0;
     }
 
     Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> ParticlePass::prepare(
@@ -294,13 +293,17 @@ namespace Comet {
             merge_semaphore_wait(waits, QueueSemaphoreSubmit(white_ready,
                                             Flags<PipelineStage>(PipelineStage::FragmentShader)));
         std::unordered_set<AssetHandle> used;
-        std::vector<ParticleSnapshot::Batch> sources(batches.begin(), batches.end());
-        for(const auto& emitter : particles.gpu_emitters)
-            sources.push_back({emitter.settings.texture, 0, emitter.count, emitter.settings.blend,
-                emitter.settings.soft_distance});
-        m_sources.reserve(sources.size());
-        for(size_t index = 0; index < sources.size(); ++index) {
-            const auto& batch = sources[index];
+        const auto source_count = batches.size() + particles.gpu_emitters.size();
+        m_sources.reserve(source_count);
+        for(size_t index = 0; index < source_count; ++index) {
+            ParticleSnapshot::Batch batch;
+            if(index < batches.size())
+                batch = batches[index];
+            else {
+                const auto& emitter = particles.gpu_emitters[index - batches.size()];
+                batch = {emitter.settings.texture, 0, emitter.count, emitter.settings.blend,
+                    emitter.settings.soft_distance};
+            }
             auto& source = m_sources.emplace_back(
                 DrawSource{nullptr, batch.blend, bool(batch.texture), batch.soft_distance});
             if(index >= batches.size()) {
@@ -341,7 +344,6 @@ namespace Comet {
                                completion, Flags<PipelineStage>(PipelineStage::FragmentShader)));
         }
         std::erase_if(m_bindings, [&](const auto& entry) { return !used.contains(entry.first); });
-        m_instance_count = uint32_t(count + particles.gpu_emitters.size());
         return Prepared::success(std::move(waits));
     }
 
