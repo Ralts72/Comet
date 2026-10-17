@@ -64,7 +64,7 @@ namespace Comet {
                     || node.wind_height > 1000 || !Math::is_finite(transform.translation)
                     || !Math::is_finite(transform.scale)
                     || !Math::is_finite(Math::Vec4(rotation.x, rotation.y, rotation.z, rotation.w))
-                    || std::abs(glm::length(rotation) - 1.f) > 1e-3f)
+                    || std::abs(Math::length(rotation) - 1.f) > 1e-3f)
                     return false;
                 for(const auto& part : node.parts) {
                     const auto& lod = part.lod;

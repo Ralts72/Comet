@@ -9,7 +9,6 @@
 #include "render/resource/resource_factory.h"
 #include "render/resource/mesh.h"
 
-#include <glm/gtc/quaternion.hpp>
 #include <numbers>
 
 namespace CometEditor {
@@ -110,7 +109,7 @@ namespace CometEditor {
                 const auto& node = model.nodes.at(index);
                 const auto& local = node.transform;
                 const auto transform = parent * Math::translate(Math::Mat4(1), local.translation)
-                                       * glm::mat4_cast(local.rotation)
+                                       * Math::to_mat4(local.rotation)
                                        * Math::scale(Math::Mat4(1), local.scale);
                 for(const auto& part : node.parts)
                     if(auto added = append_mesh(*world, assets, part.mesh,
@@ -128,7 +127,7 @@ namespace CometEditor {
         const auto bounds = geometry.get_scene_bounds();
         if(!bounds)
             return Outcome::failure({"资源没有可预览的几何"});
-        const float radius = std::max(glm::length(bounds->size()) * 0.5f, 0.001f);
+        const float radius = std::max(Math::length(bounds->size()) * 0.5f, 0.001f);
         const auto normalize = Math::scale(Math::Mat4(1), Math::Vec3(1 / radius))
                                * Math::translate(Math::Mat4(1), -bounds->center());
         for(auto& item : world->render_items)

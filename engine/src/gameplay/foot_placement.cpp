@@ -3,8 +3,6 @@
 #include "physics/physics_access.h"
 #include "scene/scene.h"
 #include "diagnostics/profiler.h"
-#include <glm/gtc/matrix_inverse.hpp>
-#include <glm/gtx/quaternion.hpp>
 #include <algorithm>
 #include <cmath>
 
@@ -20,7 +18,7 @@ namespace Comet::Gameplay {
                    && std::isfinite(settings.max_slope) && settings.max_slope >= 0
                    && settings.max_slope < 90 && std::isfinite(settings.response)
                    && settings.response > 0 && Math::is_finite(settings.knee_forward)
-                   && glm::length(settings.knee_forward) > 1e-5f
+                   && Math::length(settings.knee_forward) > 1e-5f
                    && (!settings.left_foot.empty() || !settings.right_foot.empty())
                    && (settings.left_foot.empty() || settings.left_foot != settings.right_foot)
                    && std::isfinite(settings.pelvis_weight) && settings.pelvis_weight >= 0
@@ -68,8 +66,8 @@ namespace Comet::Gameplay {
         if(!scale)
             return Result<void, Error>::failure(
                 {"Foot placement requires positive uniform model scale"});
-        const auto orientation = glm::normalize(glm::quat_cast(Math::Mat3(world) / *scale));
-        const auto inverse = glm::affineInverse(world);
+        const auto orientation = Math::normalize(Math::to_quat(Math::Mat3(world) / *scale));
+        const auto inverse = Math::affine_inverse(world);
         const float alpha = float(-std::expm1(-context.delta_time * settings.response));
         const Math::Vec3 up{0, 1, 0};
         const std::array names{settings.left_foot, settings.right_foot};
@@ -94,8 +92,8 @@ namespace Comet::Gameplay {
                 if(!hit)
                     return Result<void, Error>::failure({hit.error()});
                 if(hit.value()
-                    && glm::dot(hit.value()->normal, up)
-                           >= std::cos(glm::radians(settings.max_slope))) {
+                    && Math::dot(hit.value()->normal, up)
+                           >= std::cos(Math::radians(settings.max_slope))) {
                     desired_offset =
                         std::clamp(hit.value()->position.y + settings.foot_height - animated.y,
                             -settings.max_offset, settings.max_offset);
@@ -108,27 +106,27 @@ namespace Comet::Gameplay {
                 }
             }
             auto& foot = state.feet[i];
-            foot.offset = glm::mix(foot.offset, desired_offset, alpha);
-            foot.weight = glm::mix(foot.weight, desired_weight, alpha);
-            foot.normal = glm::normalize(glm::mix(foot.normal, normal, alpha));
+            foot.offset = Math::mix(foot.offset, desired_offset, alpha);
+            foot.weight = Math::mix(foot.weight, desired_weight, alpha);
+            foot.normal = Math::normalize(Math::mix(foot.normal, normal, alpha));
             pelvis_offset = std::min(pelvis_offset, foot.offset * foot.weight);
             if(foot.weight < .0001f)
                 continue;
             const auto target = Math::Vec3(inverse * Math::Vec4(animated + up * foot.offset, 1));
             const auto tilt =
-                glm::inverse(orientation) * glm::rotation(up, foot.normal) * orientation;
+                Math::inverse(orientation) * Math::rotation_between(up, foot.normal) * orientation;
             const auto basis = Math::Mat3(bone);
             const auto foot_orientation =
-                glm::normalize(glm::quat_cast(basis / glm::length(basis[0])));
+                Math::normalize(Math::to_quat(basis / Math::length(basis[0])));
             output->ik.push_back({.tip = node,
                 .target = target,
-                .pole = Math::Vec3(bone[3]) + glm::normalize(settings.knee_forward),
-                .rotation = glm::normalize(tilt * foot_orientation),
+                .pole = Math::Vec3(bone[3]) + Math::normalize(settings.knee_forward),
+                .rotation = Math::normalize(tilt * foot_orientation),
                 .weight = foot.weight});
         }
         const float desired_pelvis =
             std::clamp(pelvis_offset * settings.pelvis_weight, -settings.max_pelvis_offset, 0.f);
-        state.pelvis_offset = glm::mix(state.pelvis_offset, desired_pelvis, alpha);
+        state.pelvis_offset = Math::mix(state.pelvis_offset, desired_pelvis, alpha);
         if(settings.pelvis_weight > 0) {
             if(frame->root_motion && frame->root_motion->vertical
                 && (frame->root_motion->node.empty()
@@ -150,12 +148,12 @@ namespace Comet::Gameplay {
             }
             const auto& pelvis_local = frame->pose->local_transforms[node];
             const auto pelvis_matrix = Math::translate(Math::Mat4(1), pelvis_local.translation)
-                                       * glm::mat4_cast(pelvis_local.rotation)
+                                       * Math::to_mat4(pelvis_local.rotation)
                                        * Math::scale(Math::Mat4(1), pelvis_local.scale);
             const auto parent_in_mesh =
-                frame->pose->bone_matrices[joint.value()] * glm::affineInverse(pelvis_matrix);
+                frame->pose->bone_matrices[joint.value()] * Math::affine_inverse(pelvis_matrix);
             const auto local_up =
-                Math::Vec3(glm::affineInverse(world * parent_in_mesh) * Math::Vec4(up, 0));
+                Math::Vec3(Math::affine_inverse(world * parent_in_mesh) * Math::Vec4(up, 0));
             output->offsets.push_back({node, local_up * state.pelvis_offset});
         }
         scene.set_animation_playback(model, std::move(output));

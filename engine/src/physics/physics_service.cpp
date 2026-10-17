@@ -116,12 +116,12 @@ namespace Comet {
 
         JPH::Quat to_rotation(const Math::Vec3& degrees) {
             const Math::Quat rotation =
-                glm::quat_cast(Math::compose_trs(Math::Vec3(0.0f), degrees, Math::Vec3(1.0f)));
+                Math::to_quat(Math::compose_trs(Math::Vec3(0.0f), degrees, Math::Vec3(1.0f)));
             return {rotation.x, rotation.y, rotation.z, rotation.w};
         }
 
         Math::Vec3 from_rotation(const JPH::Quat& rotation) {
-            return Math::wrap_degrees(glm::degrees(glm::eulerAngles(
+            return Math::wrap_degrees(Math::degrees(Math::euler_angles(
                 Math::Quat(rotation.GetW(), rotation.GetX(), rotation.GetY(), rotation.GetZ()))));
         }
 
@@ -137,8 +137,7 @@ namespace Comet {
         }
 
         bool same_pose(const TransformComponent& a, const TransformComponent& b) {
-            return glm::all(glm::equal(a.translation, b.translation))
-                   && glm::all(glm::equal(a.rotation, b.rotation));
+            return (a.translation == b.translation) && (a.rotation == b.rotation);
         }
 
         JPH::EMotionQuality to_motion_quality(
@@ -150,8 +149,8 @@ namespace Comet {
         }
 
         bool same_shape(const ColliderComponent& a, const ColliderComponent& b) {
-            return a.shape == b.shape && glm::all(glm::equal(a.half_extents, b.half_extents))
-                   && a.radius == b.radius && a.height == b.height && a.is_trigger == b.is_trigger
+            return a.shape == b.shape && (a.half_extents == b.half_extents) && a.radius == b.radius
+                   && a.height == b.height && a.is_trigger == b.is_trigger
                    && a.collision_layer == b.collision_layer && a.collision_mask == b.collision_mask
                    && a.mesh == b.mesh;
         }
@@ -167,13 +166,13 @@ namespace Comet {
         Result<void, Error> validate_collider_geometry(
             const TransformComponent& transform, const ColliderComponent& collider) {
             const auto valid_scale = Math::is_finite(transform.scale)
-                                     && glm::all(glm::greaterThan(transform.scale, Math::Vec3(0)));
+                                     && Math::all_greater(transform.scale, Math::Vec3(0));
             if(!Math::is_finite(transform.translation) || !Math::is_finite(transform.rotation)
                 || !valid_scale)
                 return Result<void, Error>::failure({"Invalid rigid body transform"});
             if(collider.shape == ColliderShape::Box) {
                 const auto size = collider.half_extents * transform.scale;
-                if(!Math::is_finite(size) || !glm::all(glm::greaterThan(size, Math::Vec3(0))))
+                if(!Math::is_finite(size) || !Math::all_greater(size, Math::Vec3(0)))
                     return Result<void, Error>::failure({"Invalid box collider"});
             } else if(collider.shape == ColliderShape::Sphere
                       || collider.shape == ColliderShape::Capsule) {
@@ -213,7 +212,7 @@ namespace Comet {
             using ShapeResult = Result<JPH::ShapeRefC, Error>;
             if(kind != ColliderShape::ConvexHull && kind != ColliderShape::TriangleMesh)
                 return ShapeResult::failure({"Expected a mesh collider shape"});
-            if(!Math::is_finite(scale) || !glm::all(glm::greaterThan(scale, Math::Vec3(0))))
+            if(!Math::is_finite(scale) || !Math::all_greater(scale, Math::Vec3(0)))
                 return ShapeResult::failure({"Mesh collider requires finite positive scale"});
             if(data.vertices.empty() || data.indices.empty() || data.indices.size() % 3 != 0)
                 return ShapeResult::failure({"Collision mesh requires indexed triangles"});
@@ -804,8 +803,8 @@ namespace Comet {
                 second_id = connected->id;
             }
             if(!Math::is_finite(first_point) || !Math::is_finite(second_point)
-                || !std::isfinite(glm::dot(first_point, first_point))
-                || !std::isfinite(glm::dot(second_point, second_point)))
+                || !std::isfinite(Math::dot(first_point, first_point))
+                || !std::isfinite(Math::dot(second_point, second_point)))
                 return Result<void, Error>::failure(
                     {"Joint anchors exceed supported range: " + definition.uuid.to_string()});
             if(existing != joints.end() && existing->second.uuid == definition.uuid
@@ -1255,7 +1254,7 @@ namespace Comet {
                     || !same_shape(it->second.collider, collider)
                     || (collider.uses_mesh()
                         && it->second.mesh_revision != mesh_revision(collider.mesh))
-                    || !glm::all(glm::equal(it->second.last_transform.scale, transform.scale)));
+                    || !(it->second.last_transform.scale == transform.scale));
             const bool rigid_changed = !added && it->second.rigid != rigid;
             const bool pose_changed = !added && !same_pose(it->second.last_transform, transform);
             const auto motion_quality = to_motion_quality(rigid, collider);
@@ -1306,7 +1305,7 @@ namespace Comet {
             }
             body.rigid = rigid;
             if(rigid.motion == BodyMotion::Kinematic) {
-                if(!glm::all(glm::equal(body.last_transform.rotation, transform.rotation)))
+                if(!(body.last_transform.rotation == transform.rotation))
                     body.last_physics_rotation = to_rotation(transform.rotation);
                 body.last_transform = transform;
             } else if(pose_changed) {
@@ -1640,7 +1639,7 @@ namespace Comet {
         Math::Vec3 minimum, Math::Vec3 maximum) const {
         using Output = Result<std::vector<Math::Vec3>, Error>;
         if(!m_impl || !has_binding() || !Math::is_finite(minimum) || !Math::is_finite(maximum)
-            || !glm::all(glm::lessThan(minimum, maximum)))
+            || !Math::all_less(minimum, maximum))
             return Output::failure({"Static geometry requires an active world and valid bounds"});
         std::vector<Math::Vec3> output;
         const JPH::AABox bounds(
@@ -1863,7 +1862,7 @@ namespace Comet {
         if(!owner || !lock.Succeeded())
             return Hits::failure("Raycast body is no longer available");
         const auto point = origin + hit.mFraction * displacement;
-        Math::Vec3 normal = -glm::normalize(displacement);
+        Math::Vec3 normal = -Math::normalize(displacement);
         if(hit.mFraction > 0) {
             const auto surface =
                 lock.GetBody().GetWorldSpaceSurfaceNormal(hit.mSubShapeID2, to_position(point));

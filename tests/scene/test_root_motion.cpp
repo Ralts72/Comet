@@ -213,7 +213,7 @@ namespace Comet::Tests {
         data.nodes[0].rest.scale = {2, 2, 2};
         auto rotated = animation_root_motion(data, {.clip = "move"}, 2, {});
         ASSERT_TRUE(rotated) << rotated.error();
-        const auto basis = glm::mat4_cast(data.nodes[0].rest.rotation)
+        const auto basis = Math::to_mat4(data.nodes[0].rest.rotation)
                            * Math::scale(Math::Mat4(1), data.nodes[0].rest.scale);
         const auto world = Math::Vec3(basis * Math::Vec4(rotated.value().translation, 0));
         EXPECT_NEAR(world.x, motion.value().translation.x, .0001);

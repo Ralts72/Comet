@@ -21,7 +21,7 @@ namespace Comet {
     struct ComponentDescriptor {
         std::string id;
         std::string display_name;
-        entt::id_type type_id = 0; // 进程内类型标识，不写入场景文件。
+        uint64_t type_id = 0; // 进程内类型标识，不写入场景文件。
         bool serializable = true;
         std::vector<PropertyDescriptor> properties;
         std::function<bool(const Entity&)> has_component_callback;

@@ -41,7 +41,7 @@ namespace Comet::Tests {
                     const float x = frame == 2 ? .5f : 0;
                     const auto transform =
                         Math::translate(Math::Mat4(1), {x, 0, .5f})
-                        * glm::mat4_cast(glm::angleAxis(Math::PI / 2, Math::Vec3(1, 0, 0)))
+                        * Math::to_mat4(Math::angle_axis(Math::PI / 2, Math::Vec3(1, 0, 0)))
                         * Math::scale(Math::Mat4(1), {.7f, .5f, .7f});
                     const auto bounds =
                         transform_box({Math::Vec3(-.5f), Math::Vec3(.5f)}, transform);
@@ -134,7 +134,7 @@ namespace Comet::Tests {
         const ViewProjectMatrix camera{
             Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}), Math::ortho(-1, 1, -1, 1, .1f, 10)};
         const auto projector = Math::translate(Math::Mat4(1), {.6f, 0, .5f})
-                               * glm::mat4_cast(glm::angleAxis(Math::PI / 2, Math::Vec3(1, 0, 0)))
+                               * Math::to_mat4(Math::angle_axis(Math::PI / 2, Math::Vec3(1, 0, 0)))
                                * Math::scale(Math::Mat4(1), {.4f, .5f, .4f});
         const auto bounds = transform_box({Math::Vec3(-.5f), Math::Vec3(.5f)}, projector);
         ASSERT_TRUE(bounds);

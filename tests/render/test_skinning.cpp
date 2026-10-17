@@ -7,7 +7,6 @@
 #include "asset/data/animation_library.h"
 #include "render/passes/skinning_pass.h"
 #include "render/passes/depth_pass.h"
-#include <glm/gtc/packing.hpp>
 #include "render/scene/render_geometry.h"
 namespace Comet::Tests {
     class SkinningGpuTest: public RenderGpuTest {
@@ -140,7 +139,7 @@ namespace Comet::Tests {
                 vertex.tangent = {0, 1, 0, -1};
             auto skeleton = std::make_shared<AnimationData>(*source.animation);
             skeleton->clips.clear();
-            skeleton->nodes[1].rest.rotation = glm::angleAxis(Math::PI / 4, Math::Vec3(0, 0, 1));
+            skeleton->nodes[1].rest.rotation = Math::angle_axis(Math::PI / 4, Math::Vec3(0, 0, 1));
             skeleton->nodes[1].rest.scale = {scale, .75f, 1};
             source.animation = skeleton;
             const auto skinned = resources.try_create_mesh(source);
@@ -149,14 +148,15 @@ namespace Comet::Tests {
             m_scene.render_items[0].mesh_handle = AssetHandle(10);
             const auto actual = capture();
             const auto transform =
-                Math::scale(glm::mat4_cast(skeleton->nodes[1].rest.rotation), {scale, .75f, 1});
+                Math::scale(Math::to_mat4(skeleton->nodes[1].rest.rotation), {scale, .75f, 1});
             const auto basis = Math::Mat3(transform);
             auto baked = source;
             baked.animation.reset();
             baked.skin.clear();
             for(auto& vertex : baked.vertices) {
                 vertex.position = Math::Vec3(transform * Math::Vec4(vertex.position, 1));
-                vertex.normal = glm::normalize(glm::transpose(glm::inverse(basis)) * vertex.normal);
+                vertex.normal =
+                    Math::normalize(Math::transpose(Math::inverse(basis)) * vertex.normal);
                 vertex.tangent = Math::Vec4(basis * Math::Vec3(vertex.tangent),
                     vertex.tangent.w * (scale < 0 ? -1.f : 1.f));
             }
@@ -330,16 +330,16 @@ namespace Comet::Tests {
                 const auto x = frame == 0 || frame == 2 ? 12 : 16;
                 uint16_t values[4];
                 std::memcpy(values, bytes.data() + (16 * 33 + x) * 8, sizeof(values));
-                EXPECT_NEAR(glm::unpackHalf1x16(values[3]), frame == 0 ? 0 : 1, .001f);
+                EXPECT_NEAR(Math::unpack_half(values[3]), frame == 0 ? 0 : 1, .001f);
                 if(frame) {
                     float expected = 0;
                     if(frame == 1 || frame == 3)
                         expected = .125f;
                     else if(frame == 2)
                         expected = -.125f;
-                    EXPECT_NEAR(glm::unpackHalf1x16(values[0]), expected, .002f);
-                    EXPECT_NEAR(glm::unpackHalf1x16(values[1]), 0, .002f);
-                    EXPECT_NEAR(glm::unpackHalf1x16(values[2]), 3, .01f);
+                    EXPECT_NEAR(Math::unpack_half(values[0]), expected, .002f);
+                    EXPECT_NEAR(Math::unpack_half(values[1]), 0, .002f);
+                    EXPECT_NEAR(Math::unpack_half(values[2]), 3, .01f);
                 }
                 previous_vp = current_vp;
             }

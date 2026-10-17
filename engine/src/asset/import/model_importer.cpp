@@ -94,7 +94,7 @@ namespace Comet {
                     || !Math::is_finite(Math::Vec4(
                         trs->rotation[0], trs->rotation[1], trs->rotation[2], trs->rotation[3])))
                     return Result<void>::failure("Model node transform is not finite");
-                const auto rotation_length = glm::length(node.transform.rotation);
+                const auto rotation_length = Math::length(node.transform.rotation);
                 if(std::abs(rotation_length - 1.f) > 1e-3f)
                     return Result<void>::failure("Model node rotation must be a unit quaternion");
                 node.transform.rotation /= rotation_length;
@@ -277,7 +277,9 @@ namespace Comet {
                 const auto* uri = std::get_if<fastgltf::sources::URI>(&data);
                 if(!uri)
                     return Result<void>::success();
-                if(!uri->uri.isLocalPath() || uri->fileByteOffset != 0)
+                if(!uri->uri.isLocalPath() || !uri->uri.scheme().empty()
+                    || !uri->uri.query().empty() || !uri->uri.fragment().empty()
+                    || uri->fileByteOffset != 0)
                     return Result<void>::failure(
                         "Model source must use local, complete companion files");
                 const auto source = (path.parent_path() / uri->uri.fspath()).lexically_normal();

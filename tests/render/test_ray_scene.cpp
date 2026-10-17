@@ -431,10 +431,10 @@ namespace Comet::Tests {
         const auto reference = reference_builder.update(world, read).value();
         ASSERT_EQ(moved->geometry->triangles.size(), reference->geometry->triangles.size());
         for(const auto& triangle : moved->geometry->triangles) {
-            const auto geometric =
-                glm::normalize(glm::cross(Math::Vec3(triangle.positions[1] - triangle.positions[0]),
+            const auto geometric = Math::normalize(
+                Math::cross(Math::Vec3(triangle.positions[1] - triangle.positions[0]),
                     Math::Vec3(triangle.positions[2] - triangle.positions[0])));
-            EXPECT_GT(glm::dot(geometric, Math::Vec3(triangle.normals[0])), .99f);
+            EXPECT_GT(Math::dot(geometric, Math::Vec3(triangle.normals[0])), .99f);
             const auto found = std::ranges::find(
                 reference->geometry->triangles, triangle.surface, &RayScene::Triangle::surface);
             ASSERT_NE(found, reference->geometry->triangles.end());

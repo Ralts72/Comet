@@ -22,11 +22,11 @@ namespace Comet::Gameplay {
             const auto center = Math::Vec3(world[3]);
             Math::Vec3 extent{0};
             for(int axis = 0; axis < 3; ++axis)
-                extent += glm::abs(Math::Vec3(world[axis])) * half_extents[axis];
+                extent += Math::abs(Math::Vec3(world[axis])) * half_extents[axis];
             NavigationMesh::Obstacle box{center - extent, center + extent};
             const auto origin = region_center - settings.half_extents;
-            if(glm::any(glm::lessThan(box.maximum, origin))
-                || glm::any(glm::greaterThan(box.minimum, region_center + settings.half_extents)))
+            if(Math::any_less(box.maximum, origin)
+                || Math::any_greater(box.minimum, region_center + settings.half_extents))
                 return std::nullopt;
             // 与 Recast 栅格对齐：同一批被遮挡单元内的微小移动不触发重建。
             for(int axis = 0; axis < 3; ++axis) {
@@ -199,7 +199,7 @@ namespace Comet::Gameplay {
             if(!valid || !obstacle.enabled)
                 return;
             if(!Math::is_finite(obstacle.half_extents)
-                || !glm::all(glm::greaterThan(obstacle.half_extents, Math::Vec3(0)))) {
+                || !Math::all_greater(obstacle.half_extents, Math::Vec3(0))) {
                 valid = Result<void>::failure("导航障碍半尺寸必须为正数");
                 return;
             }
@@ -362,7 +362,7 @@ namespace Comet::Gameplay {
             return Output::success(agent.status);
         const bool query = agent.entity != entity.get_id() || m_time >= agent.next_query
                            || planar_distance(agent.target, target) > options.arrival_distance
-                           || glm::distance(position, agent.previous_position) > 2;
+                           || Math::distance(position, agent.previous_position) > 2;
         agent.entity = entity.get_id();
         agent.previous_position = position;
         agent.last_step = m_step;
@@ -462,7 +462,7 @@ namespace Comet::Gameplay {
         Math::Vec3 position, Math::Vec3 destination, float speed, float scale) {
         const auto& character = entity.get_component<CharacterControllerComponent>();
         const auto delta = Math::Vec2(destination.x - position.x, destination.z - position.z);
-        const float distance = glm::length(delta);
+        const float distance = Math::length(delta);
         const auto desired = delta / distance;
         Math::Vec2 direction{0};
         float best = 0;
@@ -495,7 +495,7 @@ namespace Comet::Gameplay {
             if(!hit)
                 return Result<Math::Vec2>::failure(hit.error());
             const float clearance = hit.value() ? hit.value()->fraction : 1;
-            const float score = clearance * (0.2f + 0.8f * glm::dot(candidate, desired));
+            const float score = clearance * (0.2f + 0.8f * Math::dot(candidate, desired));
             if(clearance > 0.2f && score > best) {
                 best = score;
                 direction = candidate * clearance;

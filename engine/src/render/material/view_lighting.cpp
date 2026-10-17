@@ -56,7 +56,7 @@ namespace Comet {
             const auto& probe = resolved.probe;
             if(!resolved.environment || !resolved.environment->has_lighting()
                 || !probe.bounds.is_valid()
-                || glm::any(glm::lessThanEqual(probe.bounds.size(), Math::Vec3(0)))
+                || Math::any_less_equal(probe.bounds.size(), Math::Vec3(0))
                 || !Math::is_finite(probe.position) || !std::isfinite(probe.intensity)
                 || probe.intensity <= 0 || probe.intensity > SceneEnvironment::MAX_INTENSITY
                 || !std::isfinite(probe.rotation) || !std::isfinite(probe.blend_distance)
@@ -107,8 +107,8 @@ namespace Comet {
                 continue;
             ++candidate_count;
             const auto bounds = resource->bounds();
-            const auto delta = camera - glm::clamp(camera, bounds.minimum, bounds.maximum);
-            const auto priority = std::pair(glm::dot(delta, delta), volume.entity_id);
+            const auto delta = camera - Math::clamp(camera, bounds.minimum, bounds.maximum);
+            const auto priority = std::pair(Math::dot(delta, delta), volume.entity_id);
             const auto position = std::ranges::lower_bound(candidates.begin(),
                 candidates.begin() + selected.irradiance_volume_count, priority, {},
                 &IrradianceCandidate::priority);

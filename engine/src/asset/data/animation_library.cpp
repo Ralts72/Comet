@@ -191,10 +191,10 @@ namespace Comet {
                                             ? NO_ANIMATION_NODE
                                             : mapping->second[node.parent];
                     const bool same_rest =
-                        glm::length(node.rest.translation - other.rest.translation) < 0.0001f
-                        && glm::length(node.rest.scale - other.rest.scale) < 0.0001f
-                        && std::abs(glm::dot(glm::normalize(node.rest.rotation),
-                               glm::normalize(other.rest.rotation)))
+                        Math::length(node.rest.translation - other.rest.translation) < 0.0001f
+                        && Math::length(node.rest.scale - other.rest.scale) < 0.0001f
+                        && std::abs(Math::dot(Math::normalize(node.rest.rotation),
+                               Math::normalize(other.rest.rotation)))
                                > .99999f;
                     if(parent != other.parent || !same_rest)
                         return Bound::failure("Incompatible animation skeleton at: " + node.name);

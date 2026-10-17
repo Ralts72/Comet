@@ -25,7 +25,7 @@ namespace CometEditor {
                 scale = *world_scale;
                 uniform_scale = Math::uniform_scale(matrix).has_value();
             }
-            const bool positive_scale = glm::all(glm::greaterThan(scale, Math::Vec3(0)));
+            const bool positive_scale = Math::all_greater(scale, Math::Vec3(0));
             return positive_scale
                    && (collider.shape == ColliderShape::Box
                        || (collider.uses_mesh() && collider.mesh
@@ -106,7 +106,7 @@ namespace CometEditor {
                 auto previous = position(joint.min_angle);
                 static_cast<void>(lines.add_line(anchor, previous, limit_color));
                 for(int segment = 1; segment <= SEGMENTS; ++segment) {
-                    const float angle = glm::mix(
+                    const float angle = Math::mix(
                         joint.min_angle, joint.max_angle, static_cast<float>(segment) / SEGMENTS);
                     const auto next = position(angle);
                     static_cast<void>(lines.add_line(previous, next, limit_color));
@@ -118,7 +118,7 @@ namespace CometEditor {
                 && std::isfinite(joint.motor_target)) {
                 float target = joint.motor_target;
                 if(joint.limits_enabled && joint.has_valid_angle_range())
-                    target = glm::clamp(target, joint.min_angle, joint.max_angle);
+                    target = Math::clamp(target, joint.min_angle, joint.max_angle);
                 static_cast<void>(lines.add_line(anchor, position(target), target_color));
             }
         }
@@ -150,7 +150,7 @@ namespace CometEditor {
                 && std::isfinite(joint.motor_target)) {
                 float target = joint.motor_target;
                 if(joint.limits_enabled && joint.has_valid_distance_range())
-                    target = glm::clamp(target, joint.min_distance, joint.max_distance);
+                    target = Math::clamp(target, joint.min_distance, joint.max_distance);
                 const auto position = anchor + direction * target;
                 static_cast<void>(lines.add_line(
                     position - normal * 0.04f, position + normal * 0.04f, target_color));
@@ -280,7 +280,7 @@ namespace CometEditor {
                     color = INVALID_COLOR;
                 const auto matrix =
                     scene.get_render_transform(entity).world_matrix
-                    * glm::translate(Math::Mat4(1), Math::Vec3(0, character.height * 0.5f, 0));
+                    * Math::translate(Math::Mat4(1), Math::Vec3(0, character.height * 0.5f, 0));
                 static_cast<void>(lines.add_capsule(
                     character.radius, character.height * 0.5f - character.radius, matrix, color));
             });
@@ -292,8 +292,8 @@ namespace CometEditor {
                 switch(collider.shape) {
                     case Comet::ColliderShape::Box:
                         if(Comet::Math::is_finite(collider.half_extents)
-                            && glm::all(
-                                glm::greaterThan(collider.half_extents, Comet::Math::Vec3(0))))
+                            && Comet::Math::all_greater(
+                                collider.half_extents, Comet::Math::Vec3(0)))
                             static_cast<void>(lines.add_box({.minimum = -collider.half_extents,
                                                                 .maximum = collider.half_extents},
                                 matrix, color));
@@ -318,7 +318,7 @@ namespace CometEditor {
         Comet::Math::Vec3 scale, const Comet::Math::Mat4& matrix, Comet::Math::Vec4 color,
         Comet::LineDrawList& lines) {
         using namespace Comet;
-        if(!Math::is_finite(scale) || !glm::all(glm::greaterThan(scale, Math::Vec3(0)))) {
+        if(!Math::is_finite(scale) || !Math::all_greater(scale, Math::Vec3(0))) {
             append_joint_anchor(lines, Math::Vec3(matrix[3]), INVALID_COLOR);
             return;
         }
@@ -351,7 +351,7 @@ namespace CometEditor {
             return;
         }
         // 构建时已应用本地缩放，呈现矩阵仅负责剩余的姿态和父级变换。
-        const auto pose = matrix * glm::scale(Math::Mat4(1), Math::Vec3(1) / scale);
+        const auto pose = matrix * Math::scale(Math::Mat4(1), Math::Vec3(1) / scale);
         for(const auto& [first, second] : outline.edges)
             if(!lines.add_line(Math::Vec3(pose * Math::Vec4(first, 1)),
                    Math::Vec3(pose * Math::Vec4(second, 1)), color))

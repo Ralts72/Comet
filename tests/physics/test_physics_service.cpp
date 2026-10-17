@@ -438,8 +438,8 @@ namespace Comet::Tests {
         ASSERT_TRUE(ray.value());
         EXPECT_EQ(ray.value()->entity, body.get_uuid());
         EXPECT_NEAR(ray.value()->fraction, 0.45f, 1e-5f);
-        EXPECT_LT(glm::length(ray.value()->position - Math::Vec3(-0.5f, 1, 0)), 1e-5f);
-        EXPECT_LT(glm::length(ray.value()->normal - Math::Vec3(-1, 0, 0)), 1e-5f);
+        EXPECT_LT(Math::length(ray.value()->position - Math::Vec3(-0.5f, 1, 0)), 1e-5f);
+        EXPECT_LT(Math::length(ray.value()->normal - Math::Vec3(-1, 0, 0)), 1e-5f);
         ray = physics.raycast({-5, 1, 0}, {10, 0, 0}, {.include_triggers = true});
         ASSERT_TRUE(ray && ray.value());
         EXPECT_EQ(ray.value()->entity, trigger.get_uuid());
@@ -496,7 +496,7 @@ namespace Comet::Tests {
         EXPECT_NEAR(cast.value()->position.x, 102.5f, 0.002f);
         EXPECT_NEAR(cast.value()->position.y, 4, 0.002f);
         EXPECT_NEAR(cast.value()->position.z, -9, 0.002f);
-        EXPECT_LT(glm::length(cast.value()->normal - Math::Vec3(-1, 0, 0)), 0.002f);
+        EXPECT_LT(Math::length(cast.value()->normal - Math::Vec3(-1, 0, 0)), 0.002f);
         EXPECT_TRUE(
             physics.shape_cast(shape, start, {5, 0, 0}, {.ignored = body.get_uuid()}).value()
             == std::nullopt);
@@ -1046,10 +1046,10 @@ namespace Comet::Tests {
         const auto moving = physics.get_velocity(body);
         ASSERT_TRUE(moving);
         EXPECT_NEAR(moving->linear.x, 100, 0.001f);
-        EXPECT_NEAR(moving->angular.y, glm::radians(10.0f) / 0.01f, 0.001f);
+        EXPECT_NEAR(moving->angular.y, Math::radians(10.0f) / 0.01f, 0.001f);
         ASSERT_TRUE(runtime.advance(0.01));
         EXPECT_EQ(physics.get_velocity(body)->linear, Math::Vec3(0));
-        EXPECT_LT(glm::length(physics.get_velocity(body)->angular), 1e-4f);
+        EXPECT_LT(Math::length(physics.get_velocity(body)->angular), 1e-4f);
     }
 
     TEST_F(PhysicsServiceTest, LuaVelocityQueriesRequireRegistrationAndBorrowedAccess) {
@@ -1111,7 +1111,7 @@ namespace Comet::Tests {
             EXPECT_GT(physics.get_statistics().active_bodies, 0u);
             const auto velocity = physics.get_velocity(body);
             ASSERT_TRUE(velocity);
-            EXPECT_GT(glm::length(velocity->linear) + glm::length(velocity->angular), 0.1f);
+            EXPECT_GT(Math::length(velocity->linear) + Math::length(velocity->angular), 0.1f);
             ASSERT_TRUE(runtime.stop());
         }
     }

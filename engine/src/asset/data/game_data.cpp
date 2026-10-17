@@ -79,7 +79,7 @@ namespace Comet {
                     context.error(location, "data exceeds 100000 values or 32 nesting levels"));
             --remaining;
             switch(node.type()) {
-                case simdjson::dom::element_type::OBJECT: {
+                case Json::Kind::OBJECT: {
                     auto object = context.object(node, location);
                     if(!object)
                         return Read::failure(object.error());
@@ -95,7 +95,7 @@ namespace Comet {
                     }
                     return Read::success({std::move(result)});
                 }
-                case simdjson::dom::element_type::ARRAY: {
+                case Json::Kind::ARRAY: {
                     Value::Array result;
                     const auto array = node.get_array().value();
                     for(auto item : array) {
@@ -108,19 +108,19 @@ namespace Comet {
                     }
                     return Read::success({std::move(result)});
                 }
-                case simdjson::dom::element_type::STRING:
+                case Json::Kind::STRING:
                     return Read::success({std::string(node.get_string().value())});
-                case simdjson::dom::element_type::BOOL:
+                case Json::Kind::BOOL:
                     return Read::success({node.get_bool().value()});
-                case simdjson::dom::element_type::INT64:
-                case simdjson::dom::element_type::UINT64: {
+                case Json::Kind::INT64:
+                case Json::Kind::UINT64: {
                     auto number = context.read_scalar<int64_t>(node, location, "an exact integer");
                     if(!number || std::abs(double(number.value())) > MAX_EXACT_INTEGER)
                         return Read::failure(context.error(
                             location, "integer exceeds exact range; use a string for identities"));
                     return Read::success({number.value()});
                 }
-                case simdjson::dom::element_type::DOUBLE: {
+                case Json::Kind::DOUBLE: {
                     auto number = context.read_scalar<double>(node, location, "a finite number");
                     if(!number)
                         return Read::failure(number.error());
@@ -214,7 +214,7 @@ namespace Comet {
             using Rows = std::vector<std::vector<std::string>>;
             if(text.starts_with("\xef\xbb\xbf"))
                 text.remove_prefix(3);
-            if(!simdjson::validate_utf8(text))
+            if(!Json::valid_utf8(text))
                 return Result<Rows>::failure("CSV must be UTF-8");
             Rows rows;
             std::vector<std::string> row;

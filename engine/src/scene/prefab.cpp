@@ -209,7 +209,7 @@ namespace Comet {
 
     Result<Prefab> Prefab::deserialize(
         std::string_view contents, const ComponentRegistry& registry, std::string_view source) {
-        simdjson::dom::parser parser;
+        Json::Parser parser;
         const Json::Context context("prefab", source);
         auto parsed = context.parse(parser, contents);
         if(!parsed)

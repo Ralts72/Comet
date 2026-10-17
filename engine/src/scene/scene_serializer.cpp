@@ -56,7 +56,7 @@ namespace Comet {
                 return Result<ContentSnapshot>::failure(
                     context.error(uuid->uuid.to_string(), "entity has no NameComponent"));
             }
-            if(!simdjson::validate_utf8(name->name))
+            if(!Json::valid_utf8(name->name))
                 return Result<ContentSnapshot>::failure(
                     context.error(uuid->uuid.to_string() + ".name", "invalid UTF-8"));
             if(!uuids_by_id.emplace(id, uuid->uuid).second) {
@@ -90,8 +90,7 @@ namespace Comet {
                     continue;
                 }
 
-                if(component_descriptor.id == "name"
-                    || !simdjson::validate_utf8(component_descriptor.id))
+                if(component_descriptor.id == "name" || !Json::valid_utf8(component_descriptor.id))
                     return Result<ContentSnapshot>::failure(
                         context.error(uuid->uuid.to_string(), "invalid component identifier"));
                 const void* component = component_descriptor.get_component(entity);
@@ -108,7 +107,7 @@ namespace Comet {
                     if(!property.serializable || property.transient) {
                         continue;
                     }
-                    if(!simdjson::validate_utf8(property.id))
+                    if(!Json::valid_utf8(property.id))
                         return Result<ContentSnapshot>::failure(
                             context.error(component_location, "invalid property identifier"));
                     auto value = copy_property_value(
@@ -232,7 +231,7 @@ namespace Comet {
     Result<std::unique_ptr<Scene>> SceneSerializer::deserialize(
         const std::string_view contents, const std::string_view source) const {
         using LoadResult = Result<std::unique_ptr<Scene>>;
-        simdjson::dom::parser parser;
+        Json::Parser parser;
         const Json::Context context("scene", source);
         const auto parsed = context.parse(parser, contents);
         if(!parsed)
@@ -273,7 +272,7 @@ namespace Comet {
 
         Json::Node environment_node;
         if(const auto error = root["environment"].get(environment_node);
-            error != simdjson::NO_SUCH_FIELD) {
+            error != Json::MISSING_FIELD) {
             if(error)
                 return LoadResult::failure(context.error("environment", "invalid object"));
             if(auto valid = context.validate_keys(environment_node,
@@ -301,14 +300,14 @@ namespace Comet {
                 return LoadResult::failure(rotation.error());
             SceneEnvironment environment{AssetHandle(asset.value()), background.value(),
                 intensity.value(), rotation.value()};
-            if(environment_node["lighting"].error() != simdjson::NO_SUCH_FIELD) {
+            if(environment_node["lighting"].error() != Json::MISSING_FIELD) {
                 auto lighting = context.read_field<bool>(
                     environment_node, "lighting", "a boolean", "environment");
                 if(!lighting)
                     return LoadResult::failure(lighting.error());
                 environment.lighting = lighting.value();
             }
-            if(environment_node["lighting_intensity"].error() != simdjson::NO_SUCH_FIELD) {
+            if(environment_node["lighting_intensity"].error() != Json::MISSING_FIELD) {
                 auto lighting_intensity = context.read_field<float>(
                     environment_node, "lighting_intensity", "a finite number", "environment");
                 if(!lighting_intensity)
@@ -317,7 +316,7 @@ namespace Comet {
             }
             Json::Node color_node;
             if(const auto error = environment_node["background_color"].get(color_node);
-                error != simdjson::NO_SUCH_FIELD) {
+                error != Json::MISSING_FIELD) {
                 if(error)
                     return LoadResult::failure(
                         context.error("environment.background_color", "invalid color"));
@@ -341,7 +340,7 @@ namespace Comet {
                 *target = value.value().value_or(*target);
             }
             if(const auto error = environment_node["fog_color"].get(color_node);
-                error != simdjson::NO_SUCH_FIELD) {
+                error != Json::MISSING_FIELD) {
                 if(error)
                     return LoadResult::failure(
                         context.error("environment.fog_color", "invalid color"));
@@ -351,7 +350,7 @@ namespace Comet {
                     return LoadResult::failure(color.error());
                 environment.fog_color = color.value();
             }
-            if(environment_node["realtime_gi_budget"].error() != simdjson::NO_SUCH_FIELD) {
+            if(environment_node["realtime_gi_budget"].error() != Json::MISSING_FIELD) {
                 auto budget = context.read_field<uint32_t>(
                     environment_node, "realtime_gi_budget", "an integer", "environment");
                 if(!budget)
@@ -371,7 +370,7 @@ namespace Comet {
         }
         Json::Node post_process_node;
         if(const auto error = root["post_process"].get(post_process_node);
-            error != simdjson::NO_SUCH_FIELD) {
+            error != Json::MISSING_FIELD) {
             if(error)
                 return LoadResult::failure(context.error("post_process", "invalid object"));
             if(auto valid = context.validate_keys(post_process_node,

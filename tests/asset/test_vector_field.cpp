@@ -21,7 +21,8 @@ namespace Comet::Tests {
             for(int y = 0; y < 2; ++y)
                 for(int x = 0; x < 2; ++x)
                     field.values.emplace_back(x * 2.f - 1, y * 2.f - 1, z * 2.f - 1);
-        EXPECT_LT(glm::length(field.sample({.3f, -.4f, .7f}) - Math::Vec3(.3f, -.4f, .7f)), .00001);
+        EXPECT_LT(
+            Math::length(field.sample({.3f, -.4f, .7f}) - Math::Vec3(.3f, -.4f, .7f)), .00001);
         EXPECT_EQ(field.sample({1, 1, 1}), Math::Vec3(1));
         EXPECT_EQ(field.sample({1.01f, 0, 0}), Math::Vec3(0));
         auto text = field.serialize();

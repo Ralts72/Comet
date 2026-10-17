@@ -216,7 +216,7 @@ namespace CometEditor::Tests {
         model.nodes[0].name = "Body";
         model.nodes[0].transform.translation = {1, 2, 3};
         model.nodes[0].transform.rotation =
-            Comet::Math::Quat(glm::radians(Comet::Math::Vec3(25, 40, -15)));
+            Comet::Math::Quat(Comet::Math::radians(Comet::Math::Vec3(25, 40, -15)));
         model.nodes[0].transform.scale = {-2, 3, 0.5f};
         model.nodes[1].name = "Detail";
         model.nodes[1].parent = 0;
@@ -241,9 +241,9 @@ namespace CometEditor::Tests {
         EXPECT_EQ(transform.translation, model.nodes[0].transform.translation);
         EXPECT_EQ(transform.scale, model.nodes[0].transform.scale);
         const auto expected =
-            glm::translate(Comet::Math::Mat4(1), model.nodes[0].transform.translation)
-            * glm::mat4_cast(model.nodes[0].transform.rotation)
-            * glm::scale(Comet::Math::Mat4(1), model.nodes[0].transform.scale);
+            Comet::Math::translate(Comet::Math::Mat4(1), model.nodes[0].transform.translation)
+            * Comet::Math::to_mat4(model.nodes[0].transform.rotation)
+            * Comet::Math::scale(Comet::Math::Mat4(1), model.nodes[0].transform.scale);
         const auto actual = transform.to_matrix();
         for(int column = 0; column < 4; ++column)
             for(int row = 0; row < 4; ++row)

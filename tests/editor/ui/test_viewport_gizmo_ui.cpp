@@ -140,7 +140,7 @@ namespace CometEditor::Tests {
         ImGui::GetIO().AddMouseButtonEvent(0, true);
         frame();
         ASSERT_EQ(gizmo.active_axis(), TransformGizmo::Axis::All);
-        move_pointer(point + glm::normalize(Comet::Math::Vec2(1, -1)) * 45.0f);
+        move_pointer(point + Comet::Math::normalize(Comet::Math::Vec2(1, -1)) * 45.0f);
         EXPECT_EQ(transform.scale, Comet::Math::Vec3(1.5f, -3, 4.5f));
         EXPECT_FALSE(viewport.take_pick_request());
         EXPECT_FALSE(viewport.take_camera_input());

@@ -196,7 +196,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(tick(360));
         const auto position = Math::Vec3(playing->get_world_matrix(guard)[3]);
         EXPECT_GT(position.x, 1.5f);
-        EXPECT_LT(glm::distance(Math::Vec2(position.x, position.z), Math::Vec2(3, 0)), 2);
+        EXPECT_LT(Math::distance(Math::Vec2(position.x, position.z), Math::Vec2(3, 0)), 2);
         EXPECT_LT(value("combat.health.player"), 120);
     }
 

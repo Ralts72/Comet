@@ -46,7 +46,7 @@ add_library(editor_core STATIC
         src/viewport/viewport_layout.cpp
         src/viewport/physics_overlay.cpp
 )
-target_link_libraries(editor_core PUBLIC engine comet_asset_tools comet_shader_tools PRIVATE fastgltf::fastgltf)
+target_link_libraries(editor_core PUBLIC engine comet_asset_tools comet_shader_tools)
 if(APPLE)
     find_package(Python3 3.9 REQUIRED COMPONENTS Interpreter)
     target_compile_definitions(editor_core PRIVATE

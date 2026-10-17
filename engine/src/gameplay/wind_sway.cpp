@@ -25,7 +25,7 @@ namespace Comet::Gameplay {
                 if(!Math::is_finite(wind.amplitude) || !std::isfinite(wind.frequency)
                     || wind.frequency <= 0 || wind.frequency > 10 || !std::isfinite(wind.height)
                     || wind.height <= 0 || wind.height > 1000
-                    || glm::any(glm::greaterThan(glm::abs(wind.amplitude), Math::Vec3(30)))) {
+                    || Math::any_greater(Math::abs(wind.amplitude), Math::Vec3(30))) {
                     result = Result<void, Error>::failure({"Invalid wind sway settings"});
                     return;
                 }
@@ -37,9 +37,9 @@ namespace Comet::Gameplay {
                 }
                 const float phase = float(entity.get_id() % 1024) * 2.39996323f;
                 const float wave = std::sin(
-                    float(std::fmod(m_time * wind.frequency, 1.0)) * glm::two_pi<float>() + phase);
+                    float(std::fmod(m_time * wind.frequency, 1.0)) * (Math::PI * 2) + phase);
                 if(wind.flexible) {
-                    const auto angles = glm::radians(wind.amplitude * wave);
+                    const auto angles = Math::radians(wind.amplitude * wave);
                     scene.set_vertex_bend(
                         entity, {std::tan(angles.z), -std::tan(angles.x), wind.height, 0});
                     return;

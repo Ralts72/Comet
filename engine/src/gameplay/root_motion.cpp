@@ -4,8 +4,6 @@
 #include "physics/physics_access.h"
 #include "scene/scene.h"
 #include "scene/runtime_services.h"
-#include <glm/gtx/matrix_decompose.hpp>
-#include <glm/gtc/matrix_inverse.hpp>
 #include <cmath>
 #include <algorithm>
 
@@ -63,10 +61,10 @@ namespace Comet::Gameplay {
                 forward.y = desired.y = 0;
                 if(Math::length(forward) > 1e-5f && Math::length(desired) > 1e-5f) {
                     const float angle =
-                        std::atan2(glm::cross(forward, desired).y, glm::dot(forward, desired));
+                        std::atan2(Math::cross(forward, desired).y, Math::dot(forward, desired));
                     const float correction_yaw =
                         std::remainder(angle - remaining.value().yaw, 2 * Math::PI);
-                    if(std::abs(correction_yaw) <= glm::radians(warp.max_angle))
+                    if(std::abs(correction_yaw) <= Math::radians(warp.max_angle))
                         yaw += correction_yaw * fraction;
                 }
             }
@@ -77,25 +75,23 @@ namespace Comet::Gameplay {
             Scene& scene, Entity entity, Math::Vec3 displacement, float angle, Math::Vec3 axis) {
             if(displacement == Math::Vec3(0) && angle == 0)
                 return Result<void, Error>::success();
-            const auto parent_inverse = glm::affineInverse(scene.get_parent_matrix(entity));
+            const auto parent_inverse = Math::affine_inverse(scene.get_parent_matrix(entity));
             auto transform = entity.get_component<TransformComponent>();
             if(angle == 0) {
                 transform.translation += Math::Vec3(parent_inverse * Math::Vec4(displacement, 0));
             } else {
                 auto world = scene.get_world_matrix(entity);
-                const auto rotation = glm::rotate(Math::Mat4(1), angle, axis);
+                const auto rotation = Math::rotate(Math::Mat4(1), angle, axis);
                 for(int column = 0; column < 3; ++column)
                     world[column] = rotation * world[column];
                 world[3] += Math::Vec4(displacement, 0);
-                Math::Quat orientation;
-                Math::Vec3 skew;
-                Math::Vec4 perspective;
-                if(!glm::decompose(parent_inverse * world, transform.scale, orientation,
-                       transform.translation, skew, perspective)
-                    || Math::length(skew) > 1e-4f)
+                const auto parts = Math::decompose(parent_inverse * world);
+                if(!parts || Math::length(parts->skew) > 1e-4f)
                     return Result<void, Error>::failure(
                         {"Root motion target transform contains shear"});
-                transform.rotation = glm::degrees(glm::eulerAngles(orientation));
+                transform.scale = parts->scale;
+                transform.translation = parts->translation;
+                transform.rotation = Math::degrees(Math::euler_angles(parts->rotation));
             }
             if(!entity.try_set_transform(transform))
                 return Result<void, Error>::failure({"Cannot apply root motion transform"});
@@ -126,7 +122,7 @@ namespace Comet::Gameplay {
         const auto model_world = scene.get_world_matrix(model);
         const auto axis =
             Math::normalized_direction(Math::Vec3(model_world * Math::Vec4(motion.up, 0)));
-        if(!axis || (character && glm::dot(*axis, Math::Vec3(0, 1, 0)) < .999f))
+        if(!axis || (character && Math::dot(*axis, Math::Vec3(0, 1, 0)) < .999f))
             return Result<void, Error>::failure(
                 {"Character root motion requires an upright model"});
         if(delta <= 0)

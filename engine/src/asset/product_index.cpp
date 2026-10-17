@@ -162,7 +162,7 @@ namespace Comet {
             return Read::failure(bytes.error());
         const auto source = path.generic_string();
         const Json::Context context("product index", source);
-        simdjson::dom::parser parser;
+        Json::Parser parser;
         auto document = context.parse(
             parser, std::string_view(
                         reinterpret_cast<const char*>(bytes.value().data()), bytes.value().size()));

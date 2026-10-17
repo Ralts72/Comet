@@ -282,8 +282,8 @@ namespace Comet::Tests {
         for(size_t i = 0; i < reference.size(); ++i) {
             const auto a = Math::Vec3(one[i] - reference[i]);
             const auto b = Math::Vec3(sixteen[i] - reference[i]);
-            error_one += glm::dot(a, a);
-            error_sixteen += glm::dot(b, b);
+            error_one += Math::dot(a, a);
+            error_sixteen += Math::dot(b, b);
             mean += Math::Vec3(reference[i]) / float(reference.size());
             EXPECT_TRUE(Math::is_finite(reference[i]));
         }
@@ -302,7 +302,7 @@ namespace Comet::Tests {
         mesh.vertices = {{{-3, -3, 0}, {0, 0}, {0, 0, 1}}, {{3, -3, 0}, {1, 0}, {0, 0, 1}},
             {{0, 3, 0}, {.5f, 1}, {0, 0, 1}}};
         source.render_items[0].model_matrix =
-            glm::rotate(Math::Mat4(1), glm::radians(30.f), Math::Vec3(0, 1, 0));
+            Math::rotate(Math::Mat4(1), Math::radians(30.f), Math::Vec3(0, 1, 0));
         auto target = std::make_shared<Material>("target", "pbr");
         ASSERT_TRUE(target->set_vector_property("base_color", {0, 0, 0, 1}));
         ASSERT_TRUE(target->set_vector_property("emissive_color", {1, 1, 1, 1}));
@@ -379,7 +379,7 @@ namespace Comet::Tests {
         for(auto& vertex : mesh.vertices)
             vertex.normal = {0, 0, -1};
         scene.cameras[0].view_matrix =
-            glm::lookAt(Math::Vec3(0, 0, 1), Math::Vec3(1.7320508f, 0, 0), Math::Vec3(0, 1, 0));
+            Math::look_at(Math::Vec3(0, 0, 1), Math::Vec3(1.7320508f, 0, 0), Math::Vec3(0, 1, 0));
         view.path_trace_settings.bounces = 2;
         ASSERT_NO_FATAL_FAILURE(capture_source());
         ASSERT_NO_FATAL_FAILURE(draw(128));
@@ -453,7 +453,7 @@ namespace Comet::Tests {
     TEST_F(PathTraceGpuTest, CutoutBlockersDoNotCastSolidShadows) {
         ASSERT_TRUE(material->set_scalar_property("roughness", 1));
         source.lights = {{.type = LightType::Directional,
-            .direction = glm::normalize(Math::Vec3(-1, 0, -1)),
+            .direction = Math::normalize(Math::Vec3(-1, 0, -1)),
             .intensity = 10}};
         view.path_trace_settings.bounces = 1;
         ASSERT_NO_FATAL_FAILURE(capture_source());
@@ -499,7 +499,7 @@ namespace Comet::Tests {
         for(auto type : {LightType::Directional, LightType::Point, LightType::Spot}) {
             source.lights = {{.type = type,
                 .position = {2, 0, 2},
-                .direction = glm::normalize(Math::Vec3(-1, 0, -1)),
+                .direction = Math::normalize(Math::Vec3(-1, 0, -1)),
                 .intensity = 10,
                 .range = 20}};
             source.render_items.resize(1);

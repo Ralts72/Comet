@@ -17,7 +17,6 @@
 #include "render/resource/texture.h"
 
 #include <GLFW/glfw3.h>
-#include <glm/gtc/packing.hpp>
 #include <imgui_impl_vulkan.h>
 #include <imgui_internal.h>
 
@@ -142,7 +141,7 @@ namespace Comet::Tests {
             for(Math::Vec4::length_type channel = 0; channel < pixel.length(); ++channel) {
                 std::uint16_t value;
                 std::memcpy(&value, bytes.data() + offset + channel * 2, sizeof(value));
-                pixel[channel] = glm::unpackHalf1x16(value);
+                pixel[channel] = Math::unpack_half(value);
             }
             return pixel;
         }

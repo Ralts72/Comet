@@ -15,8 +15,6 @@
 #include <RmlUi/Core/Factory.h>
 #include <RmlUi/Core/RenderInterface.h>
 
-#include <glm/gtc/packing.hpp>
-
 #include <array>
 #include <cstring>
 #include <fstream>
@@ -51,7 +49,7 @@ namespace Comet::Tests {
                 if(format == Format::R16G16B16A16_SFLOAT) {
                     std::uint16_t half;
                     std::memcpy(&half, bytes.data() + (index * 4 + channel) * 2, sizeof(half));
-                    value[static_cast<int>(channel)] = glm::unpackHalf1x16(half);
+                    value[static_cast<int>(channel)] = Math::unpack_half(half);
                 } else {
                     value[static_cast<int>(channel)] =
                         float(std::to_integer<unsigned char>(bytes[index * 4 + channel])) / 255;

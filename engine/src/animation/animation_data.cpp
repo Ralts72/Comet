@@ -1,8 +1,5 @@
 #include "animation/animation_data.h"
 #include "diagnostics/profiler.h"
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtx/quaternion.hpp>
-#include <glm/gtc/matrix_inverse.hpp>
 #include <algorithm>
 #include <cmath>
 #include <unordered_set>
@@ -15,8 +12,8 @@ namespace Comet {
                     return false;
             return true;
         }
-        glm::quat quaternion(const Math::Vec4& value) {
-            return glm::normalize(glm::quat(value.w, value.x, value.y, value.z));
+        Math::Quat quaternion(const Math::Vec4& value) {
+            return Math::normalize(Math::Quat(value.w, value.x, value.y, value.z));
         }
         Math::Vec4 sample_channel(const AnimationChannel& channel, float time) {
             const auto upper = std::upper_bound(channel.times.begin(), channel.times.end(), time);
@@ -39,10 +36,10 @@ namespace Comet {
                        + (t3 - t2) * duration * channel.values[second * 3];
             }
             if(channel.path == AnimationChannel::Path::Rotation) {
-                const auto q = glm::slerp(quaternion(start), quaternion(end), t);
+                const auto q = Math::slerp(quaternion(start), quaternion(end), t);
                 return {q.x, q.y, q.z, q.w};
             }
-            return glm::mix(start, end, t);
+            return Math::mix(start, end, t);
         }
         std::vector<JointTransform> rest_pose(const AnimationData& data) {
             std::vector<JointTransform> rest;
@@ -84,9 +81,9 @@ namespace Comet {
 
         JointTransform mix_transform(
             const JointTransform& first, const JointTransform& second, float weight) {
-            return {glm::mix(first.translation, second.translation, weight),
-                glm::normalize(glm::slerp(first.rotation, second.rotation, weight)),
-                glm::mix(first.scale, second.scale, weight)};
+            return {Math::mix(first.translation, second.translation, weight),
+                Math::normalize(Math::slerp(first.rotation, second.rotation, weight)),
+                Math::mix(first.scale, second.scale, weight)};
         }
         void blend_pose(std::vector<JointTransform>& first,
             const std::vector<JointTransform>& second, float weight) {
@@ -169,14 +166,14 @@ namespace Comet {
                     continue;
                 }
                 const auto& rest = reference[index];
-                if(glm::any(glm::lessThanEqual(glm::abs(rest.scale), Math::Vec3(1e-6f))))
+                if(Math::any_less_equal(Math::abs(rest.scale), Math::Vec3(1e-6f)))
                     return Result<void>::failure(
                         "Additive reference has a zero scale: " + data.nodes[index].name);
                 node.translation += (other.translation - rest.translation) * layer.weight;
-                const auto delta = glm::inverse(rest.rotation) * other.rotation;
-                node.rotation = glm::normalize(
-                    node.rotation * glm::slerp(Math::Quat(1, 0, 0, 0), delta, layer.weight));
-                node.scale *= glm::mix(Math::Vec3(1), other.scale / rest.scale, layer.weight);
+                const auto delta = Math::inverse(rest.rotation) * other.rotation;
+                node.rotation = Math::normalize(
+                    node.rotation * Math::slerp(Math::Quat(1, 0, 0, 0), delta, layer.weight));
+                node.scale *= Math::mix(Math::Vec3(1), other.scale / rest.scale, layer.weight);
             }
             return Result<void>::success();
         }
@@ -224,8 +221,8 @@ namespace Comet {
             Math::Mat4 matrix(1);
             while(index != NO_ANIMATION_NODE) {
                 const auto& node = local[index];
-                matrix = glm::translate(Math::Mat4(1), node.translation)
-                         * glm::mat4_cast(node.rotation) * glm::scale(Math::Mat4(1), node.scale)
+                matrix = Math::translate(Math::Mat4(1), node.translation)
+                         * Math::to_mat4(node.rotation) * Math::scale(Math::Mat4(1), node.scale)
                          * matrix;
                 index = data.nodes[index].parent;
             }
@@ -235,7 +232,7 @@ namespace Comet {
         Math::Mat4 motion_frame(const AnimationData& data, const std::vector<JointTransform>& local,
             uint32_t index, const AnimationRootMotion& settings, const Math::Mat4& mesh_basis) {
             const auto root = mesh_basis
-                              * glm::affineInverse(node_world(data, local, data.mesh_node))
+                              * Math::affine_inverse(node_world(data, local, data.mesh_node))
                               * node_world(data, local, index);
             Math::Vec3 translation(root[3]);
             if(!settings.horizontal)
@@ -249,8 +246,8 @@ namespace Comet {
                 else
                     yaw = std::atan2(-root[0].z, root[0].x);
             }
-            return glm::translate(Math::Mat4(1), translation)
-                   * glm::rotate(Math::Mat4(1), yaw, Math::Vec3(0, 1, 0));
+            return Math::translate(Math::Mat4(1), translation)
+                   * Math::rotate(Math::Mat4(1), yaw, Math::Vec3(0, 1, 0));
         }
     }
 
@@ -267,7 +264,7 @@ namespace Comet {
             return Outcome::failure(base.error());
         const auto rest = rest_pose(data);
         const auto mesh_basis = node_world(data, rest, data.mesh_node);
-        const auto mesh_inverse = glm::affineInverse(mesh_basis);
+        const auto mesh_inverse = Math::affine_inverse(mesh_basis);
         const auto reference = motion_frame(data, rest, index.value(), settings, mesh_basis);
         AnimationMotion motion;
         motion.up = Math::normalize(Math::Vec3(mesh_inverse * Math::Vec4(0, 1, 0, 0)));
@@ -304,7 +301,7 @@ namespace Comet {
                 auto phase = at(time);
                 if(!phase)
                     return phase;
-                auto cycle = glm::affineInverse(first.value()) * last.value();
+                auto cycle = Math::affine_inverse(first.value()) * last.value();
                 Math::Mat4 accumulated(1);
                 while(cycles) {
                     if(cycles & 1u)
@@ -314,15 +311,15 @@ namespace Comet {
                         cycle *= cycle;
                 }
                 return Result<Math::Mat4>::success(first.value() * accumulated
-                                                   * glm::affineInverse(first.value())
+                                                   * Math::affine_inverse(first.value())
                                                    * phase.value());
             };
             auto from = unwrapped(sample.time);
             auto end = unwrapped(to);
             if(!from || !end)
                 return Result<void>::failure(!from ? from.error() : end.error());
-            const auto delta = reference * glm::affineInverse(from.value()) * end.value()
-                               * glm::affineInverse(reference);
+            const auto delta = reference * Math::affine_inverse(from.value()) * end.value()
+                               * Math::affine_inverse(reference);
             if(!finite_matrix(delta))
                 return Result<void>::failure("Root motion produced a non-finite transform");
             motion.translation += Math::Vec3((mesh_inverse * delta * mesh_basis)[3]) * weight;
@@ -470,7 +467,7 @@ namespace Comet {
             if(!Math::is_finite(node.rest.translation) || !Math::is_finite(node.rest.scale)
                 || !Math::is_finite(Math::Vec4(node.rest.rotation.x, node.rest.rotation.y,
                     node.rest.rotation.z, node.rest.rotation.w))
-                || glm::length(node.rest.rotation) < 0.0001f)
+                || Math::length(node.rest.rotation) < 0.0001f)
                 return Result<void>::failure("Invalid skeleton rest pose");
             visited[index] = true;
         }
@@ -499,7 +496,7 @@ namespace Comet {
                         return Result<void>::failure("Non-finite animation key");
                 if(channel.path == AnimationChannel::Path::Rotation)
                     for(std::size_t index = 0; index < channel.times.size(); ++index)
-                        if(glm::length(channel.values[index * (cubic ? 3 : 1) + (cubic ? 1 : 0)])
+                        if(Math::length(channel.values[index * (cubic ? 3 : 1) + (cubic ? 1 : 0)])
                             < 0.0001f)
                             return Result<void>::failure("Invalid animation quaternion");
             }
@@ -520,20 +517,21 @@ namespace Comet {
             const auto rest = rest_pose(data);
             const auto basis = node_world(data, rest, data.mesh_node);
             motion_correction =
-                glm::affineInverse(basis) * motion_frame(data, rest, root.value(), settings, basis)
-                * glm::affineInverse(motion_frame(data, local, root.value(), settings, basis))
+                Math::affine_inverse(basis)
+                * motion_frame(data, rest, root.value(), settings, basis)
+                * Math::affine_inverse(motion_frame(data, local, root.value(), settings, basis))
                 * basis;
         }
         std::vector<Math::Mat4> world(data.nodes.size());
         for(const auto index : data.evaluation_order) {
             const auto& node = local[index];
-            auto matrix = glm::translate(Math::Mat4(1), node.translation)
-                          * glm::mat4_cast(node.rotation) * glm::scale(Math::Mat4(1), node.scale);
+            auto matrix = Math::translate(Math::Mat4(1), node.translation)
+                          * Math::to_mat4(node.rotation) * Math::scale(Math::Mat4(1), node.scale);
             if(data.nodes[index].parent != NO_ANIMATION_NODE)
                 matrix = world[data.nodes[index].parent] * matrix;
             world[index] = matrix;
         }
-        const auto mesh_inverse = glm::affineInverse(world[data.mesh_node]);
+        const auto mesh_inverse = Math::affine_inverse(world[data.mesh_node]);
         AnimationPose output;
         output.motion_correction = motion_correction;
         std::optional<BoundingBox> bounds;
@@ -614,15 +612,15 @@ namespace Comet {
         if(root_motion) {
             // 修正值保存在网格空间；先回到根运动空间，避免分解带缩放的共轭矩阵。
             const auto basis = node_world(data, rest_pose(data), data.mesh_node);
-            const auto inverse = glm::affineInverse(basis);
+            const auto inverse = Math::affine_inverse(basis);
             const auto from = basis * previous.motion_correction * inverse;
             const auto to = basis * current.motion_correction * inverse;
-            const auto rotation = glm::slerp(glm::normalize(glm::quat_cast(Math::Mat3(from))),
-                glm::normalize(glm::quat_cast(Math::Mat3(to))), alpha);
+            const auto rotation = Math::slerp(Math::normalize(Math::to_quat(Math::Mat3(from))),
+                Math::normalize(Math::to_quat(Math::Mat3(to))), alpha);
             correction = inverse
-                         * Math::translate(
-                             Math::Mat4(1), glm::mix(Math::Vec3(from[3]), Math::Vec3(to[3]), alpha))
-                         * glm::mat4_cast(rotation) * basis;
+                         * Math::translate(Math::Mat4(1),
+                             Math::mix(Math::Vec3(from[3]), Math::Vec3(to[3]), alpha))
+                         * Math::to_mat4(rotation) * basis;
         }
         return build_animation_pose(data, std::move(local), root_motion, true, &correction);
     }

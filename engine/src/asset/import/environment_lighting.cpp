@@ -1,8 +1,7 @@
+#include "core/math_utils.h"
 #include "asset/import/environment_importer.h"
 #include "asset/data/cubemap_sampling.h"
 
-#include <glm/glm.hpp>
-#include <glm/gtc/packing.hpp>
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -14,7 +13,7 @@ namespace Comet {
     static constexpr float PI = std::numbers::pi_v<float>;
     static constexpr uint32_t SAMPLE_COUNT = 256;
 
-    static glm::vec2 hammersley(uint32_t index) {
+    static Math::Vec2 hammersley(uint32_t index) {
         const float x = float(index) / SAMPLE_COUNT;
         index = (index << 16) | (index >> 16);
         index = ((index & 0x55555555u) << 1) | ((index & 0xAAAAAAAAu) >> 1);
@@ -24,19 +23,19 @@ namespace Comet {
         return {x, float(index) * 2.3283064365386963e-10f};
     }
 
-    static glm::vec3 hemisphere(float azimuth, float cosine) {
+    static Math::Vec3 hemisphere(float azimuth, float cosine) {
         const float sine = std::sqrt(std::max(0.0f, 1 - cosine * cosine));
         return {sine * std::cos(azimuth), sine * std::sin(azimuth), cosine};
     }
 
-    static glm::vec3 sample_ggx(glm::vec2 xi, float roughness) {
+    static Math::Vec3 sample_ggx(Math::Vec2 xi, float roughness) {
         const float alpha = roughness * roughness;
         const float cosine = std::sqrt((1 - xi.y) / (1 + (alpha * alpha - 1) * xi.y));
         return hemisphere(2 * PI * xi.x, cosine);
     }
 
-    static void append_pixel(TextureData& data, glm::vec3 pixel) {
-        const auto packed = glm::packHalf(glm::vec4(glm::clamp(pixel, 0.0f, 65504.0f), 1));
+    static void append_pixel(TextureData& data, Math::Vec3 pixel) {
+        const auto packed = Math::pack_half(Math::Vec4(Math::clamp(pixel, 0.0f, 65504.0f), 1));
         const auto offset = data.pixels.size();
         data.pixels.resize(offset + sizeof(packed));
         std::memcpy(data.pixels.data() + offset, &packed, sizeof(packed));
@@ -62,11 +61,11 @@ namespace Comet {
             const float a2 = std::pow(roughness, 4.0f);
             for(int x = 0; x < result.width; ++x) {
                 const float nv = (x + 0.5f) / result.width;
-                const glm::vec3 v(std::sqrt(1 - nv * nv), 0, nv);
-                glm::vec3 sum(0);
+                const Math::Vec3 v(std::sqrt(1 - nv * nv), 0, nv);
+                Math::Vec3 sum(0);
                 for(uint32_t i = 0; i < SAMPLE_COUNT; ++i) {
                     const auto h = sample_ggx(hammersley(i), roughness);
-                    const float vh = std::max(glm::dot(v, h), 0.0f);
+                    const float vh = std::max(Math::dot(v, h), 0.0f);
                     const auto l = 2 * vh * h - v;
                     if(l.z <= 0)
                         continue;
@@ -75,7 +74,7 @@ namespace Comet {
                                                  + l.z * std::sqrt(a2 + (1 - a2) * nv * nv));
                     const float weight = 4 * visibility * l.z * vh / h.z;
                     const float fresnel = std::pow(1 - vh, 5.0f);
-                    sum += glm::vec3((1 - fresnel) * weight, fresnel * weight, 0);
+                    sum += Math::Vec3((1 - fresnel) * weight, fresnel * weight, 0);
                 }
                 append_pixel(result, sum / float(SAMPLE_COUNT));
             }
@@ -95,7 +94,7 @@ namespace Comet {
             if(result.mip_levels > 1)
                 roughness = float(mip) / float(result.mip_levels - 1);
             struct FilterSample {
-                glm::vec3 direction;
+                Math::Vec3 direction;
                 float weight;
                 float lod;
             };
@@ -111,7 +110,7 @@ namespace Comet {
                     if(mip == 0)
                         break;
                     const auto h = sample_ggx(xi, roughness);
-                    direction = 2 * h.z * h - glm::vec3(0, 0, 1);
+                    direction = 2 * h.z * h - Math::Vec3(0, 0, 1);
                     weight = std::max(direction.z, 0.0f);
                     const float a2 = std::pow(roughness, 4.0f);
                     const float d = 1 - h.z * h.z + a2 * h.z * h.z;
@@ -134,12 +133,12 @@ namespace Comet {
                                 source.sample(n, std::log2(float(background.width) / size)));
                             continue;
                         }
-                        glm::vec3 up(0, 0, 1);
+                        Math::Vec3 up(0, 0, 1);
                         if(std::abs(n.z) > 0.999f)
                             up = {1, 0, 0};
-                        const auto tangent = glm::normalize(glm::cross(up, n));
-                        const auto bitangent = glm::cross(n, tangent);
-                        glm::vec3 sum(0);
+                        const auto tangent = Math::normalize(Math::cross(up, n));
+                        const auto bitangent = Math::cross(n, tangent);
+                        Math::Vec3 sum(0);
                         for(const auto& sample : samples) {
                             const auto& local = sample.direction;
                             const auto l = tangent * local.x + bitangent * local.y + n * local.z;
@@ -160,9 +159,9 @@ namespace Comet {
             return Encoded::failure(
                 "HDR encoding requires six square float16 faces with one mip (1..2048, power of two)");
         for(std::size_t i = 0; i < cubemap.pixels.size(); i += 8) {
-            glm::u16vec4 packed;
+            Math::Half4 packed;
             std::memcpy(&packed, cubemap.pixels.data() + i, 8);
-            const auto pixel = glm::unpackHalf(packed);
+            const auto pixel = Math::unpack_half(packed);
             for(int channel = 0; channel < 3; ++channel)
                 if(!std::isfinite(pixel[channel]) || pixel[channel] < 0)
                     return Encoded::failure("HDR encoding requires finite nonnegative radiance");

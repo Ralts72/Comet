@@ -36,9 +36,6 @@
 #define STBI_MAX_DIMENSIONS 4096
 #include <stb_image.h>
 
-#include <glm/gtc/packing.hpp>
-#include <glm/gtc/type_ptr.hpp>
-
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -88,15 +85,15 @@ namespace Comet::Ui {
 
         // 公共 ShaderInterface 要求 float 输入匹配 32 位顶点格式。
         struct GpuVertex {
-            glm::vec2 position;
-            glm::vec4 colour;
-            glm::vec2 tex_coord;
+            Math::Vec2 position;
+            Math::Vec4 colour;
+            Math::Vec2 tex_coord;
         };
 
         struct GeometryParameters {
-            glm::mat4 transform;
-            glm::vec2 translation;
-            glm::vec2 dimensions;
+            Math::Mat4 transform;
+            Math::Vec2 translation;
+            Math::Vec2 dimensions;
         };
         struct GeometryData {
             std::vector<GpuVertex> vertices;
@@ -333,7 +330,7 @@ namespace Comet::Ui {
         void SetScissorRegion(const Rml::Rectanglei region) override { m_scissor_region = region; }
 
         void SetTransform(const Rml::Matrix4f* matrix) override {
-            m_transform = glm::mat4(1);
+            m_transform = Math::Mat4(1);
             if(!matrix)
                 return;
             // 显式按列读取，兼容 RmlUi 的矩阵存储配置。
@@ -462,7 +459,7 @@ namespace Comet::Ui {
             m_draw_data->draws.clear();
             m_draw_data->dimensions = {uint32_t(size.x), uint32_t(size.y)};
             m_dimensions = size;
-            m_transform = glm::mat4(1);
+            m_transform = Math::Mat4(1);
             m_scissor_enabled = false;
             m_collecting = true;
             const ScopeExit end_collection([&] { m_collecting = false; });
@@ -714,7 +711,7 @@ namespace Comet::Ui {
                             straight = alpha > 0 ? std::min(straight / alpha, 1.f) : 0;
                         value = srgb_to_linear(straight) * alpha;
                     }
-                    const auto half = glm::packHalf1x16(value);
+                    const auto half = Math::pack_half(value);
                     std::memcpy(
                         data.pixels.data() + (pixel * 4 + channel) * 2, &half, sizeof(half));
                 }
@@ -831,7 +828,7 @@ namespace Comet::Ui {
         std::optional<Comet::GraphicsError> m_error;
         std::shared_ptr<DrawData> m_draw_data;
         bool m_collecting = false;
-        glm::mat4 m_transform{1};
+        Math::Mat4 m_transform{1};
         Rml::Vector2i m_dimensions{};
         Rml::Rectanglei m_scissor_region;
         bool m_scissor_enabled = false;

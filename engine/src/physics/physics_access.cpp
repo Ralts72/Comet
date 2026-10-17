@@ -73,7 +73,7 @@ namespace Comet {
             || !entity.has_component<CharacterControllerComponent>()
             || !entity.get_component<CharacterControllerComponent>().enabled
             || !Math::is_finite(velocity.velocity)
-            || !std::isfinite(glm::dot(velocity.velocity, velocity.velocity)))
+            || !std::isfinite(Math::dot(velocity.velocity, velocity.velocity)))
             return false;
         return enqueue_character_velocity(entity.get_uuid(), entity.get_id(), velocity);
     }
@@ -101,7 +101,7 @@ namespace Comet {
 
     Result<std::optional<PhysicsAccess::QueryHit>> PhysicsAccess::raycast(
         Math::Vec3 origin, Math::Vec3 displacement, const QueryFilter& filter) const {
-        const float length_squared = glm::dot(displacement, displacement);
+        const float length_squared = Math::dot(displacement, displacement);
         if(!m_scene || !Math::is_finite(origin) || !Math::is_finite(displacement)
             || !Math::is_finite(origin + displacement) || !std::isfinite(length_squared)
             || length_squared <= 0)
@@ -115,7 +115,7 @@ namespace Comet {
         Math::Vec3 displacement, const QueryFilter& filter) const {
         if(!m_scene || !Math::is_finite(displacement)
             || !Math::is_finite(transform.translation + displacement)
-            || !std::isfinite(glm::dot(displacement, displacement)))
+            || !std::isfinite(Math::dot(displacement, displacement)))
             return Result<std::optional<QueryHit>>::failure(
                 "Shape cast requires an active physics world and a finite displacement");
         return query_shape(shape, transform, displacement, filter);

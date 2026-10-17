@@ -808,12 +808,12 @@ namespace Comet::Tests {
         ASSERT_TRUE(physics.request_torque(actor, {0, 0, 5}));
         for(int i = 0; i < 30; ++i)
             ASSERT_TRUE(runtime.advance(0.01));
-        EXPECT_LT(glm::length(
+        EXPECT_LT(Math::length(
                       actor.get_component<TransformComponent>().translation - Math::Vec3(0, 5, 0)),
             0.001f);
         const auto velocity = physics.get_velocity(actor);
         ASSERT_TRUE(velocity);
-        EXPECT_LT(glm::length(velocity->linear), 0.001f);
+        EXPECT_LT(Math::length(velocity->linear), 0.001f);
         EXPECT_GT(velocity->angular.z, 0.1f);
         ASSERT_TRUE(runtime.stop());
         EXPECT_EQ(physics.get_statistics().joints, 0u);
@@ -834,7 +834,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.start(scene));
         for(int i = 0; i < 150; ++i) {
             ASSERT_TRUE(runtime.advance(0.01));
-            EXPECT_LT(glm::length(anchor_position(actor, local) - pivot), 0.005f);
+            EXPECT_LT(Math::length(anchor_position(actor, local) - pivot), 0.005f);
         }
         EXPECT_NE(actor.get_component<TransformComponent>().rotation.z, 35);
         EXPECT_EQ(physics.get_statistics().joints, 1u);
@@ -862,8 +862,8 @@ namespace Comet::Tests {
                     first_motion == BodyMotion::Dynamic ? actor : target, {1, 0, 0}));
             for(int i = 0; i < 30; ++i) {
                 ASSERT_TRUE(runtime.advance(0.01));
-                EXPECT_LT(glm::length(anchor_position(actor, {0, 1, 0})
-                                      - anchor_position(target, {0, -1, 0})),
+                EXPECT_LT(Math::length(anchor_position(actor, {0, 1, 0})
+                                       - anchor_position(target, {0, -1, 0})),
                     0.03f);
             }
             const auto moved = first_motion == BodyMotion::Dynamic ? actor : target;
@@ -914,7 +914,7 @@ namespace Comet::Tests {
                 [](auto& collider) { collider.half_extents.x = 0.7f; });
             ASSERT_TRUE(runtime.advance(0.01));
             EXPECT_EQ(physics.get_statistics().joints, 1u);
-            EXPECT_LT(glm::length(anchor_position(actor, {0, 2, 0}) - anchor_position(target, {})),
+            EXPECT_LT(Math::length(anchor_position(actor, {0, 2, 0}) - anchor_position(target, {})),
                 0.005f);
         }
         target.remove_component<RigidBodyComponent>();
@@ -1001,12 +1001,12 @@ namespace Comet::Tests {
         ASSERT_TRUE(physics.request_torque(actor, {4, 5, 6}));
         for(int i = 0; i < 30; ++i)
             ASSERT_TRUE(runtime.advance(0.01));
-        EXPECT_LT(glm::length(
+        EXPECT_LT(Math::length(
                       actor.get_component<TransformComponent>().translation - Math::Vec3(0, 5, 0)),
             0.001f);
         const auto velocity = physics.get_velocity(actor);
         ASSERT_TRUE(velocity);
-        EXPECT_LT(glm::length(velocity->linear), 0.001f);
+        EXPECT_LT(Math::length(velocity->linear), 0.001f);
         EXPECT_NEAR(velocity->angular.x, 0, 1e-5f);
         EXPECT_NEAR(velocity->angular.y, 0, 1e-5f);
         EXPECT_GT(velocity->angular.z, 0.1f);

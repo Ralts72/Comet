@@ -117,7 +117,7 @@ namespace Comet::Tests {
                 if(side == 0)
                     color = expected_colors[stage];
                 const auto expected = pbr_reference(
-                    {0, 0, 1}, {0, 0, 1}, {0, 0, 1}, glm::dvec3(color), 0, 1, Math::PI);
+                    {0, 0, 1}, {0, 0, 1}, {0, 0, 1}, Math::Vec3d(color), 0, 1, Math::PI);
                 const auto pixel = (2 * 4 + (side == 0 ? 0 : 3)) * 4;
                 for(unsigned channel = 0; channel < 3; ++channel) {
                     const auto component = bgra ? 2 - channel : channel;

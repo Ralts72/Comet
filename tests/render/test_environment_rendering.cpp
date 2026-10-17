@@ -44,7 +44,7 @@ namespace Comet::Tests {
             Scenario{.background = true}, Scenario{.intensity = 0.5f}, Scenario{.intensity = 0},
             Scenario{.missing = true}, Scenario{.rotation = 90}, Scenario{.replace = true}};
         std::vector<std::shared_ptr<Readback>> outputs;
-        std::vector<glm::dvec3> expected;
+        std::vector<Math::Vec3d> expected;
         Format output_format{};
         for(size_t index = 0; index < cases.size(); ++index) {
             const auto sample = cases[index];
@@ -86,9 +86,9 @@ namespace Comet::Tests {
             outputs.push_back(output);
 
             // 在 N=V 时独立积分直接光照的镜面 BRDF，作为半球反射参考值。
-            glm::dvec3 reflected(0);
-            const glm::dvec3 base(0.8, 0.2, 0.1);
-            const auto f0 = glm::mix(glm::dvec3(0.04), base, double(sample.metallic));
+            Math::Vec3d reflected(0);
+            const Math::Vec3d base(0.8, 0.2, 0.1);
+            const auto f0 = Math::mix(Math::Vec3d(0.04), base, double(sample.metallic));
             constexpr int STEPS = 8192;
             for(int step = 0; step < STEPS; ++step) {
                 const double cosine = (step + 0.5) / STEPS;
@@ -97,13 +97,13 @@ namespace Comet::Tests {
                         f0, 1, sample.roughness, 1)
                     * (2 * std::numbers::pi / STEPS);
             }
-            glm::dvec3 radiance(4, 2, 1);
+            Math::Vec3d radiance(4, 2, 1);
             if(sample.replace)
                 radiance = {1, 2, 4};
             auto color = radiance * (base * (1.0 - sample.metallic) * (1.0 - reflected) + reflected)
                          * double(sample.intensity);
             if(!sample.enabled || sample.missing)
-                color = glm::dvec3(0);
+                color = Math::Vec3d(0);
             expected.push_back(color);
         }
         frames.wait_for_all_slots();
@@ -196,7 +196,7 @@ namespace Comet::Tests {
         for(int extent = 4; extent > 0; extent /= 2)
             for(const auto color : colors)
                 for(int i = 0; i < extent * extent; ++i) {
-                    const auto packed = glm::packHalf(glm::vec4(color, 1));
+                    const auto packed = Math::pack_half(Math::Vec4(color, 1));
                     const auto offset = data.pixels.size();
                     data.pixels.resize(offset + sizeof(packed));
                     std::memcpy(data.pixels.data() + offset, &packed, sizeof(packed));
@@ -231,7 +231,7 @@ namespace Comet::Tests {
                     Math::look_at({0, 0, 0}, {0, 1, 0}, {0, 0, 1});
             if(index == 5) {
                 for(size_t offset = 0; offset < data.pixels.size(); offset += 8) {
-                    const auto packed = glm::packHalf(glm::vec4(2, 0, 0, 1));
+                    const auto packed = Math::pack_half(Math::Vec4(2, 0, 0, 1));
                     std::memcpy(data.pixels.data() + offset, &packed, sizeof(packed));
                 }
                 auto replacement = engine->get_render_resources().try_create_texture(data);

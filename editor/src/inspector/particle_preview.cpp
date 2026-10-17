@@ -5,7 +5,6 @@
 #include "scene/systems/physics_system.h"
 
 #include <algorithm>
-#include <glm/gtc/quaternion.hpp>
 
 namespace CometEditor {
     ParticlePreview::ParticlePreview(Comet::PhysicsService::MeshSource meshes)
@@ -55,7 +54,8 @@ namespace CometEditor {
             trail_changed = true;
         }
         const Comet::TransformComponent transform{.translation = Comet::Math::Vec3(pose[3]),
-            .rotation = glm::degrees(glm::eulerAngles(glm::quat_cast(Comet::Math::Mat3(pose))))};
+            .rotation = Comet::Math::degrees(
+                Comet::Math::euler_angles(Comet::Math::to_quat(Comet::Math::Mat3(pose))))};
         const auto& before = entity.get_component<Comet::TransformComponent>();
         const bool changed =
             trail_changed || settings != entity.get_component<Comet::ParticleEmitterComponent>()

@@ -293,7 +293,7 @@ namespace Comet {
     Result<Math::Vec3u> RealtimeIrradiancePass::validate_region(
         const RenderIrradianceVolume& volume) {
         if(!Math::is_finite(volume.center) || !Math::is_finite(volume.half_extents)
-            || glm::any(glm::lessThanEqual(volume.half_extents, Math::Vec3(0)))
+            || Math::any_less_equal(volume.half_extents, Math::Vec3(0))
             || !std::isfinite(volume.spacing) || volume.spacing < .01f
             || !std::isfinite(volume.max_distance) || volume.max_distance <= 0
             || volume.max_distance > 100000 || !volume.update_budget || volume.update_budget > 4096
@@ -304,8 +304,8 @@ namespace Comet {
             || volume.bounce_strength < 0 || volume.bounce_strength > 1)
             return Result<Math::Vec3u>::failure("实时探针 GI 的区域或更新预算无效");
         const auto cells =
-            glm::max(glm::ceil(volume.half_extents * 2.0f / volume.spacing), Math::Vec3(2));
-        if(glm::any(glm::greaterThan(cells, Math::Vec3(64)))
+            Math::max(Math::ceil(volume.half_extents * 2.0f / volume.spacing), Math::Vec3(2));
+        if(Math::any_greater(cells, Math::Vec3(64))
             || double(cells.x) * cells.y * cells.z > IrradianceData::MAX_PROBES)
             return Result<Math::Vec3u>::failure(
                 "实时探针 GI 超过 4096 探针预算，请增大间距或缩小区域");

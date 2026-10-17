@@ -54,15 +54,15 @@ namespace Comet::Tests {
         const auto error = [&](const AnimationPose& pose) {
             float sum = 0;
             for(const auto& goal : constraints)
-                sum += glm::length(Math::Vec3(pose.bone_matrices[goal.tip - 1][3]) - goal.target);
+                sum += Math::length(Math::Vec3(pose.bone_matrices[goal.tip - 1][3]) - goal.target);
             return sum;
         };
         EXPECT_LT(error(coupled.value()), error(independent.value()));
-        EXPECT_GT(glm::length(coupled.value().local_transforms[1].translation
-                              - data.nodes[1].rest.translation),
+        EXPECT_GT(Math::length(coupled.value().local_transforms[1].translation
+                               - data.nodes[1].rest.translation),
             .001);
-        EXPECT_LE(glm::length(coupled.value().local_transforms[1].translation
-                              - data.nodes[1].rest.translation),
+        EXPECT_LE(Math::length(coupled.value().local_transforms[1].translation
+                               - data.nodes[1].rest.translation),
             body.max_translation + .0001);
         for(size_t i = 2; i < data.nodes.size(); ++i)
             EXPECT_EQ(
@@ -104,7 +104,7 @@ namespace Comet::Tests {
         EXPECT_NEAR(Math::length(Math::Vec3(bones[1][3] - bones[0][3])), 1, .0001);
         EXPECT_NEAR(Math::length(Math::Vec3(bones[2][3] - bones[1][3])), 1, .0001);
         EXPECT_GT(bones[1][3].z, .1);
-        EXPECT_NEAR(std::abs(glm::dot(glm::quat_cast(Math::Mat3(bones[2])), *constraint.rotation)),
+        EXPECT_NEAR(std::abs(Math::dot(Math::to_quat(Math::Mat3(bones[2])), *constraint.rotation)),
             1, .0001);
         EXPECT_LT(Math::length(Math::Vec3(bones[3][3]) - constraint.target
                                - *constraint.rotation * Math::Vec3(0, 0, .3f)),
@@ -127,7 +127,7 @@ namespace Comet::Tests {
             EXPECT_TRUE(Math::is_finite(foot));
             EXPECT_LE(Math::length(foot), 2.0001);
             if(Math::length(target) > 0)
-                EXPECT_NEAR(glm::dot(glm::normalize(foot), glm::normalize(target)), 1, .0001);
+                EXPECT_NEAR(Math::dot(Math::normalize(foot), Math::normalize(target)), 1, .0001);
         }
     }
     TEST(AnimationIKTest, PartialWeightsComposeInLocalRotationsAndInvalidInputsAreDiagnosed) {
@@ -140,8 +140,8 @@ namespace Comet::Tests {
         constraint.weight = .5f;
         auto half = apply_animation_constraints(data, pose.value(), std::span(&constraint, 1));
         ASSERT_TRUE(half);
-        EXPECT_NEAR(std::abs(glm::dot(half.value().local_transforms[1].rotation,
-                        glm::slerp(data.nodes[1].rest.rotation,
+        EXPECT_NEAR(std::abs(Math::dot(half.value().local_transforms[1].rotation,
+                        Math::slerp(data.nodes[1].rest.rotation,
                             full.value().local_transforms[1].rotation, .5f))),
             1, .0001);
         constraint.weight = 0;

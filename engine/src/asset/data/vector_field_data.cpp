@@ -4,27 +4,26 @@
 
 namespace Comet {
     Result<void> VectorFieldData::validate() const {
-        if(glm::any(glm::lessThan(dimensions, Math::Vec3u(2)))
-            || glm::any(glm::greaterThan(dimensions, Math::Vec3u(32)))
+        if(Math::any_less(dimensions, Math::Vec3u(2))
+            || Math::any_greater(dimensions, Math::Vec3u(32))
             || values.size() != size_t(dimensions.x) * dimensions.y * dimensions.z)
             return Result<void>::failure("向量场各轴须为 2～32 个样本，数量须与网格一致");
         if(!Math::is_finite(bounds.minimum) || !Math::is_finite(bounds.maximum)
             || !Math::is_finite(bounds.size())
-            || glm::any(glm::lessThanEqual(bounds.size(), Math::Vec3(.0001f))))
+            || Math::any_less_equal(bounds.size(), Math::Vec3(.0001f)))
             return Result<void>::failure("向量场需要有限且非退化的世界空间范围");
         for(const auto value : values)
-            if(!Math::is_finite(value)
-                || glm::any(glm::greaterThan(glm::abs(value), Math::Vec3(1000))))
+            if(!Math::is_finite(value) || Math::any_greater(Math::abs(value), Math::Vec3(1000)))
                 return Result<void>::failure("向量场加速度各分量须为 -1000～1000 m/s²");
         return Result<void>::success();
     }
     Math::Vec3 VectorFieldData::sample(Math::Vec3 position) const {
-        if(!Math::is_finite(position) || glm::any(glm::lessThan(position, bounds.minimum))
-            || glm::any(glm::greaterThan(position, bounds.maximum)) || values.empty())
+        if(!Math::is_finite(position) || Math::any_less(position, bounds.minimum)
+            || Math::any_greater(position, bounds.maximum) || values.empty())
             return {};
         const auto grid =
             (position - bounds.minimum) / bounds.size() * Math::Vec3(dimensions - Math::Vec3u(1));
-        const auto first = glm::min(Math::Vec3u(grid), dimensions - Math::Vec3u(2));
+        const auto first = Math::min(Math::Vec3u(grid), dimensions - Math::Vec3u(2));
         const auto blend = grid - Math::Vec3(first);
         Math::Vec3 result(0);
         for(uint32_t z = 0; z < 2; ++z)
@@ -62,9 +61,9 @@ namespace Comet {
                     return Read::failure(minimum.error());
                 if(!maximum)
                     return Read::failure(maximum.error());
-                if(glm::any(glm::lessThan(dimensions.value(), Math::Vec3(2)))
-                    || glm::any(glm::greaterThan(dimensions.value(), Math::Vec3(32)))
-                    || dimensions.value() != glm::floor(dimensions.value()))
+                if(Math::any_less(dimensions.value(), Math::Vec3(2))
+                    || Math::any_greater(dimensions.value(), Math::Vec3(32))
+                    || dimensions.value() != Math::floor(dimensions.value()))
                     return Read::failure("向量场维度须为 2～32 的整数");
                 data.dimensions = Math::Vec3u(dimensions.value());
                 data.bounds = {minimum.value(), maximum.value()};

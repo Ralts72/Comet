@@ -69,7 +69,7 @@ namespace Comet::Tests {
         attack.current.time = animation.find_clip("attack")->duration;
         auto recovered = sample_animation(animation, &attack);
         ASSERT_TRUE(recovered);
-        EXPECT_LT(glm::distance(Math::Vec3(start.value().bone_matrices[index][3]),
+        EXPECT_LT(Math::distance(Math::Vec3(start.value().bone_matrices[index][3]),
                       Math::Vec3(recovered.value().bone_matrices[index][3])),
             .0001f);
     }

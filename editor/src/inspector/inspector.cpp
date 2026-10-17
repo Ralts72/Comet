@@ -95,7 +95,7 @@ namespace CometEditor {
                 const auto connected = scene.find_entity(connected_body);
                 if(!connected || !connected.has_component<Comet::TransformComponent>())
                     return std::nullopt;
-                position = glm::inverse(matrix(connected)) * position;
+                position = Math::inverse(matrix(connected)) * position;
             }
             const Comet::Math::Vec3 anchor{position};
             if(local_property == "reference_axis") {

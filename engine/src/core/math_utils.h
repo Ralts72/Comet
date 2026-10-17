@@ -7,9 +7,13 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/quaternion.hpp>
+#include <glm/gtc/matrix_inverse.hpp>
+#include <glm/gtc/packing.hpp>
 
+#include <array>
 #include <cmath>
 #include <optional>
+#include <type_traits>
 
 namespace Comet::Math {
     inline constexpr float PI = 3.14159265358979323846f;
@@ -27,11 +31,83 @@ namespace Comet::Math {
     using Vec2 = glm::vec2;
     using Vec3 = glm::vec3;
     using Vec4 = glm::vec4;
+    using Vec3d = glm::dvec3;
+    using Vec4d = glm::dvec4;
 
     using Mat3 = glm::mat3;
     using Mat4 = glm::mat4;
 
     using Quat = glm::quat;
+
+    // 数学类型与基础运算统一从这里使用；后端仍为 GLM，不另造一套数值实现。
+    using glm::abs;
+    using glm::ceil;
+    using glm::clamp;
+    using glm::cross;
+    using glm::degrees;
+    using glm::determinant;
+    using glm::distance;
+    using glm::dot;
+    using glm::floor;
+    using glm::fract;
+    using glm::inverse;
+    using glm::length;
+    using glm::max;
+    using glm::min;
+    using glm::mix;
+    using glm::normalize;
+    using glm::sign;
+    using glm::slerp;
+    using glm::transpose;
+
+    template<typename T> inline auto radians(const T& degrees) {
+        if constexpr(std::is_integral_v<T>)
+            return glm::radians(float(degrees));
+        else
+            return glm::radians(degrees);
+    }
+
+    template<typename Vector> [[nodiscard]] bool any_less(const Vector& a, const Vector& b) {
+        return glm::any(glm::lessThan(a, b));
+    }
+    template<typename Vector> [[nodiscard]] bool any_less_equal(const Vector& a, const Vector& b) {
+        return glm::any(glm::lessThanEqual(a, b));
+    }
+    template<typename Vector> [[nodiscard]] bool any_greater(const Vector& a, const Vector& b) {
+        return glm::any(glm::greaterThan(a, b));
+    }
+    template<typename Vector>
+    [[nodiscard]] bool any_greater_equal(const Vector& a, const Vector& b) {
+        return glm::any(glm::greaterThanEqual(a, b));
+    }
+    template<typename Vector> [[nodiscard]] bool all_less(const Vector& a, const Vector& b) {
+        return glm::all(glm::lessThan(a, b));
+    }
+    template<typename Vector> [[nodiscard]] bool all_less_equal(const Vector& a, const Vector& b) {
+        return glm::all(glm::lessThanEqual(a, b));
+    }
+    template<typename Vector> [[nodiscard]] bool all_greater(const Vector& a, const Vector& b) {
+        return glm::all(glm::greaterThan(a, b));
+    }
+    template<typename Vector>
+    [[nodiscard]] bool all_greater_equal(const Vector& a, const Vector& b) {
+        return glm::all(glm::greaterThanEqual(a, b));
+    }
+
+    using Half4 = std::array<uint16_t, 4>;
+    [[nodiscard]] inline uint16_t pack_half(float value) {
+        return glm::packHalf1x16(value);
+    }
+    [[nodiscard]] inline float unpack_half(uint16_t value) {
+        return glm::unpackHalf1x16(value);
+    }
+    [[nodiscard]] inline Half4 pack_half(const Vec4& value) {
+        const auto packed = glm::packHalf(value);
+        return {packed.x, packed.y, packed.z, packed.w};
+    }
+    [[nodiscard]] inline Vec4 unpack_half(const Half4& value) {
+        return glm::unpackHalf(glm::u16vec4(value[0], value[1], value[2], value[3]));
+    }
 
     [[nodiscard]] inline bool is_finite(const Vec2& value) {
         return std::isfinite(value.x) && std::isfinite(value.y);
@@ -55,12 +131,6 @@ namespace Comet::Math {
         return glm::identity<T>();
     }
 
-    inline float length(const Vec3& v) {
-        return glm::length(v);
-    }
-    inline Vec3 normalize(const Vec3& v) {
-        return glm::normalize(v);
-    }
     [[nodiscard]] inline std::optional<Vec3> normalized_direction(const Vec3& value) {
         if(!is_finite(value))
             return std::nullopt;
@@ -108,16 +178,6 @@ namespace Comet::Math {
         if(squared_length <= 1)
             return value;
         return glm::vec<Size, float>(precise / std::sqrt(squared_length));
-    }
-    inline float dot(const Vec3& a, const Vec3& b) {
-        return glm::dot(a, b);
-    }
-    inline Vec3 cross(const Vec3& a, const Vec3& b) {
-        return glm::cross(a, b);
-    }
-
-    inline float radians(float degrees) {
-        return glm::radians(degrees);
     }
 
     inline float wrap_degrees(const float degrees) {
@@ -167,6 +227,14 @@ namespace Comet::Math {
     [[nodiscard]] COMET_API std::optional<float> uniform_scale(const Mat4& matrix);
     // 提取平移与旋转；矩阵不可分解时返回空。
     [[nodiscard]] COMET_API std::optional<Mat4> without_scale(const Mat4& matrix);
+    struct TransformDecomposition {
+        Vec3 translation;
+        Quat rotation;
+        Vec3 scale;
+        Vec3 skew;
+        Vec4 perspective;
+    };
+    [[nodiscard]] COMET_API std::optional<TransformDecomposition> decompose(const Mat4& matrix);
 
     inline Mat4 perspective(float fov_degrees, float aspect, float nearZ, float farZ) {
         return glm::perspective(glm::radians(fov_degrees), aspect, nearZ, farZ);
@@ -183,17 +251,25 @@ namespace Comet::Math {
     inline Mat4 to_mat4(const Quat& q) {
         return glm::toMat4(q);
     }
+    inline Quat to_quat(const Mat3& matrix) {
+        return glm::quat_cast(matrix);
+    }
+    inline Quat to_quat(const Mat4& matrix) {
+        return glm::quat_cast(matrix);
+    }
+    inline Vec3 euler_angles(const Quat& rotation) {
+        return glm::eulerAngles(rotation);
+    }
+    // from／to 均为单位方向；角度接口使用弧度。
+    inline Quat rotation_between(const Vec3& from, const Vec3& to) {
+        return glm::rotation(from, to);
+    }
+    inline Mat4 affine_inverse(const Mat4& matrix) {
+        return glm::affineInverse(matrix);
+    }
 
     inline Mat4 look_at(const Vec3& eye, const Vec3& center, const Vec3& up) {
         return glm::lookAt(eye, center, up);
-    }
-
-    inline Mat4 transpose(const Mat4& m) {
-        return glm::transpose(m);
-    }
-
-    inline Mat4 inverse(const Mat4& m) {
-        return glm::inverse(m);
     }
 
 }

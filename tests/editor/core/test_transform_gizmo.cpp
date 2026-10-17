@@ -170,7 +170,7 @@ namespace {
         const auto center = (handle->segments.front().start + handle->segments.front().end) * 0.5f;
         ASSERT_TRUE(update({.position = center, .hovered = true, .pressed = true, .down = true}));
         EXPECT_EQ(gizmo.active_axis(), TransformGizmo::Axis::All);
-        const auto movement = glm::normalize(Math::Vec2(1, -1)) * 90.0f;
+        const auto movement = Math::normalize(Math::Vec2(1, -1)) * 90.0f;
         ASSERT_TRUE(update({.position = center + movement, .down = true}));
         expect_vector(transform.scale, {4, -6, 0});
         ASSERT_TRUE(update({.position = center - movement, .down = true}));
@@ -432,7 +432,7 @@ namespace {
         const auto handle = gizmo.handles(entity.get_uuid(), camera, layout)[0];
         ASSERT_TRUE(handle);
         const auto direction =
-            glm::normalize(handle->segments.front().end - handle->segments.front().start);
+            Math::normalize(handle->segments.front().end - handle->segments.front().start);
         const auto start = begin_x();
         ASSERT_TRUE(update({.position = start + direction * 100.0f, .released = true}));
         const auto world_delta = Math::Vec3(scene.get_world_matrix(entity)[3]);
@@ -728,7 +728,8 @@ namespace {
         ASSERT_EQ(gizmo.active_axis(), TransformGizmo::Axis::Z);
         const auto moved =
             start
-            + glm::normalize(handle->segments.front().end - handle->segments.front().start) * 30.0f;
+            + Math::normalize(handle->segments.front().end - handle->segments.front().start)
+                  * 30.0f;
         ASSERT_TRUE(update({.position = moved, .down = true}));
         EXPECT_GT(translation().z, 0);
         EXPECT_FLOAT_EQ(translation().x, 0);
@@ -770,7 +771,7 @@ namespace {
             ASSERT_EQ(gizmo.active_axis(), TransformGizmo::Axis::Z);
             const auto moved =
                 start
-                + glm::normalize(handle->segments.front().end - handle->segments.front().start)
+                + Math::normalize(handle->segments.front().end - handle->segments.front().start)
                       * distance;
             ASSERT_TRUE(update({.position = moved, .down = true}));
             const auto outside_translation = translation();
@@ -987,7 +988,7 @@ namespace {
         auto data = std::make_shared<AnimationData>();
         data->mesh_node = 0;
         data->nodes = {{"Mesh"}, {"Joint"}};
-        data->nodes[1].rest.rotation = glm::angleAxis(Math::PI / 2, Math::Vec3(0, 0, 1));
+        data->nodes[1].rest.rotation = Math::angle_axis(Math::PI / 2, Math::Vec3(0, 0, 1));
         data->evaluation_order = {0, 1};
         data->joints = {{.node = 1, .bounds = BoundingBox::from_point({0, 0, 0})}};
         auto parent = scene.create_entity("Model");

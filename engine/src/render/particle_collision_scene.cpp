@@ -67,7 +67,7 @@ namespace Comet {
                 }
                 const auto edge = Math::Vec3(triangle.positions[1] - triangle.positions[0]);
                 const auto other = Math::Vec3(triangle.positions[2] - triangle.positions[0]);
-                if(glm::length(glm::cross(edge, other)) > 1e-8f)
+                if(Math::length(Math::cross(edge, other)) > 1e-8f)
                     geometry->triangles.push_back(triangle);
             }
         }

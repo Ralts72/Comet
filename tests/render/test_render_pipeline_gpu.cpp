@@ -356,7 +356,7 @@ namespace Comet::Tests {
             const auto view = scene.get_offscreen_color_view(frames.get_current_frame_slot_index());
             ASSERT_NO_FATAL_FAILURE(
                 finish_readback(scene, frames, output, {33, 33}, drawn.value()));
-            auto direction = -glm::dvec3(light.direction);
+            auto direction = -Math::Vec3d(light.direction);
             double radiance = light.intensity;
             if(light.type != LightType::Directional) {
                 direction = {0, 0, 1};
@@ -364,8 +364,8 @@ namespace Comet::Tests {
             }
             if(!sample.has_light)
                 radiance = 0;
-            const auto expected = pbr_reference(glm::dvec3(sample.normal),
-                glm::dvec3(sample.camera) - glm::dvec3(0, 0, 0.5), direction, {0.8, 0.2, 0.1},
+            const auto expected = pbr_reference(Math::Vec3d(sample.normal),
+                Math::Vec3d(sample.camera) - Math::Vec3d(0, 0, 0.5), direction, {0.8, 0.2, 0.1},
                 sample.metallic, sample.roughness, radiance);
             const auto bytes = output->read();
             const auto format = view->get_image()->get_info().format;
@@ -1138,7 +1138,7 @@ void main() { color = texture(unsupported_view_resource, vec2(0.5)); }
             for(unsigned y = 0; y < 17; ++y) {
                 for(unsigned x = 0; x < 17; ++x) {
                     double radiance = light.intensity;
-                    glm::dvec3 direction = -glm::dvec3(light.direction);
+                    Math::Vec3d direction = -Math::Vec3d(light.direction);
                     if(attenuated) {
                         const Math::Vec3 position{
                             (x + 0.5f) / 8.5f - 1, 1 - (y + 0.5f) / 8.5f, 0.5f};
@@ -1147,7 +1147,7 @@ void main() { color = texture(unsupported_view_resource, vec2(0.5)); }
                         const float falloff =
                             std::max(1.0f - std::pow(distance / light.range, 4.0f), 0.0f);
                         radiance *= falloff * falloff / (distance * distance);
-                        direction = glm::dvec3(delta / distance);
+                        direction = Math::Vec3d(delta / distance);
                         if(spot) {
                             const float inner = std::cos(Math::radians(light.inner_angle));
                             const float outer = std::cos(Math::radians(light.outer_angle));
@@ -1163,7 +1163,7 @@ void main() { color = texture(unsupported_view_resource, vec2(0.5)); }
                     if(scenario == Scenario::BackFacing || scenario == Scenario::SingularScale
                         || scenario == Scenario::NoLights || scenario == Scenario::OutOfRange)
                         radiance = 0;
-                    glm::dvec3 normal{0, 0, 1};
+                    Math::Vec3d normal{0, 0, 1};
                     if(scenario == Scenario::NonuniformScale)
                         normal = {0.5, 0, 1};
                     const auto expected = pbr_reference(
@@ -1401,7 +1401,7 @@ void main() { color = texture(unsupported_view_resource, vec2(0.5)); }
             FrameScheduler frames(device, 2);
             frames.initialize_swapchain_images(2);
             FrameWait wait{device, frames};
-            for(const auto normal : {Math::Vec3(0, 0, 1), glm::normalize(Math::Vec3(1, 2, 3))}) {
+            for(const auto normal : {Math::Vec3(0, 0, 1), Math::normalize(Math::Vec3(1, 2, 3))}) {
                 RenderWorld world{.render_items = {{.entity_id = 1,
                                       .mesh = lit_quad(normal),
                                       .material = {AssetHandle(1540), material}}},
@@ -1512,7 +1512,7 @@ void main() { color = texture(unsupported_view_resource, vec2(0.5)); }
         const std::array<Math::Vec3, 6> face_colors{
             Math::Vec3(1, 0, 0), {0, 0, 1}, {1, 1, 1}, {1, 1, 1}, {0, 1, 0}, {1, 1, 1}};
         for(unsigned face = 0; face < face_colors.size(); ++face) {
-            const auto rgba = glm::packHalf4x16(Math::Vec4(face_colors[face], 1));
+            const auto rgba = Math::pack_half(Math::Vec4(face_colors[face], 1));
             for(unsigned pixel = 0; pixel < 64; ++pixel)
                 std::memcpy(cube.pixels.data() + (face * 64 + pixel) * 8, &rgba, 8);
         }

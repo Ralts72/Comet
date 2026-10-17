@@ -513,7 +513,7 @@ namespace Comet::Tests {
                 };
                 const auto first = rgb(pixel(0));
                 if(mode == IrradianceDebugMode::Off) {
-                    EXPECT_LT(glm::length(first), 3);
+                    EXPECT_LT(Math::length(first), 3);
                 } else if(mode == IrradianceDebugMode::Lighting) {
                     EXPECT_GT(first.r, 60);
                     EXPECT_LT(first.g, 10);

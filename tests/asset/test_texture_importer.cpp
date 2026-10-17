@@ -61,7 +61,7 @@ namespace Comet::Tests {
             const auto* pixel = rgbe + i * 4;
             const float scale = std::ldexp(1.f, int(pixel[3]) - 136);
             const Math::Vec3 linear{pixel[0] * scale, pixel[1] * scale, pixel[2] * scale};
-            EXPECT_LE(glm::length(linear - Math::Vec3(radiance[i])), .02f);
+            EXPECT_LE(Math::length(linear - Math::Vec3(radiance[i])), .02f);
         }
         auto dim = decode(".png", .5f);
         auto bright = decode(".png", 2);

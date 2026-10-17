@@ -704,13 +704,13 @@ namespace Comet::Tests {
         player.edit_transform([&](auto& t) { t.translation = target; });
         for(int i = 0; i < 180; ++i)
             ASSERT_TRUE(tick());
-        EXPECT_LT(glm::distance(location(), target), 1.2f);
+        EXPECT_LT(Math::distance(location(), target), 1.2f);
         player.edit_transform([](auto& t) { t.translation = {100, 0, 100}; });
         float home_distance = 100;
         for(int i = 0; i < 900; ++i) {
             ASSERT_TRUE(tick());
             home_distance =
-                std::min(home_distance, glm::distance(location(), Math::Vec3(-6, 0, 0)));
+                std::min(home_distance, Math::distance(location(), Math::Vec3(-6, 0, 0)));
         }
         EXPECT_LT(home_distance, 1);
         ASSERT_TRUE(runtime.stop());

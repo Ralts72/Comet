@@ -1,6 +1,5 @@
 #include "asset/data/texture_sampling.h"
 
-#include <glm/gtc/packing.hpp>
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -59,13 +58,13 @@ namespace Comet {
                                              : std::pow((value + 0.055f) / 1.055f, 2.4f);
                     }
             } else if(texel_size == 8) {
-                glm::u16vec4 packed;
+                Math::Half4 packed;
                 std::memcpy(&packed, bytes, 8);
-                pixel = glm::unpackHalf(packed);
+                pixel = Math::unpack_half(packed);
             } else {
                 std::memcpy(&pixel, bytes, 16);
             }
-            return Math::is_finite(pixel) && glm::all(glm::greaterThanEqual(pixel, Math::Vec4(0)));
+            return Math::is_finite(pixel) && Math::all_greater_equal(pixel, Math::Vec4(0));
         };
         if(result.width == width && result.height == height) {
             for(std::size_t index = 0; index < count; ++index)
@@ -79,7 +78,7 @@ namespace Comet {
                 for(uint32_t x = 0; x < result.width; ++x) {
                     const double left = x * scale_x, right = (x + 1) * scale_x;
                     const double top = y * scale_y, bottom = (y + 1) * scale_y;
-                    glm::dvec4 sum(0);
+                    Math::Vec4d sum(0);
                     for(uint32_t sy = uint32_t(top);
                         sy < std::min(height, uint32_t(std::ceil(bottom))); ++sy)
                         for(uint32_t sx = uint32_t(left);
@@ -90,7 +89,7 @@ namespace Comet {
                             const double area =
                                 (std::min(right, double(sx + 1)) - std::max(left, double(sx)))
                                 * (std::min(bottom, double(sy + 1)) - std::max(top, double(sy)));
-                            sum += glm::dvec4(pixel) * area;
+                            sum += Math::Vec4d(pixel) * area;
                         }
                     result.pixels[std::size_t(y) * result.width + x] =
                         Math::Vec4(sum / (scale_x * scale_y));
@@ -134,7 +133,7 @@ namespace Comet {
         if(sampler.mag_filter == Filter::Nearest)
             return texel(int(std::floor(p.x + 0.5f)), int(std::floor(p.y + 0.5f)));
         const int x = int(std::floor(p.x)), y = int(std::floor(p.y));
-        return glm::mix(glm::mix(texel(x, y), texel(x + 1, y), p.x - x),
-            glm::mix(texel(x, y + 1), texel(x + 1, y + 1), p.x - x), p.y - y);
+        return Math::mix(Math::mix(texel(x, y), texel(x + 1, y), p.x - x),
+            Math::mix(texel(x, y + 1), texel(x + 1, y + 1), p.x - x), p.y - y);
     }
 }

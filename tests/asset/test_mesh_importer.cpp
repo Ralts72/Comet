@@ -180,7 +180,7 @@ namespace Comet::Tests {
         EXPECT_EQ(plain.value().vertices.size(), 4u);
         EXPECT_EQ(plain.value().indices, source.indices);
         for(const auto& vertex : plain.value().vertices)
-            EXPECT_LT(glm::length(vertex.tangent - Math::Vec4(1, 0, 0, 1)), 1e-5f);
+            EXPECT_LT(Math::length(vertex.tangent - Math::Vec4(1, 0, 0, 1)), 1e-5f);
 
         source.vertices[3].texcoord = {1, 0};
         source.skin = {{{0, 1, 0, 0}, {.25f, .75f, 0, 0}}, {{1, 0, 0, 0}, {1, 0, 0, 0}},
@@ -201,10 +201,10 @@ namespace Comet::Tests {
             EXPECT_EQ(vertex.position, source.vertices[source_index].position);
             EXPECT_EQ(mesh.skin[result_index].joints, source.skin[source_index].joints);
             EXPECT_LT(
-                glm::length(mesh.skin[result_index].weights - source.skin[source_index].weights),
+                Math::length(mesh.skin[result_index].weights - source.skin[source_index].weights),
                 1e-6f);
             const auto expected = corner < 3 ? Math::Vec4(1, 0, 0, 1) : Math::Vec4(0, 1, 0, -1);
-            EXPECT_LT(glm::length(vertex.tangent - expected), 1e-5f);
+            EXPECT_LT(Math::length(vertex.tangent - expected), 1e-5f);
         }
         // 三角形输入顺序不影响切线基。
         source.indices = {0, 2, 3, 0, 1, 2};
@@ -227,11 +227,11 @@ namespace Comet::Tests {
             for(size_t corner = 0; corner < 6; ++corner) {
                 const auto& vertex = result.value().vertices[result.value().indices[corner]];
                 const auto expected =
-                    corner < 3 ? Math::Vec3(0, 0, 1) : glm::normalize(Math::Vec3(2, -2, 4));
-                EXPECT_LT(glm::length(vertex.normal - expected), 1e-5f);
+                    corner < 3 ? Math::Vec3(0, 0, 1) : Math::normalize(Math::Vec3(2, -2, 4));
+                EXPECT_LT(Math::length(vertex.normal - expected), 1e-5f);
                 if(uv) {
-                    EXPECT_NEAR(glm::length(Math::Vec3(vertex.tangent)), 1.f, 1e-5f);
-                    EXPECT_NEAR(glm::dot(vertex.normal, Math::Vec3(vertex.tangent)), 0.f, 1e-5f);
+                    EXPECT_NEAR(Math::length(Math::Vec3(vertex.tangent)), 1.f, 1e-5f);
+                    EXPECT_NEAR(Math::dot(vertex.normal, Math::Vec3(vertex.tangent)), 0.f, 1e-5f);
                 } else
                     EXPECT_EQ(vertex.tangent, Math::Vec4(0));
             }

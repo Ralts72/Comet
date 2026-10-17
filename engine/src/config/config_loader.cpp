@@ -125,7 +125,7 @@ namespace Comet {
                 return Result<void>::failure(text.error());
             const auto kind = "config profile " + std::string(profile);
             const Json::Context context(kind, path);
-            simdjson::dom::parser parser;
+            Json::Parser parser;
             auto root = context.parse(parser, text.value());
             if(!root)
                 return Result<void>::failure(root.error());

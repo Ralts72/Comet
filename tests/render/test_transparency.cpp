@@ -107,7 +107,7 @@ namespace Comet::Tests {
                     uint16_t alpha = 0;
                     const size_t offset = ((size_t(size.y / 2) * size.x + size.x / 2) * 4 + 3) * 2;
                     std::memcpy(&alpha, bytes.data() + offset, sizeof(alpha));
-                    EXPECT_GT(glm::unpackHalf1x16(alpha), .1f);
+                    EXPECT_GT(Math::unpack_half(alpha), .1f);
                     continue;
                 }
                 const auto bytes = pixels->read();

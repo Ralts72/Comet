@@ -183,7 +183,7 @@ namespace CometEditor {
                         {.4f, .7f, 1, 1}));
                     static_cast<void>(m_feedback_lines.add_line(emitter.vortex_center,
                         emitter.vortex_center
-                            + glm::normalize(emitter.vortex_axis) * emitter.vortex_radius,
+                            + Comet::Math::normalize(emitter.vortex_axis) * emitter.vortex_radius,
                         {.4f, .7f, 1, 1}));
                 }
                 if(const auto field = m_assets.resolve<Comet::VectorField>(emitter.vector_field)) {
@@ -198,8 +198,8 @@ namespace CometEditor {
                                     + data.bounds.size() * Comet::Math::Vec3(x, y, z) * .25f;
                                 auto direction =
                                     data.sample(point) * emitter.vector_field_strength * .1f;
-                                const float length = glm::length(direction),
-                                            limit = glm::length(data.bounds.size()) * .05f;
+                                const float length = Comet::Math::length(direction),
+                                            limit = Comet::Math::length(data.bounds.size()) * .05f;
                                 if(length > limit)
                                     direction *= limit / length;
                                 static_cast<void>(m_feedback_lines.add_line(

@@ -1,6 +1,5 @@
 #include "viewport/transform_gizmo.h"
 #include "scene/entity_tree.h"
-#include <glm/gtx/matrix_decompose.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -14,24 +13,16 @@ namespace CometEditor {
         constexpr int ROTATION_SEGMENTS = 64;
 
         bool uniform_orthogonal(const Comet::Math::Mat3& matrix) {
-            const float length = glm::length(matrix[0]);
+            const float length = Comet::Math::length(matrix[0]);
             if(!std::isfinite(length) || length <= EPSILON)
                 return false;
             const auto normalized = matrix / length;
             for(int i = 0; i < 3; ++i) {
-                if(std::abs(glm::length(normalized[i]) - 1) > 0.0001f)
+                if(std::abs(Comet::Math::length(normalized[i]) - 1) > 0.0001f)
                     return false;
                 for(int j = i + 1; j < 3; ++j)
-                    if(std::abs(glm::dot(normalized[i], normalized[j])) > 0.0001f)
+                    if(std::abs(Comet::Math::dot(normalized[i], normalized[j])) > 0.0001f)
                         return false;
-            }
-            return true;
-        }
-
-        bool finite_matrix(const Comet::Math::Mat4& matrix) {
-            for(int column = 0; column < 4; ++column) {
-                if(!Comet::Math::is_finite(matrix[column]))
-                    return false;
             }
             return true;
         }
@@ -72,11 +63,11 @@ namespace CometEditor {
         float distance_squared(
             const TransformGizmo::Segment& handle, const Comet::Math::Vec2 point) {
             const auto segment = handle.end - handle.start;
-            const float length_squared = glm::dot(segment, segment);
-            const float t =
-                std::clamp(glm::dot(point - handle.start, segment) / length_squared, 0.0f, 1.0f);
+            const float length_squared = Comet::Math::dot(segment, segment);
+            const float t = std::clamp(
+                Comet::Math::dot(point - handle.start, segment) / length_squared, 0.0f, 1.0f);
             const auto distance = point - (handle.start + segment * t);
-            return glm::dot(distance, distance);
+            return Comet::Math::dot(distance, distance);
         }
     }
 
@@ -130,7 +121,8 @@ namespace CometEditor {
             context.parent_world = scene->get_parent_matrix(entity);
             context.world_to_parent = Comet::Math::inverse(context.parent_world);
         }
-        if(!finite_matrix(context.parent_world) || !finite_matrix(context.world_to_parent))
+        if(!Comet::Math::is_finite(context.parent_world)
+            || !Comet::Math::is_finite(context.world_to_parent))
             return std::nullopt;
 
         const auto local_rotation =
@@ -153,12 +145,12 @@ namespace CometEditor {
                     return std::nullopt;
             } else {
                 context.rotation_frame = Comet::Math::Mat3(context.parent_world * local_rotation);
-                const float largest = std::max(
-                    {glm::length(context.rotation_frame[0]), glm::length(context.rotation_frame[1]),
-                        glm::length(context.rotation_frame[2])});
+                const float largest = std::max({Comet::Math::length(context.rotation_frame[0]),
+                    Comet::Math::length(context.rotation_frame[1]),
+                    Comet::Math::length(context.rotation_frame[2])});
                 context.rotation_frame /= largest;
-                context.inverse_rotation_frame = glm::inverse(context.rotation_frame);
-                if(!finite_matrix(Comet::Math::Mat4(context.inverse_rotation_frame)))
+                context.inverse_rotation_frame = Comet::Math::inverse(context.rotation_frame);
+                if(!Comet::Math::is_finite(Comet::Math::Mat4(context.inverse_rotation_frame)))
                     return std::nullopt;
             }
         }
@@ -176,8 +168,8 @@ namespace CometEditor {
         context.view_projection = *projection * camera.view_matrix;
         context.inverse_view_projection = Comet::Math::inverse(context.view_projection);
         context.axis_length = visible_height * AXIS_LENGTH / display_size.y;
-        if(!finite_matrix(context.view_projection)
-            || !finite_matrix(context.inverse_view_projection)
+        if(!Comet::Math::is_finite(context.view_projection)
+            || !Comet::Math::is_finite(context.inverse_view_projection)
             || !std::isfinite(context.axis_length))
             return std::nullopt;
         return context;
@@ -209,7 +201,7 @@ namespace CometEditor {
                 auto previous = point(0);
                 for(int segment = 1; segment <= ROTATION_SEGMENTS; ++segment) {
                     const auto next = point(segment);
-                    if(previous && next && glm::length(*next - *previous) > EPSILON
+                    if(previous && next && Comet::Math::length(*next - *previous) > EPSILON
                         && rotation_parameter(context, axis, (*previous + *next) * 0.5f))
                         handle.segments.push_back({*previous, *next});
                     previous = next;
@@ -220,7 +212,7 @@ namespace CometEditor {
             }
             const auto end = project(context.view_projection, context.layout,
                 context.origin + context.directions[index] * context.axis_length);
-            if(end && glm::length(*end - *start) >= MIN_PROJECTED_LENGTH)
+            if(end && Comet::Math::length(*end - *start) >= MIN_PROJECTED_LENGTH)
                 result[index] = Handle{axis, {{*start, *end}}};
         }
         if(m_settings.mode == Mode::Scale)
@@ -301,7 +293,7 @@ namespace CometEditor {
             if(m_settings.mode != Mode::Scale || !Comet::Math::is_finite(position))
                 return std::nullopt;
             // 中心手柄沿屏幕右上方向缩放，不依赖某个投影后可能退化的三维轴。
-            return glm::dot(position, glm::normalize(Comet::Math::Vec2(1, -1)))
+            return Comet::Math::dot(position, Comet::Math::normalize(Comet::Math::Vec2(1, -1)))
                    * context.axis_length / AXIS_LENGTH;
         }
         if(m_settings.mode == Mode::Rotate)
@@ -349,8 +341,8 @@ namespace CometEditor {
         else
             rotation = Math::Mat3(drag.context.world_to_parent) * delta
                        * Math::Mat3(drag.context.parent_world) * start;
-        const auto quaternion = glm::normalize(glm::quat_cast(rotation));
-        return Math::wrap_degrees(glm::eulerAngles(quaternion) * Math::RAD_TO_DEG);
+        const auto quaternion = Comet::Math::normalize(Comet::Math::to_quat(rotation));
+        return Math::wrap_degrees(Comet::Math::euler_angles(quaternion) * Math::RAD_TO_DEG);
     }
 
     bool TransformGizmo::begin_group(Drag& drag) {
@@ -372,7 +364,8 @@ namespace CometEditor {
                 member.parent_world = scene.get_parent_matrix(entity);
                 member.world_to_parent = Comet::Math::inverse(member.parent_world);
             }
-            if(!finite_matrix(member.world) || !finite_matrix(member.world_to_parent))
+            if(!Comet::Math::is_finite(member.world)
+                || !Comet::Math::is_finite(member.world_to_parent))
                 return false;
             drag.members.push_back(member);
             for(const char* property : {"translation", "rotation", "scale"})
@@ -447,15 +440,13 @@ namespace CometEditor {
                     Math::Vec3(member.world_to_parent * Math::Vec4(displacement, 0));
             } else if(!unchanged) {
                 const auto matrix = member.world_to_parent * around_pivot * member.world;
-                Math::Quat rotation;
-                Math::Vec3 skew;
-                Math::Vec4 perspective;
-                if(!finite_matrix(matrix)
-                    || !glm::decompose(matrix, transform.scale, rotation, transform.translation,
-                        skew, perspective))
+                const auto parts = Math::decompose(matrix);
+                if(!parts)
                     return false;
+                transform.scale = parts->scale;
+                transform.translation = parts->translation;
                 transform.rotation =
-                    Math::wrap_degrees(glm::eulerAngles(rotation) * Math::RAD_TO_DEG);
+                    Math::wrap_degrees(Math::euler_angles(parts->rotation) * Math::RAD_TO_DEG);
                 const auto recomposed =
                     Math::compose_trs(transform.translation, transform.rotation, transform.scale);
                 for(int column = 0; column < 4; ++column)

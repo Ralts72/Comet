@@ -41,8 +41,8 @@ namespace Comet {
     }
 
     void BoundingBox::include(const BoundingBox& box) {
-        minimum = glm::min(minimum, box.minimum);
-        maximum = glm::max(maximum, box.maximum);
+        minimum = Math::min(minimum, box.minimum);
+        maximum = Math::max(maximum, box.maximum);
     }
 
     bool BoundingBox::is_valid() const {
@@ -65,7 +65,7 @@ namespace Comet {
     }
 
     std::optional<Frustum> Frustum::from_view_projection(const Math::Mat4& view_projection) {
-        const auto rows = glm::transpose(view_projection);
+        const auto rows = Math::transpose(view_projection);
         Frustum frustum;
         frustum.m_planes = {rows[3] + rows[0], rows[3] - rows[0], rows[3] + rows[1],
             rows[3] - rows[1], rows[2], rows[3] - rows[2]};
@@ -87,7 +87,7 @@ namespace Comet {
             const Math::Vec3 support{plane.x >= 0 ? box.maximum.x : box.minimum.x,
                 plane.y >= 0 ? box.maximum.y : box.minimum.y,
                 plane.z >= 0 ? box.maximum.z : box.minimum.z};
-            if(glm::dot(Math::Vec3(plane), support) + plane.w >= 0)
+            if(Math::dot(Math::Vec3(plane), support) + plane.w >= 0)
                 continue;
             double distance = plane.w;
             double magnitude = std::abs(distance);
@@ -115,8 +115,8 @@ namespace Comet {
         for(int axis = 0; axis < 3; ++axis) {
             const auto first = Math::Vec3(transform[axis]) * box.minimum[axis];
             const auto second = Math::Vec3(transform[axis]) * box.maximum[axis];
-            result.minimum += glm::min(first, second);
-            result.maximum += glm::max(first, second);
+            result.minimum += Math::min(first, second);
+            result.maximum += Math::max(first, second);
         }
         return result.is_valid() ? std::optional(result) : std::nullopt;
     }

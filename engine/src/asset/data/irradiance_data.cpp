@@ -32,7 +32,7 @@ namespace Comet {
 
         float visibility_weight(
             const IrradianceProbe& probe, const Math::Vec3 delta, const float normal_bias) {
-            const float distance = glm::length(delta);
+            const float distance = Math::length(delta);
             if(distance < 1e-6f)
                 return 1;
             const auto texel = [&](int x, int y) {
@@ -50,9 +50,9 @@ namespace Comet {
             const auto coordinate = IrradianceData::visibility_coordinate(delta) * 8.0f - .5f;
             const int x = static_cast<int>(std::floor(coordinate.x));
             const int y = static_cast<int>(std::floor(coordinate.y));
-            const auto fraction = glm::fract(coordinate);
-            const auto moments = glm::mix(glm::mix(texel(x, y), texel(x + 1, y), fraction.x),
-                glm::mix(texel(x, y + 1), texel(x + 1, y + 1), fraction.x), fraction.y);
+            const auto fraction = Math::fract(coordinate);
+            const auto moments = Math::mix(Math::mix(texel(x, y), texel(x + 1, y), fraction.x),
+                Math::mix(texel(x, y + 1), texel(x + 1, y + 1), fraction.x), fraction.y);
             if(distance <= moments.x + normal_bias)
                 return 1;
             const float variance = std::max(moments.y - moments.x * moments.x, 1e-5f);
@@ -68,9 +68,9 @@ namespace Comet {
             return Result<void>::failure(
                 "Irradiance grid requires 2..64 cells per axis and at most 4096 probes");
         if(!Math::is_finite(origin) || !Math::is_finite(spacing)
-            || glm::any(glm::lessThanEqual(spacing, Math::Vec3(0)))
-            || glm::any(glm::greaterThan(spacing, Math::Vec3(10000)))
-            || !std::isfinite(max_distance) || max_distance <= 0 || max_distance > 100000)
+            || Math::any_less_equal(spacing, Math::Vec3(0))
+            || Math::any_greater(spacing, Math::Vec3(10000)) || !std::isfinite(max_distance)
+            || max_distance <= 0 || max_distance > 100000)
             return Result<void>::failure("Invalid irradiance grid bounds or distance");
         const auto end = origin + spacing * Math::Vec3(dimensions);
         if(!Math::is_finite(end))
@@ -125,7 +125,7 @@ namespace Comet {
             direction.x = (1 - std::abs(p.y)) * nonzero_sign(p.x);
             direction.y = (1 - std::abs(p.x)) * nonzero_sign(p.y);
         }
-        return glm::normalize(direction);
+        return Math::normalize(direction);
     }
 
     std::optional<Math::Vec3> IrradianceData::sample(
@@ -134,14 +134,14 @@ namespace Comet {
         const auto direction = Math::normalized_direction(normal);
         if(!count || probes.size() != *count || !direction || !Math::is_finite(position)
             || !Math::is_finite(origin) || !std::isfinite(normal_bias) || normal_bias < 0
-            || !Math::is_finite(spacing) || glm::any(glm::lessThanEqual(spacing, Math::Vec3(0))))
+            || !Math::is_finite(spacing) || Math::any_less_equal(spacing, Math::Vec3(0)))
             return std::nullopt;
         const auto coordinate = (position - origin) / spacing;
-        if(glm::any(glm::lessThan(coordinate, Math::Vec3(-0.5f)))
-            || glm::any(glm::greaterThan(coordinate, Math::Vec3(dimensions) - 0.5f)))
+        if(Math::any_less(coordinate, Math::Vec3(-0.5f))
+            || Math::any_greater(coordinate, Math::Vec3(dimensions) - 0.5f))
             return std::nullopt;
-        const auto grid = glm::clamp(coordinate, Math::Vec3(0), Math::Vec3(dimensions) - 1.0f);
-        const auto lower = glm::min(Math::Vec3u(grid), dimensions - 2u);
+        const auto grid = Math::clamp(coordinate, Math::Vec3(0), Math::Vec3(dimensions) - 1.0f);
+        const auto lower = Math::min(Math::Vec3u(grid), dimensions - 2u);
         const auto fraction = grid - Math::Vec3(lower);
         const auto biased = position + *direction * normal_bias;
         const auto harmonics = basis(*direction);
@@ -154,21 +154,21 @@ namespace Comet {
             const std::size_t index =
                 (std::size_t(cell.z) * dimensions.y + cell.y) * dimensions.x + cell.x;
             const auto& probe = probes[index];
-            const auto factors = glm::mix(Math::Vec3(1) - fraction, fraction, Math::Vec3(offset));
+            const auto factors = Math::mix(Math::Vec3(1) - fraction, fraction, Math::Vec3(offset));
             float weight = factors.x * factors.y * factors.z;
             if(!probe.active() || weight == 0)
                 continue;
             has_probe = true;
             const auto delta = biased - probe_position(index);
-            const float distance = glm::length(delta);
+            const float distance = Math::length(delta);
             float facing = 1;
             if(distance > 1e-6f)
-                facing = 0.1f + 0.9f * std::max(0.0f, glm::dot(-delta / distance, *direction));
+                facing = 0.1f + 0.9f * std::max(0.0f, Math::dot(-delta / distance, *direction));
             weight *= facing * facing * visibility_weight(probe, delta, normal_bias);
             Math::Vec3 irradiance{0};
             for(std::size_t coefficient = 0; coefficient < harmonics.size(); ++coefficient)
                 irradiance += Math::Vec3(probe.coefficients[coefficient]) * harmonics[coefficient];
-            result += glm::max(irradiance, Math::Vec3(0)) * weight;
+            result += Math::max(irradiance, Math::Vec3(0)) * weight;
             total += weight;
         }
         if(!has_probe)

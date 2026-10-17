@@ -20,6 +20,15 @@
 
 namespace Comet::Json {
     using Node = simdjson::dom::element;
+    using Parser = simdjson::dom::parser;
+    using Object = simdjson::dom::object;
+    using Array = simdjson::dom::array;
+    using Kind = simdjson::dom::element_type;
+    inline constexpr auto MISSING_FIELD = simdjson::NO_SUCH_FIELD;
+
+    [[nodiscard]] inline bool valid_utf8(std::string_view text) {
+        return simdjson::validate_utf8(text);
+    }
 
     class COMET_API Context final {
     public:
@@ -31,9 +40,9 @@ namespace Comet::Json {
                    + std::string(location) + "': " + std::string(detail);
         }
 
-        Result<Node> parse(simdjson::dom::parser& parser, std::string_view contents) const;
-        Result<simdjson::dom::object> object(Node node, std::string_view location) const;
-        Result<simdjson::dom::array> array(Node node, std::string_view location) const;
+        Result<Node> parse(Parser& parser, std::string_view contents) const;
+        Result<Object> object(Node node, std::string_view location) const;
+        Result<Array> array(Node node, std::string_view location) const;
         Result<Node> required_child(
             Node node, std::string_view key, std::string_view location = "<root>") const;
         // 点分路径；缺失字段返回 nullopt，节点仍借用 parser。
@@ -212,7 +221,7 @@ namespace Comet::Json {
     Result<T> deserialize(
         std::string_view kind, std::string_view contents, std::string_view source, Decode decode) {
         const Context context(kind, source);
-        simdjson::dom::parser parser;
+        Parser parser;
         auto root = context.parse(parser, contents);
         if(!root)
             return Result<T>::failure(root.error());

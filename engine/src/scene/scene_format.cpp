@@ -177,13 +177,12 @@ namespace Comet::SceneFormat {
                 message = "expected a finite value within property constraints";
             return Result<PropertyValue>::failure(context.error(location, message));
         }
-        if(const auto* text = std::get_if<std::string>(&*value);
-            text && !simdjson::validate_utf8(*text))
+        if(const auto* text = std::get_if<std::string>(&*value); text && !Json::valid_utf8(*text))
             return Result<PropertyValue>::failure(context.error(location, "invalid UTF-8"));
         if(const auto* parameters = std::get_if<ParameterMap>(&*value)) {
             for(const auto& [name, parameter] : *parameters) {
                 const auto* text = std::get_if<std::string>(&parameter);
-                if(!simdjson::validate_utf8(name) || (text && !simdjson::validate_utf8(*text)))
+                if(!Json::valid_utf8(name) || (text && !Json::valid_utf8(*text)))
                     return Result<PropertyValue>::failure(context.error(location, "invalid UTF-8"));
             }
         }
@@ -231,7 +230,7 @@ namespace Comet::SceneFormat {
             return Read::failure(context.error(location, "prefab asset must not be zero"));
         auto result = std::make_shared<PrefabRecord>();
         result->asset = AssetHandle(asset.value());
-        if(node["type"].error() != simdjson::NO_SUCH_FIELD) {
+        if(node["type"].error() != Json::MISSING_FIELD) {
             auto type = context.read_field<std::string>(node, "type", "a source type", location);
             if(!type)
                 return Read::failure(type.error());
@@ -240,9 +239,9 @@ namespace Comet::SceneFormat {
             else if(type.value() != "prefab")
                 return Read::failure(context.error(location, "invalid prefab source type"));
         }
-        result->compact = node["changes"].error() != simdjson::NO_SUCH_FIELD;
+        result->compact = node["changes"].error() != Json::MISSING_FIELD;
         std::unordered_set<EntityUuid> uuids;
-        if(node["base"].error() != simdjson::NO_SUCH_FIELD) {
+        if(node["base"].error() != Json::MISSING_FIELD) {
             auto base = context.required_child(node, "base", location);
             if(!base)
                 return Read::failure(base.error());
@@ -392,7 +391,7 @@ namespace Comet::SceneFormat {
                 context.error(location + ".uuid", "expected a non-nil canonical UUID"));
         record.uuid = *uuid;
         Json::Node prefab;
-        if(const auto error = node["prefab"].get(prefab); error != simdjson::NO_SUCH_FIELD) {
+        if(const auto error = node["prefab"].get(prefab); error != Json::MISSING_FIELD) {
             if(error || prefab_depth >= SceneSerializer::MAX_PREFAB_DEPTH)
                 return Result<EntityRecord>::failure(
                     context.error(location, "invalid prefab metadata or nesting depth exceeded"));
@@ -454,7 +453,7 @@ namespace Comet::SceneFormat {
                     continue;
                 }
                 const std::string property_location = component_location + "." + property.id;
-                if(!property.required && component[property.id].error() == simdjson::NO_SUCH_FIELD)
+                if(!property.required && component[property.id].error() == Json::MISSING_FIELD)
                     continue;
                 const auto child =
                     context.required_child(component, property.id, component_location);

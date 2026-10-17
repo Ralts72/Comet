@@ -23,13 +23,12 @@ namespace Comet::Gameplay {
                 return Result<rcConfig>::failure(message);
             };
             if(!Math::is_finite(center) || !Math::is_finite(s.half_extents)
-                || !glm::all(glm::greaterThan(s.half_extents, Math::Vec3(0)))
-                || !std::isfinite(s.cell_size) || s.cell_size < 0.05f || s.cell_size > 2
-                || !std::isfinite(s.agent_radius) || s.agent_radius <= 0 || s.agent_radius > 10
-                || !std::isfinite(s.agent_height) || s.agent_height < s.agent_radius * 2
-                || s.agent_height > 20 || !std::isfinite(s.max_climb) || s.max_climb < 0
-                || s.max_climb > s.agent_height || !std::isfinite(s.max_slope) || s.max_slope < 0
-                || s.max_slope >= 90)
+                || !Math::all_greater(s.half_extents, Math::Vec3(0)) || !std::isfinite(s.cell_size)
+                || s.cell_size < 0.05f || s.cell_size > 2 || !std::isfinite(s.agent_radius)
+                || s.agent_radius <= 0 || s.agent_radius > 10 || !std::isfinite(s.agent_height)
+                || s.agent_height < s.agent_radius * 2 || s.agent_height > 20
+                || !std::isfinite(s.max_climb) || s.max_climb < 0 || s.max_climb > s.agent_height
+                || !std::isfinite(s.max_slope) || s.max_slope < 0 || s.max_slope >= 90)
                 return fail("Invalid navigation region dimensions or agent settings");
             if(triangles.empty() || triangles.size() % 3 || triangles.size() > 3000000)
                 return fail("Navigation requires between one and one million triangles");
@@ -296,7 +295,7 @@ namespace Comet::Gameplay {
             return Result<void>::failure("最多支持 128 个动态导航障碍");
         for(const auto& obstacle : obstacles)
             if(!Math::is_finite(obstacle.minimum) || !Math::is_finite(obstacle.maximum)
-                || !glm::all(glm::lessThan(obstacle.minimum, obstacle.maximum)))
+                || !Math::all_less(obstacle.minimum, obstacle.maximum))
                 return Result<void>::failure("无效的动态导航障碍范围");
         auto described = configuration(triangles, center, s);
         if(!described)

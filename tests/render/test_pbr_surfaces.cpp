@@ -1,3 +1,4 @@
+#include <numbers>
 #include "asset/import/mesh_importer.h"
 #include "support/render_graph_gpu_fixture.h"
 #include "render/material/material_programs.h"
@@ -177,7 +178,7 @@ namespace Comet::Tests {
             ASSERT_TRUE(green->set_vector_property("color", {0, 1, 0, .5f}));
             auto transform = Math::translate(Math::Mat4(1), {0, 0, .5f});
             if(sample.back)
-                transform = glm::rotate(transform, Math::PI, Math::Vec3(0, 1, 0));
+                transform = Math::rotate(transform, Math::PI, Math::Vec3(0, 1, 0));
             if(sample.mirrored)
                 transform = Math::scale(transform, {-1, 1, 1});
             RenderWorld world{
@@ -410,19 +411,19 @@ namespace Comet::Tests {
                     device, context.get_context().get_physical_device(), 9 * 9 * 4);
                 finish_readback(*scene.value(), frames, output, size, drawn.value());
                 // 屏幕中心的重心权重为 1/4、1/4、1/2，直接插值三个完整顶点切线基。
-                glm::dvec3 n(0), t(0), b(0);
+                Math::Vec3d n(0), t(0), b(0);
                 for(size_t vertex = 0; vertex < 3; ++vertex) {
                     const double weight = vertex == 2 ? .5 : .25;
-                    const glm::dvec3 normal(data.vertices[vertex].normal),
+                    const Math::Vec3d normal(data.vertices[vertex].normal),
                         tangent(data.vertices[vertex].tangent);
                     n += weight * normal;
                     t += weight * tangent;
-                    b += weight * double(handedness) * glm::cross(normal, tangent);
+                    b += weight * double(handedness) * Math::cross(normal, tangent);
                 }
-                const auto local = glm::dvec3(204, 179, 230) * (2.0 / 255.0) - 1.0;
-                const auto mapped = glm::normalize(t * local.x + b * local.y + n * local.z);
+                const auto local = Math::Vec3d(204, 179, 230) * (2.0 / 255.0) - 1.0;
+                const auto mapped = Math::normalize(t * local.x + b * local.y + n * local.z);
                 const auto expected = pbr_reference(
-                    mapped, {0, 0, 1}, {.6, 0, .8}, {.6, .4, .2}, .8, .8, glm::pi<double>());
+                    mapped, {0, 0, 1}, {.6, 0, .8}, {.6, .4, .2}, .8, .8, std::numbers::pi);
                 const auto bytes = output->read();
                 const bool bgra =
                     format == Format::B8G8R8A8_SRGB || format == Format::B8G8R8A8_UNORM;
@@ -481,7 +482,7 @@ namespace Comet::Tests {
         frames.initialize_swapchain_images(2);
         FrameWait wait{device, frames};
         std::vector<std::shared_ptr<Readback>> outputs;
-        std::vector<glm::dvec3> expected;
+        std::vector<Math::Vec3d> expected;
         Format format{};
         for(std::size_t index = 0; index < cases.size(); ++index) {
             const auto sample = cases[index];
@@ -496,7 +497,7 @@ namespace Comet::Tests {
                 ASSERT_TRUE(imported) << imported.error();
                 data = imported.value();
                 for(const auto& vertex : data.vertices)
-                    ASSERT_LT(glm::length(vertex.tangent - Math::Vec4(1, 0, 0, 1)), 1e-5f);
+                    ASSERT_LT(Math::length(vertex.tangent - Math::Vec4(1, 0, 0, 1)), 1e-5f);
             }
             for(auto& vertex : data.vertices) {
                 if(sample.authored_tangent)
@@ -531,12 +532,12 @@ namespace Comet::Tests {
             if(sample.transform == 1)
                 model = Math::scale(model, {-1, 1, 1});
             if(sample.transform == 2) {
-                model = glm::rotate(model, Math::PI, Math::Vec3(0, 1, 0));
+                model = Math::rotate(model, Math::PI, Math::Vec3(0, 1, 0));
                 ASSERT_TRUE(material->set_surface({.double_sided = true}));
             }
             if(sample.transform == 3)
                 model = Math::scale(
-                    glm::rotate(model, Math::PI / 4, Math::Vec3(0, 0, 1)), {1.5f, .75f, 1});
+                    Math::rotate(model, Math::PI / 4, Math::Vec3(0, 0, 1)), {1.5f, .75f, 1});
             RenderWorld world{.render_items = {{.model_matrix = model,
                                   .mesh = mesh.value(),
                                   .material = {AssetHandle{9500 + index}, material}}}};
@@ -565,15 +566,15 @@ namespace Comet::Tests {
             copy_output(frames, view->get_image(), output, size);
             submit(device, frames, drawn.value());
             outputs.push_back(output);
-            glm::dvec3 n{0, 0, 1};
+            Math::Vec3d n{0, 0, 1};
             if(sample.mapped && sample.uv_mode != 2 && sample.normal_scale != 0) {
-                n = glm::normalize(glm::dvec3(204, 179, 230) * (2.0 / 255.0) - 1.0);
+                n = Math::normalize(Math::Vec3d(204, 179, 230) * (2.0 / 255.0) - 1.0);
                 if(sample.authored_tangent) {
                     n = {sample.authored_tangent == 2 ? n.y : -n.y, n.x, n.z};
                     if(sample.transform == 1)
                         n.x = -n.x;
                     if(sample.transform == 3) {
-                        const double angle = glm::pi<double>() / 4;
+                        const double angle = std::numbers::pi / 4;
                         n = {std::cos(angle) * n.x - std::sin(angle) * n.y,
                             std::sin(angle) * n.x + std::cos(angle) * n.y, n.z};
                     }
@@ -583,13 +584,13 @@ namespace Comet::Tests {
                 if(sample.uv_mode == 3)
                     n = {-n.y, n.x, n.z};
             }
-            glm::dvec3 color{0};
+            Math::Vec3d color{0};
             if(sample.light)
                 color = pbr_reference(n, {0, 0, 1}, {0.6, 0, 0.8}, {0.6, 0.4, 0.2},
                     sample.packed ? 0.8 * 192 / 255 : 0.8, sample.packed ? 0.8 * 128 / 255 : 0.8,
-                    glm::pi<double>());
+                    std::numbers::pi);
             if(sample.emissive)
-                color += glm::dvec3(64, 64, 48) * (2.0 / 255.0);
+                color += Math::Vec3d(64, 64, 48) * (2.0 / 255.0);
             expected.push_back(color);
         }
         frames.wait_for_all_slots();

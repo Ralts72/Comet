@@ -3,6 +3,7 @@ if(NOT DEFINED COMET_SOURCE_ROOT OR NOT DEFINED TEST_ROOT)
 endif()
 
 # Test forbidden dependencies in a disposable copy, never in the working tree.
+file(REMOVE_RECURSE "${TEST_ROOT}")
 file(MAKE_DIRECTORY "${TEST_ROOT}/engine/cmake" "${TEST_ROOT}/editor" "${TEST_ROOT}/app")
 file(COPY "${COMET_SOURCE_ROOT}/engine/src" DESTINATION "${TEST_ROOT}/engine")
 file(COPY "${COMET_SOURCE_ROOT}/editor/src" DESTINATION "${TEST_ROOT}/editor")
@@ -57,3 +58,7 @@ probe_dependency("src/animation/animation_system.cpp" "\"gameplay/character_cont
     "Runtime violates module dependencies")
 probe_dependency("src/config/player_settings.cpp" "\"runtime/player_settings_owner.h\""
     "PlayerSettings violates module dependencies")
+probe_dependency("src/core/task_scheduler.cpp" "<glm/glm.hpp>"
+    "Use core/math_utils.h instead of GLM directly")
+probe_dependency("src/scene/scene.cpp" "<simdjson.h>"
+    "Use common/json.h instead of simdjson directly")

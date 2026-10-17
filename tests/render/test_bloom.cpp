@@ -13,7 +13,6 @@
 #include "bloom_frag.h"
 #include "display_frag.h"
 
-#include <glm/gtc/packing.hpp>
 #include <algorithm>
 #include <cmath>
 
@@ -60,11 +59,11 @@ namespace Comet::Tests {
 
     class BloomGpuTest: public RenderGpuTest {
     protected:
-        using Pixels = std::vector<glm::dvec3>;
+        using Pixels = std::vector<Math::Vec3d>;
         static double half(double value) {
-            return glm::unpackHalf1x16(glm::packHalf1x16(static_cast<float>(value)));
+            return Math::unpack_half(Math::pack_half(static_cast<float>(value)));
         }
-        static glm::dvec3 half(glm::dvec3 value) {
+        static Math::Vec3d half(Math::Vec3d value) {
             return {half(value.x), half(value.y), half(value.z)};
         }
         static Pixels reference(const Pixels& source, Math::Vec2u size, float threshold) {
@@ -73,7 +72,7 @@ namespace Comet::Tests {
             for(int y = 0; y < height; ++y)
                 for(int x = 0; x < width; ++x) {
                     int count = 0;
-                    glm::dvec3 energy{};
+                    Math::Vec3d energy{};
                     for(uint32_t dy = 0; dy < 2; ++dy)
                         for(uint32_t dx = 0; dx < 2; ++dx) {
                             const uint32_t sx = 2 * x + dx, sy = 2 * y + dy;
@@ -94,7 +93,7 @@ namespace Comet::Tests {
                 Pixels blurred(reduced.size());
                 for(int y = 0; y < height; ++y)
                     for(int x = 0; x < width; ++x) {
-                        glm::dvec3 energy{};
+                        Math::Vec3d energy{};
                         for(int tap = -4; tap <= 4; ++tap) {
                             int sx = x, sy = y;
                             if(axis == 0)
@@ -114,7 +113,7 @@ namespace Comet::Tests {
                     const double py = (y + 0.5) * height / size.y - 0.5;
                     const int left = static_cast<int>(std::floor(px)),
                               top = static_cast<int>(std::floor(py));
-                    glm::dvec3 energy{};
+                    Math::Vec3d energy{};
                     for(int dy = 0; dy < 2; ++dy)
                         for(int dx = 0; dx < 2; ++dx) {
                             const double wx = dx == 0 ? 1 - (px - left) : px - left;
@@ -158,7 +157,7 @@ namespace Comet::Tests {
                 data.pixels.resize(source.size() * 8);
                 for(uint32_t y = 0; y < size.y; ++y)
                     for(uint32_t x = 0; x < size.x; ++x) {
-                        glm::dvec3 value(0.03, 0.06, 0.1);
+                        Math::Vec3d value(0.03, 0.06, 0.1);
                         if((x == size.x / 2 && y == size.y / 2) || (x == 0 && y == 0))
                             value = {8, 2, 0.5};
                         if(x == size.x - 1 && y == size.y - 1)
@@ -170,7 +169,7 @@ namespace Comet::Tests {
                             float v = 1;
                             if(channel < 3)
                                 v = static_cast<float>(value[channel]);
-                            const auto packed = glm::packHalf1x16(v);
+                            const auto packed = Math::pack_half(v);
                             std::memcpy(data.pixels.data() + ((y * size.x + x) * 4 + channel) * 2,
                                 &packed, 2);
                         }
@@ -262,7 +261,7 @@ namespace Comet::Tests {
                                     uint16_t packed;
                                     std::memcpy(
                                         &packed, bytes.data() + pixel * stride + channel * 2, 2);
-                                    EXPECT_NEAR(glm::unpackHalf1x16(packed), mapped, 0.008);
+                                    EXPECT_NEAR(Math::unpack_half(packed), mapped, 0.008);
                                 } else {
                                     EXPECT_NEAR(
                                         std::to_integer<int>(bytes[pixel * stride + channel]),
@@ -272,7 +271,7 @@ namespace Comet::Tests {
                             if(hdr_output) {
                                 uint16_t alpha;
                                 std::memcpy(&alpha, bytes.data() + pixel * stride + 6, 2);
-                                EXPECT_EQ(glm::unpackHalf1x16(alpha), 1.0f);
+                                EXPECT_EQ(Math::unpack_half(alpha), 1.0f);
                             } else {
                                 EXPECT_EQ(bytes[pixel * stride + 3], std::byte{255});
                             }
@@ -290,7 +289,7 @@ namespace Comet::Tests {
         data.pixels.resize(4 * 8);
         for(std::size_t pixel = 0; pixel < values.size(); ++pixel) {
             for(std::size_t channel = 0; channel < 4; ++channel) {
-                const auto value = glm::packHalf1x16(channel == 3 ? 1.0f : values[pixel]);
+                const auto value = Math::pack_half(channel == 3 ? 1.0f : values[pixel]);
                 std::memcpy(data.pixels.data() + pixel * 8 + channel * 2, &value, 2);
             }
         }

@@ -19,7 +19,7 @@ namespace Comet {
             || (vector_field && (!gpu || !gpu_dynamics)))
             return Result<void>::failure("向量场需要 GPU 有状态模拟，强度须为 -1000～1000");
         if(!Math::is_finite(wind) || !Math::is_finite(vortex_center)
-            || !Math::is_finite(vortex_axis) || glm::length(vortex_axis) < 1e-5f
+            || !Math::is_finite(vortex_axis) || Math::length(vortex_axis) < 1e-5f
             || !std::isfinite(vortex_strength) || std::abs(vortex_strength) > 1000
             || !std::isfinite(vortex_radius) || vortex_radius <= 0 || vortex_radius > 100000)
             return Result<void>::failure("Invalid GPU wind or vortex field");

@@ -45,6 +45,12 @@ namespace Comet {
         float height_start = .6f, height_end = .85f;
         float roughness = .9f;
         Vegetation vegetation;
+        // 已展开、通过校验的高度网格；坐标单位为网格格点，边界夹紧。
+        [[nodiscard]] float sample_height(Math::Vec2 grid) const;
+        [[nodiscard]] Math::Vec3 sample_normal(Math::Vec2 grid) const;
+        [[nodiscard]] Math::Vec3 sample_weights(Math::Vec2 grid) const;
+        // 将自动坡度／海拔权重实体化；不覆盖已有手绘权重。
+        void initialize_layer_weights();
         [[nodiscard]] Result<void> validate() const;
         [[nodiscard]] static Result<TerrainData> deserialize(
             std::string_view, std::string_view source = {});

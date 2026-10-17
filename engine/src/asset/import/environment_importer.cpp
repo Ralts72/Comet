@@ -1,7 +1,6 @@
+#include "core/math_utils.h"
 #include "asset/import/environment_importer.h"
 
-#include <glm/glm.hpp>
-#include <glm/gtc/packing.hpp>
 #include <stb_image.h>
 
 #include <algorithm>
@@ -34,7 +33,8 @@ namespace Comet {
         const auto face = std::bit_floor(static_cast<std::size_t>(width / 4));
         // 预留解码、浮点立方体面与降采样、mip 容器扩容和产物序列化的内存。
         return Result<std::size_t>::success(source_size + std::size_t(width) * height * 16
-            + face * face * 6 * 20 + face * face * 6 * 8 * 4 + 16 * 1024 * 1024);
+                                            + face * face * 6 * 20 + face * face * 6 * 8 * 4
+                                            + 16 * 1024 * 1024);
     }
 
     Result<std::size_t> EnvironmentImporter::working_bytes(const std::filesystem::path& path) {
@@ -139,21 +139,21 @@ namespace Comet {
             .format = Format::R16G16B16A16_SFLOAT,
             .mip_levels = static_cast<uint32_t>(std::bit_width(static_cast<uint32_t>(size))),
             .cubemap = true};
-        std::vector<glm::vec4> level(size_t(size) * size * 6);
+        std::vector<Math::Vec4> level(size_t(size) * size * 6);
         const auto texel = [&](int x, int y) {
             x = (x % width + width) % width;
             y = std::clamp(y, 0, height - 1);
             const float* p = pixels.get() + (size_t(y) * width + x) * 4;
-            return glm::vec4(p[0], p[1], p[2], 1.0f);
+            return Math::Vec4(p[0], p[1], p[2], 1.0f);
         };
         for(int face = 0; face < 6; ++face) {
             for(int y = 0; y < size; ++y) {
                 for(int x = 0; x < size; ++x) {
                     const float u = 2.0f * (float(x) + 0.5f) / float(size) - 1.0f;
                     const float v = 2.0f * (float(y) + 0.5f) / float(size) - 1.0f;
-                    const std::array<glm::vec3, 6> directions{{{1, -v, -u}, {-1, -v, u}, {u, 1, v},
+                    const std::array<Math::Vec3, 6> directions{{{1, -v, -u}, {-1, -v, u}, {u, 1, v},
                         {u, -1, -v}, {u, -v, 1}, {-u, -v, -1}}};
-                    const auto direction = glm::normalize(directions[face]);
+                    const auto direction = Math::normalize(directions[face]);
                     const float longitude = std::atan2(direction.z, direction.x);
                     const float latitude = std::acos(std::clamp(direction.y, -1.0f, 1.0f));
                     const float px =
@@ -162,24 +162,24 @@ namespace Comet {
                     const int ix = static_cast<int>(std::floor(px));
                     const int iy = static_cast<int>(std::floor(py));
                     level[(size_t(face) * size + y) * size + x] =
-                        glm::mix(glm::mix(texel(ix, iy), texel(ix + 1, iy), px - ix),
-                            glm::mix(texel(ix, iy + 1), texel(ix + 1, iy + 1), px - ix), py - iy);
+                        Math::mix(Math::mix(texel(ix, iy), texel(ix + 1, iy), px - ix),
+                            Math::mix(texel(ix, iy + 1), texel(ix + 1, iy + 1), px - ix), py - iy);
                 }
             }
         }
         // 此处只生成背景 mip；光照用的粗糙度预滤波由 prepare_lighting 单独完成。
         for(int extent = size; extent > 0; extent /= 2) {
             const size_t offset = result.pixels.size();
-            result.pixels.resize(offset + level.size() * sizeof(glm::u16vec4));
+            result.pixels.resize(offset + level.size() * sizeof(Math::Half4));
             for(size_t i = 0; i < level.size(); ++i) {
-                const auto packed = glm::packHalf(level[i]);
+                const auto packed = Math::pack_half(level[i]);
                 std::memcpy(
                     result.pixels.data() + offset + i * sizeof(packed), &packed, sizeof(packed));
             }
             if(extent == 1)
                 break;
             const int next = extent / 2;
-            std::vector<glm::vec4> reduced(size_t(next) * next * 6);
+            std::vector<Math::Vec4> reduced(size_t(next) * next * 6);
             for(int face = 0; face < 6; ++face)
                 for(int y = 0; y < next; ++y)
                     for(int x = 0; x < next; ++x) {

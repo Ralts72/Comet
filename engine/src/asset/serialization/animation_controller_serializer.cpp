@@ -16,11 +16,11 @@ namespace Comet {
                 target = std::move(*read.value());
             return Result<void>::success();
         }
-        Result<simdjson::dom::array> array(
+        Result<Json::Array> array(
             Json::Node node, std::string_view key, const Json::Context& context) {
             auto child = context.required_child(node, key);
             if(!child)
-                return Result<simdjson::dom::array>::failure(child.error());
+                return Result<Json::Array>::failure(child.error());
             return context.array(child.value(), key);
         }
         Result<ParameterValue> scalar(

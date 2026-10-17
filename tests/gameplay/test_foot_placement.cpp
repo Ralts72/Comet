@@ -339,14 +339,14 @@ namespace Comet::Tests {
         const auto first = scene.get_animation_playback(model);
         ASSERT_TRUE(first && first->pose);
         ASSERT_EQ(first->ik.size(), 2u);
-        EXPECT_LT(
-            glm::length(Math::Vec3(first->pose->bone_matrices[9][3]) - Math::Vec3(-.7f, 1.3f, .4f)),
+        EXPECT_LT(Math::length(
+                      Math::Vec3(first->pose->bone_matrices[9][3]) - Math::Vec3(-.7f, 1.3f, .4f)),
             .001f);
         const auto from = Math::Vec3(first->pose->bone_matrices[7][3]),
                    middle = Math::Vec3(first->pose->bone_matrices[8][3]),
                    tip = Math::Vec3(first->pose->bone_matrices[9][3]);
-        EXPECT_NEAR(glm::length(from - middle), .5f, .0001f);
-        EXPECT_NEAR(glm::length(middle - tip), .5f, .0001f);
+        EXPECT_NEAR(Math::length(from - middle), .5f, .0001f);
+        EXPECT_NEAR(Math::length(middle - tip), .5f, .0001f);
         move(left, {-.7f, 1.4f, .3f});
         ASSERT_TRUE(runtime.advance(1.0 / 30));
         const auto second = scene.get_animation_playback(model);

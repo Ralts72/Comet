@@ -217,7 +217,7 @@ namespace Comet {
                     const auto color =
                         cube.sample({radius * std::cos(angle), vertical, radius * std::sin(angle)});
                     auto& pixel = output->texels[size_t(y) * width + x];
-                    pixel = {color, glm::dot(color, Math::Vec3(.2126f, .7152f, .0722f))};
+                    pixel = {color, Math::dot(color, Math::Vec3(.2126f, .7152f, .0722f))};
                     if(!Math::is_finite(pixel))
                         return Built::failure("射线场景环境解码溢出");
                     sum += pixel.w;
@@ -285,7 +285,7 @@ namespace Comet {
             if(!Math::is_finite(result.albedo_metallic)
                 || !Math::is_finite(result.emission_roughness)
                 || !Math::is_finite(result.parameters) || !Math::is_finite(result.opacity)
-                || glm::any(glm::lessThan(Math::Vec3(result.emission_roughness), Math::Vec3(0))))
+                || Math::any_less(Math::Vec3(result.emission_roughness), Math::Vec3(0)))
                 return Surface::failure("射线场景材质包含无效参数");
             return Surface::success(result);
         }
@@ -326,12 +326,12 @@ namespace Comet {
             Math::Mat3 normal;
             float orientation;
             explicit MeshTransform(const Math::Mat4& matrix)
-                : model(matrix), normal(glm::transpose(glm::inverse(Math::Mat3(matrix)))),
-                  orientation(glm::determinant(Math::Mat3(matrix)) < 0 ? -1.f : 1.f) {}
+                : model(matrix), normal(Math::transpose(Math::inverse(Math::Mat3(matrix)))),
+                  orientation(Math::determinant(Math::Mat3(matrix)) < 0 ? -1.f : 1.f) {}
         };
         bool valid_transform(const Math::Mat4& matrix) {
             return Math::is_finite(matrix)
-                   && std::abs(glm::determinant(Math::Mat3(matrix))) >= 1e-10f;
+                   && std::abs(Math::determinant(Math::Mat3(matrix))) >= 1e-10f;
         }
         Result<RayScene::Geometry::Deformation> deform_mesh(
             const MeshData& mesh, const ResolvedRenderItem& item) {
@@ -374,13 +374,13 @@ namespace Comet {
                 auto& vertex = (*vertices)[i];
                 vertex.position = Math::Vec3(skin * Math::Vec4(vertex.position, 1));
                 const auto basis = Math::Mat3(skin);
-                const auto determinant = glm::determinant(basis);
+                const auto determinant = Math::determinant(basis);
                 const auto normal_basis =
-                    std::abs(determinant) > 1e-8f ? glm::transpose(glm::inverse(basis)) : basis;
+                    std::abs(determinant) > 1e-8f ? Math::transpose(Math::inverse(basis)) : basis;
                 vertex.normal = Math::normalized_direction(normal_basis * vertex.normal)
                                     .value_or(vertex.normal);
                 vertex.tangent = Math::Vec4(
-                    basis * Math::Vec3(vertex.tangent), vertex.tangent.w * glm::sign(determinant));
+                    basis * Math::Vec3(vertex.tangent), vertex.tangent.w * Math::sign(determinant));
             }
             return Deformed::success({item.animation, std::move(vertices)});
         }
@@ -404,10 +404,10 @@ namespace Comet {
                     const auto transformed =
                         Math::Vec3(transform.model * Math::Vec4(Math::Vec3(vertex.tangent), 0));
                     if(const auto direction = Math::normalized_direction(
-                           transformed - *normal * glm::dot(*normal, transformed))) {
+                           transformed - *normal * Math::dot(*normal, transformed))) {
                         tangent = *direction;
-                        bitangent =
-                            glm::cross(*normal, tangent) * vertex.tangent.w * transform.orientation;
+                        bitangent = Math::cross(*normal, tangent) * vertex.tangent.w
+                                    * transform.orientation;
                     }
                 }
                 triangle.tangents[i] = Math::Vec4(tangent, vertex.texcoord.y);
@@ -477,8 +477,8 @@ namespace Comet {
                     const auto& a = mesh.vertices[triangle.surface[1]].position;
                     const auto& b = mesh.vertices[triangle.surface[2]].position;
                     const auto& c = mesh.vertices[triangle.surface[3]].position;
-                    const auto geometric = glm::cross(b - a, c - a);
-                    if(glm::dot(geometric, geometric) >= 1e-16f)
+                    const auto geometric = Math::cross(b - a, c - a);
+                    if(Math::dot(geometric, geometric) >= 1e-16f)
                         result->triangles.push_back(triangle);
                 }
                 topology->meshes.push_back(source);
@@ -533,8 +533,8 @@ namespace Comet {
                 } else {
                     const auto& left = result->nodes[i + 1];
                     const auto& right = result->nodes[left.links[3]];
-                    box = {glm::min(Math::Vec3(left.minimum), Math::Vec3(right.minimum)),
-                        glm::max(Math::Vec3(left.maximum), Math::Vec3(right.maximum))};
+                    box = {Math::min(Math::Vec3(left.minimum), Math::Vec3(right.minimum)),
+                        Math::max(Math::Vec3(left.maximum), Math::Vec3(right.maximum))};
                 }
                 node.minimum = Math::Vec4(box.minimum, 0);
                 node.maximum = Math::Vec4(box.maximum, 0);
@@ -644,9 +644,8 @@ namespace Comet {
                 auto emitters = std::make_shared<std::vector<uint32_t>>();
                 for(uint32_t i = 0; i < m_geometry->triangles.size(); ++i) {
                     const auto slot = m_geometry->triangles[i].surface[0];
-                    if(glm::any(glm::greaterThan(
-                           Math::Vec3(m_materials->surfaces[slot].emission_roughness),
-                           Math::Vec3(0))))
+                    if(Math::any_greater(Math::Vec3(m_materials->surfaces[slot].emission_roughness),
+                           Math::Vec3(0)))
                         emitters->push_back(i);
                 }
                 scene->emitters = std::move(emitters);

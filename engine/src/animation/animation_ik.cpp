@@ -1,6 +1,5 @@
 #include "animation/animation_data.h"
 #include "diagnostics/profiler.h"
-#include <glm/gtx/quaternion.hpp>
 #include <algorithm>
 #include <cmath>
 
@@ -22,7 +21,7 @@ namespace Comet {
                     "IK requires positive uniform scales without shear");
             const auto basis = Math::Mat3(matrix) / *scale;
             return Result<BoneFrame>::success(
-                {Math::Vec3(matrix[3]), glm::normalize(glm::quat_cast(basis))});
+                {Math::Vec3(matrix[3]), Math::normalize(Math::to_quat(basis))});
         }
         Result<AnimationPose> solve_body(const AnimationData& data, AnimationPose pose,
             std::span<const AnimationIKConstraint> constraints, const AnimationBodyIK& settings,
@@ -76,17 +75,17 @@ namespace Comet {
                                c = bone_frame(data, pose, target.tip);
                     if(!a || !b || !c)
                         return Solved::failure("Full body IK limb is not a valid skin chain");
-                    const float reach = glm::length(b.value().position - a.value().position)
-                                        + glm::length(c.value().position - b.value().position);
+                    const float reach = Math::length(b.value().position - a.value().position)
+                                        + Math::length(c.value().position - b.value().position);
                     const auto delta = target.target - a.value().position;
-                    const float distance = glm::length(delta);
+                    const float distance = Math::length(delta);
                     if(distance > reach && distance > 1e-6f)
                         correction += delta * ((distance - reach) / distance) * target.weight;
                     total += target.weight;
                 }
                 const auto next =
                     translation + correction * (settings.weight / std::max(total, 1.f));
-                const float length = glm::length(next);
+                const float length = Math::length(next);
                 const auto bounded = length > settings.max_translation && length > 0
                                          ? next * (settings.max_translation / length)
                                          : next;
@@ -94,12 +93,12 @@ namespace Comet {
                 if(!root)
                     return Solved::failure(root.error());
                 const auto& local = pose.local_transforms[settings.root];
-                const auto parent_rotation = root.value().rotation * glm::inverse(local.rotation);
+                const auto parent_rotation = root.value().rotation * Math::inverse(local.rotation);
                 const auto root_scale = Math::uniform_scale(pose.bone_matrices[size_t(
                     std::ranges::find(data.joints, settings.root, &SkinJoint::node)
                     - data.joints.begin())]);
                 auto moved = pose.local_transforms;
-                moved[settings.root].translation += glm::inverse(parent_rotation)
+                moved[settings.root].translation += Math::inverse(parent_rotation)
                                                     * (bounded - translation)
                                                     / (*root_scale / local.scale.x);
                 translation = bounded;
@@ -125,11 +124,11 @@ namespace Comet {
                         if(!tip)
                             return Solved::failure(tip.error());
                         const auto arm = tip.value().position - frame.value().position;
-                        torque +=
-                            glm::cross(arm, target.target - frame.value().position) * target.weight;
-                        denominator += glm::dot(arm, arm) * target.weight;
+                        torque += Math::cross(arm, target.target - frame.value().position)
+                                  * target.weight;
+                        denominator += Math::dot(arm, arm) * target.weight;
                     }
-                    const float magnitude = glm::length(torque);
+                    const float magnitude = Math::length(torque);
                     if(magnitude < 1e-6f || denominator < 1e-6f)
                         continue;
                     const auto turn =
@@ -137,17 +136,17 @@ namespace Comet {
                             torque / magnitude);
                     auto updated = pose.local_transforms;
                     const auto parent =
-                        frame.value().rotation * glm::inverse(updated[node].rotation);
+                        frame.value().rotation * Math::inverse(updated[node].rotation);
                     auto rotation =
-                        glm::normalize(glm::inverse(parent) * turn * frame.value().rotation);
-                    if(glm::dot(rotation, base[node].rotation) < 0)
+                        Math::normalize(Math::inverse(parent) * turn * frame.value().rotation);
+                    if(Math::dot(rotation, base[node].rotation) < 0)
                         rotation = -rotation;
                     const float angle =
                         2
-                        * std::acos(std::clamp(glm::dot(rotation, base[node].rotation), 0.f, 1.f));
-                    if(angle > glm::radians(settings.max_rotation))
-                        rotation = glm::slerp(base[node].rotation, rotation,
-                            glm::radians(settings.max_rotation) / angle);
+                        * std::acos(std::clamp(Math::dot(rotation, base[node].rotation), 0.f, 1.f));
+                    if(angle > Math::radians(settings.max_rotation))
+                        rotation = Math::slerp(base[node].rotation, rotation,
+                            Math::radians(settings.max_rotation) / angle);
                     updated[node].rotation = rotation;
                     auto rotated = build_animation_pose(
                         data, std::move(updated), root_motion, true, &pose.motion_correction);
@@ -195,7 +194,7 @@ namespace Comet {
             if(constraint.rotation
                 && (!Math::is_finite(Math::Vec4(constraint.rotation->x, constraint.rotation->y,
                         constraint.rotation->z, constraint.rotation->w))
-                    || glm::length(*constraint.rotation) < 1e-6f))
+                    || Math::length(*constraint.rotation) < 1e-6f))
                 return Outcome::failure("Invalid IK target rotation");
             if(constraint.tip >= data.nodes.size())
                 return Outcome::failure("IK tip node is missing");
@@ -219,12 +218,12 @@ namespace Comet {
             const auto origin = a.value().position;
             const auto upper = b.value().position - origin;
             const auto lower = c.value().position - b.value().position;
-            const float first_length = glm::length(upper), second_length = glm::length(lower);
+            const float first_length = Math::length(upper), second_length = Math::length(lower);
             const float epsilon = std::max(first_length + second_length, 1.f) * 1e-5f;
             if(first_length <= epsilon || second_length <= epsilon)
                 return Outcome::failure("IK bone lengths must be positive");
             auto direction = constraint.target - origin;
-            float distance = glm::length(direction);
+            float distance = Math::length(direction);
             if(distance <= epsilon) {
                 direction = upper / first_length;
                 distance = 0;
@@ -235,16 +234,16 @@ namespace Comet {
                 first_length + second_length - epsilon);
             const auto target = origin + direction * distance;
             auto bend = constraint.pole - origin;
-            bend -= direction * glm::dot(bend, direction);
-            if(glm::length(bend) <= epsilon) {
-                bend = upper - direction * glm::dot(upper, direction);
-                if(glm::length(bend) <= epsilon) {
+            bend -= direction * Math::dot(bend, direction);
+            if(Math::length(bend) <= epsilon) {
+                bend = upper - direction * Math::dot(upper, direction);
+                if(Math::length(bend) <= epsilon) {
                     const auto axis =
                         std::abs(direction.x) < .8f ? Math::Vec3(1, 0, 0) : Math::Vec3(0, 1, 0);
-                    bend = axis - direction * glm::dot(axis, direction);
+                    bend = axis - direction * Math::dot(axis, direction);
                 }
             }
-            bend = glm::normalize(bend);
+            bend = Math::normalize(bend);
             const float along =
                 (first_length * first_length - second_length * second_length + distance * distance)
                 / (2 * distance);
@@ -252,27 +251,27 @@ namespace Comet {
                 std::sqrt(std::max(0.f, first_length * first_length - along * along));
             const auto joint = origin + direction * along + bend * height;
             const auto first_turn =
-                glm::rotation(upper / first_length, glm::normalize(joint - origin));
+                Math::rotation_between(upper / first_length, Math::normalize(joint - origin));
             const auto after_middle = origin + first_turn * upper;
             const auto after_tip = origin + first_turn * (c.value().position - origin);
-            const auto second_turn = glm::rotation(
-                glm::normalize(after_tip - after_middle), glm::normalize(target - after_middle));
+            const auto second_turn = Math::rotation_between(
+                Math::normalize(after_tip - after_middle), Math::normalize(target - after_middle));
             auto local = pose.local_transforms;
-            const auto first_parent = a.value().rotation * glm::inverse(local[root].rotation);
+            const auto first_parent = a.value().rotation * Math::inverse(local[root].rotation);
             const auto first_rotation =
-                glm::inverse(first_parent) * first_turn * a.value().rotation;
-            const auto second_rotation = glm::inverse(first_turn * a.value().rotation) * second_turn
-                                         * first_turn * b.value().rotation;
-            local[root].rotation = glm::normalize(glm::slerp(
-                local[root].rotation, glm::normalize(first_rotation), constraint.weight));
-            local[middle].rotation = glm::normalize(glm::slerp(
-                local[middle].rotation, glm::normalize(second_rotation), constraint.weight));
+                Math::inverse(first_parent) * first_turn * a.value().rotation;
+            const auto second_rotation = Math::inverse(first_turn * a.value().rotation)
+                                         * second_turn * first_turn * b.value().rotation;
+            local[root].rotation = Math::normalize(Math::slerp(
+                local[root].rotation, Math::normalize(first_rotation), constraint.weight));
+            local[middle].rotation = Math::normalize(Math::slerp(
+                local[middle].rotation, Math::normalize(second_rotation), constraint.weight));
             if(constraint.rotation) {
                 const auto tip_rotation =
-                    glm::inverse(second_turn * first_turn * b.value().rotation)
-                    * glm::normalize(*constraint.rotation);
-                local[tip].rotation = glm::normalize(glm::slerp(
-                    local[tip].rotation, glm::normalize(tip_rotation), constraint.weight));
+                    Math::inverse(second_turn * first_turn * b.value().rotation)
+                    * Math::normalize(*constraint.rotation);
+                local[tip].rotation = Math::normalize(Math::slerp(
+                    local[tip].rotation, Math::normalize(tip_rotation), constraint.weight));
             }
             auto solved = build_animation_pose(
                 data, std::move(local), root_motion, true, &pose.motion_correction);

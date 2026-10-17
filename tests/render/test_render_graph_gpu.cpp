@@ -568,7 +568,7 @@ namespace Comet::Tests {
                                 uint16_t half;
                                 std::memcpy(
                                     &half, bytes.data() + ((y * 4 + x) * 4 + channel) * 2, 2);
-                                const float actual = glm::unpackHalf1x16(half);
+                                const float actual = Math::unpack_half(half);
                                 const float mapped =
                                     white * headroom
                                     * (1.0f - std::exp(-expected[channel] * exposure / headroom));
@@ -588,7 +588,7 @@ namespace Comet::Tests {
                         if(linear_hdr) {
                             uint16_t alpha;
                             std::memcpy(&alpha, bytes.data() + ((y * 4 + x) * 4 + 3) * 2, 2);
-                            EXPECT_EQ(glm::unpackHalf1x16(alpha), 1.0f);
+                            EXPECT_EQ(Math::unpack_half(alpha), 1.0f);
                         } else {
                             EXPECT_EQ(bytes[(y * 4 + x) * 4 + 3], std::byte{255});
                         }
@@ -705,7 +705,7 @@ namespace Comet::Tests {
                     scenario == Scenario::RebuildAndRemoveOccluder && index == 1;
                 const bool shadow = scenario != Scenario::ShadowsDisabled
                                     && scenario != Scenario::NoLights && !removed_occluder;
-                glm::dvec3 direction{0, 0, 1};
+                Math::Vec3d direction{0, 0, 1};
                 if(scenario == Scenario::TiltedLight)
                     direction = {-1, 0, 1};
                 double radiance = Math::PI;

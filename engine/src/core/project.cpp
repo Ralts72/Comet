@@ -244,7 +244,7 @@ namespace Comet {
             return Result<Project>::failure("Project manifest must be named project.json");
         const std::string source = manifest.string();
         const Json::Context context("project", source);
-        simdjson::dom::parser parser;
+        Json::Parser parser;
         auto contents = read_text_file(manifest);
         if(!contents)
             return Result<Project>::failure(contents.error());

@@ -31,6 +31,10 @@
 Project、Profile、玩家设置聚合、Application 与 Engine 是组合层。WindowSettings、VulkanSettings、RenderSettings、AudioSettings 等值类型仍归所属功能模块。
 模块接收自身所需参数，不接收完整 Config。Shader 编译工具是生成 Shader 所需的独立进程，复用 Foundation，不反向链接 engine。
 
+数学类型与运算统一从 `core/math_utils.h` 的 `Math` 使用；GLM 的头文件、类型名与扩展调用集中在该适配入口，包含矩阵分解与半精度编码。向量／矩阵仍直接复用 GLM 存储与运算，不承诺独立 ABI，也不复制一套数学库。Vulkan、Jolt、RmlUi、fastgltf 等具体接口保留在所属后端或导入适配中；玩法与内容接口只接收引擎领域值。
+外部模型导入沿用 ModelImporter 的来源检查与依赖闭包，包含地形各层贴图及植被模型的伴随文件；编辑器只校验复制范围并管理暂存／发布，不另写 glTF 或地形依赖解析器。
+JSON 编解码沿用 `common/json.h` 的显式 DOM 别名、字段校验和 UTF-8 校验；节点继续借用 Parser，领域代码不引用 simdjson 名称或单独引入其头文件。
+
 ## 模块依赖方向
 
 下图箭头表示依赖；组合层可以装配各模块，模块不反向访问宿主。
@@ -222,7 +226,7 @@ AssetLoader 直接读索引中的 Mesh／Texture／Environment／ShaderProgram �
 
 ModelImporter 的 CPU 候选保留 glTF 节点／场景、primitive 材质关联、图片和采样设置，
 与单 Mesh 导入共用几何／骨骼解码。静态节点共用几何，不同蒙皮节点分别保存绑定空间；候选中的下标只关联源内容，不能当作持久资产句柄。
-高度场 `.terrain` 复用 Model 资产类型。TerrainImporter 只在开发导入时读取高度与层纹理，生成分块三级网格、分层 PBR 贴图与共用静态植被实例；ModelData 的 Part 可携带普通 LOD 引用和静态碰撞声明，Scene 实例化时生成既有组件。运行时、模型来源更新与只读导出沿用同一产品链，无专用 TerrainSystem，也不在 Engine tick 重建地形。
+高度场 `.terrain` 复用 Model 资产类型。TerrainData 拥有已展开高度网格的采样、法线与自动／手绘权重运算，笔刷初始化和导入烘焙共用规则。TerrainImporter 负责读取开发源、解码高度图及生成分块三级网格、分层 PBR 贴图与共用静态植被实例；ModelData 的 Part 可携带普通 LOD 引用和静态碰撞声明，Scene 实例化时生成既有组件。运行时、模型来源更新与只读导出沿用同一产品链，无专用 TerrainSystem，也不在 Engine tick 重建地形。
 模型 .meta 保存子资源 key 与持久句柄，AssetDatabase 按句柄索引子资源，按路径查询仍返回源模型；源与伴随文件变化会同步使子资源失效。
 唯一名称在源数组重排后保持身份；无名／重名内容使用源下标区分，不能据此承诺任意重排后的身份稳定。
 ModelArtifact 复用 Mesh／Texture 缓存与材质序列化，先按内容版本写完子资源，再发布模型索引；项目预准备能按场景子资源引用重建整个模型。

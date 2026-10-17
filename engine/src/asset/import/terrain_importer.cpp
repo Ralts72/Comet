@@ -30,53 +30,6 @@ namespace Comet {
             const std::filesystem::path& source, const std::string& value) {
             return (source.parent_path() / value).lexically_normal();
         }
-        float smooth(float first, float last, float value) {
-            const float t = std::clamp((value - first) / (last - first), 0.f, 1.f);
-            return t * t * (3 - 2 * t);
-        }
-        struct HeightField {
-            const TerrainData& data;
-            float height(float x, float z) const {
-                x = std::clamp(x, 0.f, float(data.resolution - 1));
-                z = std::clamp(z, 0.f, float(data.resolution - 1));
-                const uint32_t x0 = uint32_t(x), z0 = uint32_t(z);
-                const auto at = [&](uint32_t a, uint32_t b) {
-                    return data.heights[size_t(b) * data.resolution + a];
-                };
-                const uint32_t x1 = std::min(x0 + 1, data.resolution - 1),
-                               z1 = std::min(z0 + 1, data.resolution - 1);
-                return std::lerp(std::lerp(at(x0, z0), at(x1, z0), x - x0),
-                    std::lerp(at(x0, z1), at(x1, z1), x - x0), z - z0);
-            }
-            Math::Vec3 normal(float x, float z) const {
-                const float left = std::max(x - 1, 0.f),
-                            right = std::min(x + 1, float(data.resolution - 1));
-                const float near = std::max(z - 1, 0.f),
-                            far = std::min(z + 1, float(data.resolution - 1));
-                const float dx = (height(right, z) - height(left, z)) * data.height_scale
-                                 / ((right - left) * data.width / (data.resolution - 1));
-                const float dz = (height(x, far) - height(x, near)) * data.height_scale
-                                 / ((far - near) * data.depth / (data.resolution - 1));
-                return glm::normalize(Math::Vec3(-dx, 1, -dz));
-            }
-            Math::Vec3 weights(float x, float z) const {
-                if(data.layer_weights.empty()) {
-                    const float rock = smooth(data.slope_start, data.slope_end, 1 - normal(x, z).y);
-                    const float high = smooth(data.height_start, data.height_end, height(x, z));
-                    return {(1 - rock) * (1 - high), rock, (1 - rock) * high};
-                }
-                const auto grid =
-                    glm::clamp(Math::Vec2(x, z), Math::Vec2(0), Math::Vec2(data.resolution - 1));
-                const auto first = glm::min(Math::Vec2u(grid), Math::Vec2u(data.resolution - 2));
-                const auto blend = grid - Math::Vec2(first);
-                const auto at = [&](uint32_t a, uint32_t b) {
-                    return data.layer_weights[size_t(b) * data.resolution + a];
-                };
-                return glm::mix(glm::mix(at(first.x, first.y), at(first.x + 1, first.y), blend.x),
-                    glm::mix(at(first.x, first.y + 1), at(first.x + 1, first.y + 1), blend.x),
-                    blend.y);
-            }
-        };
         Result<TerrainData> load_heights(TerrainData config, const std::filesystem::path& source,
             const AssetImportLimits& limits) {
             auto& data = config;
@@ -107,8 +60,7 @@ namespace Comet {
             return Result<TerrainData>::success(std::move(config));
         }
         MeshData chunk_mesh(
-            const HeightField& field, uint32_t start_x, uint32_t start_z, uint32_t stride) {
-            const auto& data = field.data;
+            const TerrainData& data, uint32_t start_x, uint32_t start_z, uint32_t stride) {
             MeshData mesh;
             const uint32_t cells = data.chunk_cells / stride, edge = cells + 1;
             mesh.vertices.reserve(size_t(edge) * edge + 4 * cells);
@@ -116,10 +68,10 @@ namespace Comet {
             for(uint32_t z = 0; z <= cells; ++z)
                 for(uint32_t x = 0; x <= cells; ++x) {
                     const float gx = float(start_x + x * stride), gz = float(start_z + z * stride);
-                    const auto normal = field.normal(gx, gz);
-                    const auto tangent = glm::normalize(Math::Vec3(normal.y, -normal.x, 0));
+                    const auto normal = data.sample_normal({gx, gz});
+                    const auto tangent = Math::normalize(Math::Vec3(normal.y, -normal.x, 0));
                     mesh.vertices.push_back({{x * stride * data.width / (data.resolution - 1),
-                                                 field.height(gx, gz) * data.height_scale,
+                                                 data.sample_height({gx, gz}) * data.height_scale,
                                                  z * stride * data.depth / (data.resolution - 1)},
                         {gx / (data.resolution - 1), gz / (data.resolution - 1)}, normal,
                         Math::Vec4(tangent, -1)});
@@ -172,9 +124,8 @@ namespace Comet {
             model.textures.push_back({std::move(name), image, sampler, true});
             return Result<void>::success();
         }
-        Result<void> bake_material(ModelImportData& model, const HeightField& field,
+        Result<void> bake_material(ModelImportData& model, const TerrainData& data,
             const std::filesystem::path& source, const AssetImportLimits& limits, size_t budget) {
-            const auto& data = field.data;
             struct LayerImages {
                 std::optional<CpuTextureImage> albedo, normal, roughness;
             };
@@ -213,7 +164,7 @@ namespace Comet {
                     const Math::Vec2 uv(
                         float(x) / (image.width - 1), float(y) / (image.height - 1));
                     const auto grid = uv * float(data.resolution - 1);
-                    const auto weights = field.weights(grid.x, grid.y);
+                    const auto weights = data.sample_weights(grid);
                     Math::Vec3 color(0), normal(0);
                     float rough = 0;
                     for(size_t i = 0; i < textures.size(); ++i) {
@@ -229,7 +180,7 @@ namespace Comet {
                             direction.x *= config.normal_scale;
                             direction.y *= config.normal_scale;
                             direction.z = std::max(direction.z, .001f);
-                            direction = glm::normalize(direction);
+                            direction = Math::normalize(direction);
                         }
                         normal += direction * weights[i];
                         rough +=
@@ -237,7 +188,7 @@ namespace Comet {
                             * (textures[i].roughness ? textures[i].roughness->sample(tiled).r : 1)
                             * weights[i];
                     }
-                    normal = glm::normalize(normal);
+                    normal = Math::normalize(normal);
                     const auto offset = (size_t(y) * image.width + x) * 4;
                     for(int c = 0; c < 3; ++c) {
                         image.pixels[offset + c] = srgb(color[c]);
@@ -307,15 +258,15 @@ namespace Comet {
                 const auto& node = custom.nodes[index];
                 const auto& t = node.transform;
                 auto world = Math::translate(Math::Mat4(1), t.translation)
-                             * glm::mat4_cast(t.rotation) * Math::scale(Math::Mat4(1), t.scale);
+                             * Math::to_mat4(t.rotation) * Math::scale(Math::Mat4(1), t.scale);
                 if(node.parent != ModelImportData::NONE)
                     world = transforms[node.parent] * world;
                 transforms[index] = world;
                 const auto basis = Math::Mat3(world);
-                const auto determinant = glm::determinant(basis);
+                const auto determinant = Math::determinant(basis);
                 if(std::abs(determinant) < 1e-8f)
                     return Prepared::failure("植被模型变换不可为零缩放");
-                const auto normals = glm::transpose(glm::inverse(basis));
+                const auto normals = Math::transpose(Math::inverse(basis));
                 for(const auto selected : node.meshes) {
                     const auto& original = custom.meshes[selected];
                     if(original.skin_node)
@@ -330,11 +281,11 @@ namespace Comet {
                         mesh.material += material_base;
                     for(auto& vertex : mesh.data.vertices) {
                         vertex.position = Math::Vec3(world * Math::Vec4(vertex.position, 1));
-                        vertex.normal = glm::normalize(normals * vertex.normal);
+                        vertex.normal = Math::normalize(normals * vertex.normal);
                         auto tangent = basis * Math::Vec3(vertex.tangent);
-                        tangent -= vertex.normal * glm::dot(vertex.normal, tangent);
-                        if(glm::length(tangent) > 1e-8f)
-                            tangent = glm::normalize(tangent);
+                        tangent -= vertex.normal * Math::dot(vertex.normal, tangent);
+                        if(Math::length(tangent) > 1e-8f)
+                            tangent = Math::normalize(tangent);
                         vertex.tangent =
                             Math::Vec4(tangent, vertex.tangent.w * (determinant < 0 ? -1.f : 1.f));
                     }
@@ -395,9 +346,8 @@ namespace Comet {
                 {"vegetation/blade", grass_mesh, 0, {}, material_index, std::move(mesh)});
             return Prepared::success({grass_mesh});
         }
-        Result<void> add_vegetation(ModelImportData& model, const HeightField& field,
+        Result<void> add_vegetation(ModelImportData& model, const TerrainData& data,
             const std::filesystem::path& source, const AssetImportLimits& limits, size_t budget) {
-            const auto& data = field.data;
             const auto& config = data.vegetation;
             if(!config.count)
                 return Result<void>::success();
@@ -417,22 +367,22 @@ namespace Comet {
             std::mt19937 random(config.seed);
             // 使用确定的整数转换，不依赖不同标准库的 uniform_real_distribution 实现。
             const auto unit = [&] { return float(random() >> 8) / 16777216.f; };
-            const float min_normal = std::cos(glm::radians(config.max_slope));
+            const float min_normal = std::cos(Math::radians(config.max_slope));
             uint32_t placed = 0;
             for(uint32_t attempt = 0; attempt < config.count * 20 && placed < config.count;
                 ++attempt) {
                 const float u = unit(), v = unit();
                 const float x = u * (data.resolution - 1), z = v * (data.resolution - 1),
-                            h = field.height(x, z);
+                            h = data.sample_height({x, z});
                 if(h < config.min_elevation || h > config.max_elevation
-                    || field.normal(x, z).y < min_normal)
+                    || data.sample_normal({x, z}).y < min_normal)
                     continue;
                 ModelImportData::Node node;
                 node.name = "vegetation/" + std::to_string(placed++);
                 node.transform.translation = {
                     (u - .5f) * data.width, h * data.height_scale - .04f, (v - .5f) * data.depth};
                 node.transform.rotation =
-                    glm::angleAxis(unit() * glm::two_pi<float>(), Math::Vec3(0, 1, 0));
+                    Math::angle_axis(unit() * (Math::PI * 2), Math::Vec3(0, 1, 0));
                 node.transform.scale =
                     Math::Vec3(std::lerp(config.min_height, config.max_height, unit()));
                 node.meshes = meshes.value();
@@ -514,17 +464,6 @@ namespace Comet {
             return Info::success(std::move(info));
         }
     }
-    void TerrainImporter::initialize_layer_weights(TerrainData& data) {
-        if(!data.layer_weights.empty())
-            return;
-        const HeightField field{data};
-        std::vector<Math::Vec3> weights;
-        weights.reserve(size_t(data.resolution) * data.resolution);
-        for(uint32_t z = 0; z < data.resolution; ++z)
-            for(uint32_t x = 0; x < data.resolution; ++x)
-                weights.push_back(field.weights(float(x), float(z)));
-        data.layer_weights = std::move(weights);
-    }
     Result<TerrainData> TerrainImporter::load_heightfield(
         const std::filesystem::path& source, const AssetImportLimits& limits) {
         auto config = read_source(source, limits);
@@ -558,8 +497,7 @@ namespace Comet {
         auto heights = load_heights(std::move(data).value(), source, limits);
         if(!heights)
             return Imported::failure(heights.error());
-        const HeightField field{heights.value()};
-        const auto& config = field.data;
+        const auto& config = heights.value();
         ModelImportData model;
         model.source_dependencies = info.value().dependencies;
         model.scenes.push_back({"Terrain", {}});
@@ -573,7 +511,7 @@ namespace Comet {
                 const auto name = "terrain/" + std::to_string(x) + "/" + std::to_string(z);
                 for(uint32_t lod = 0; lod < 3; ++lod) {
                     model.meshes.push_back(
-                        {name, source_mesh, lod, {}, 0, chunk_mesh(field, x, z, 1u << lod)});
+                        {name, source_mesh, lod, {}, 0, chunk_mesh(config, x, z, 1u << lod)});
                     if(lod == 0) {
                         model.meshes.back().lods = {base + 1, base + 2};
                         model.meshes.back().collision = config.collision;
@@ -588,9 +526,9 @@ namespace Comet {
                 model.scenes[0].roots.push_back(uint32_t(model.nodes.size()));
                 model.nodes.push_back(std::move(node));
             }
-        if(auto result = bake_material(model, field, source, limits, memory_budget); !result)
+        if(auto result = bake_material(model, config, source, limits, memory_budget); !result)
             return Imported::failure(result.error());
-        if(auto result = add_vegetation(model, field, source, limits, memory_budget); !result)
+        if(auto result = add_vegetation(model, config, source, limits, memory_budget); !result)
             return Imported::failure(result.error());
         return Imported::success(std::move(model));
     }

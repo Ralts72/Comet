@@ -404,7 +404,7 @@ namespace Comet::Tests {
             ASSERT_TRUE(runtime.advance(0.01));
         const auto rotation = falling.get_component<TransformComponent>().rotation;
         EXPECT_GT(
-            glm::length(Math::wrap_degrees(rotation) - Math::wrap_degrees(teleported_rotation)),
+            Math::length(Math::wrap_degrees(rotation) - Math::wrap_degrees(teleported_rotation)),
             1.0f);
         ASSERT_TRUE(runtime.stop());
     }

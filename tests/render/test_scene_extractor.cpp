@@ -80,8 +80,8 @@ namespace Comet::Tests {
         ASSERT_EQ(first->decals.size(), 1u);
         const auto& decal = first->decals.front();
         const auto center = Math::Vec3(scene.get_world_matrix(entity)[3]);
-        EXPECT_TRUE(glm::all(glm::lessThanEqual(decal.bounds.minimum, center)));
-        EXPECT_TRUE(glm::all(glm::greaterThanEqual(decal.bounds.maximum, center)));
+        EXPECT_TRUE(Math::all_less_equal(decal.bounds.minimum, center));
+        EXPECT_TRUE(Math::all_greater_equal(decal.bounds.maximum, center));
         EXPECT_TRUE(TestUtils::Mat4Equal(decal.world_to_local * scene.get_world_matrix(entity)
                                              * Math::scale(Math::Mat4(1), {1, .5f, 1}),
             Math::Mat4(1)));
@@ -804,9 +804,9 @@ namespace Comet::Tests {
         const auto fourth = extractor.update(scene);
         ASSERT_EQ(fourth->particle_colliders.size(), 2u);
         EXPECT_LT(
-            glm::length(fourth->particle_colliders.back().extent_shape - Math::Vec4(1, 1, 1, 2)),
+            Math::length(fourth->particle_colliders.back().extent_shape - Math::Vec4(1, 1, 1, 2)),
             .00001);
-        EXPECT_LT(glm::length(Math::Vec3(
+        EXPECT_LT(Math::length(Math::Vec3(
                       fourth->particle_colliders.back().world_to_local * Math::Vec4(2, 3, 4, 1))),
             .00001);
         capsule.edit_transform([](auto& transform) { transform.scale.x = 1; });

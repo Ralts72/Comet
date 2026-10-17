@@ -53,8 +53,8 @@ namespace Comet {
             }
             for(const auto& influence : mesh.skin) {
                 if(!Math::is_finite(influence.weights)
-                    || glm::any(glm::lessThan(influence.weights, Math::Vec4(0)))
-                    || std::abs(glm::dot(influence.weights, Math::Vec4(1)) - 1) > 0.001f)
+                    || Math::any_less(influence.weights, Math::Vec4(0))
+                    || std::abs(Math::dot(influence.weights, Math::Vec4(1)) - 1) > 0.001f)
                     return false;
                 for(const auto joint : influence.joints)
                     if(joint >= data.joints.size())
@@ -139,7 +139,7 @@ namespace Comet {
                     if(!reader.read_float(influence.weights[i])
                         || !std::isfinite(influence.weights[i]) || influence.weights[i] < 0)
                         return false;
-                if(std::abs(glm::dot(influence.weights, Math::Vec4(1)) - 1) > 0.001f)
+                if(std::abs(Math::dot(influence.weights, Math::Vec4(1)) - 1) > 0.001f)
                     return false;
                 for(int i = 0; i < 4; ++i) {
                     if(influence.weights[i] == 0)

@@ -128,7 +128,7 @@ namespace Comet {
             if(!Math::is_finite(t.translation) || !Math::is_finite(t.scale)
                 || !Math::is_finite(
                     Math::Vec4(t.rotation.x, t.rotation.y, t.rotation.z, t.rotation.w))
-                || std::abs(glm::length(t.rotation) - 1.f) > 1e-3f)
+                || std::abs(Math::length(t.rotation) - 1.f) > 1e-3f)
                 return Result<Entity>::failure("Invalid model transform");
             for(const auto& part : node.parts)
                 if(!part.mesh || !part.material)
@@ -175,10 +175,10 @@ namespace Comet {
             entities[index] = entity;
             entity.edit_transform([&](TransformComponent& value) {
                 value.translation = node.transform.translation;
-                value.rotation = glm::degrees(glm::eulerAngles(node.transform.rotation));
+                value.rotation = Math::degrees(Math::euler_angles(node.transform.rotation));
                 value.scale = node.transform.scale;
             });
-            if(glm::length(Math::Vec3(node.wind)) > 0)
+            if(Math::length(Math::Vec3(node.wind)) > 0)
                 entity.add_component<WindSwayComponent>(
                     WindSwayComponent{true, Math::Vec3(node.wind), node.wind.w,
                         node.wind_height > 0, node.wind_height > 0 ? node.wind_height : 1});

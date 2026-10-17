@@ -101,7 +101,7 @@ namespace Comet::Tests {
         EXPECT_FLOAT_EQ(scene.get_world_matrix(child)[3].x, 14);
         EXPECT_FLOAT_EQ(frame->lights.front().position.x, 8);
         EXPECT_FLOAT_EQ(Math::inverse(frame->cameras.front().view_matrix)[3].x, 8);
-        EXPECT_NEAR(glm::length(Math::Vec3(Math::inverse(frame->cameras.front().view_matrix)[0])),
+        EXPECT_NEAR(Math::length(Math::Vec3(Math::inverse(frame->cameras.front().view_matrix)[0])),
             1.0f, 1e-6f);
         auto attached = scene.create_entity();
         attached.add_component<MeshRendererComponent>();

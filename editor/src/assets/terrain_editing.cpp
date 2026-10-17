@@ -12,10 +12,10 @@ namespace CometEditor {
     namespace {
         using namespace Comet;
         float sample(const TerrainData& data, Math::Vec2 point) {
-            const auto grid = glm::clamp(
+            const auto grid = Math::clamp(
                 (point / Math::Vec2(data.width, data.depth) + .5f) * float(data.resolution - 1),
                 Math::Vec2(0), Math::Vec2(data.resolution - 1));
-            const auto cell = glm::min(Math::Vec2i(grid), Math::Vec2i(data.resolution - 2));
+            const auto cell = Math::min(Math::Vec2i(grid), Math::Vec2i(data.resolution - 2));
             const auto f = grid - Math::Vec2(cell);
             const auto first = size_t(cell.y) * data.resolution + cell.x;
             const float a = data.heights[first], b = data.heights[first + 1],
@@ -27,15 +27,15 @@ namespace CometEditor {
         }
         std::optional<float> triangle_hit(
             const Ray& ray, Math::Vec3 a, Math::Vec3 b, Math::Vec3 c) {
-            const auto edge = b - a, other = c - a, p = glm::cross(ray.direction, other);
-            const float determinant = glm::dot(edge, p);
+            const auto edge = b - a, other = c - a, p = Math::cross(ray.direction, other);
+            const float determinant = Math::dot(edge, p);
             if(std::abs(determinant) < 1e-8f)
                 return {};
             const auto offset = ray.origin - a;
-            const float u = glm::dot(offset, p) / determinant;
-            const auto q = glm::cross(offset, edge);
-            const float v = glm::dot(ray.direction, q) / determinant;
-            const float t = glm::dot(other, q) / determinant;
+            const float u = Math::dot(offset, p) / determinant;
+            const auto q = Math::cross(offset, edge);
+            const float v = Math::dot(ray.direction, q) / determinant;
+            const float t = Math::dot(other, q) / determinant;
             if(u < -1e-5f || v < -1e-5f || u + v > 1.00001f || t < 0 || t > ray.max_parameter)
                 return {};
             return t;
@@ -146,27 +146,27 @@ namespace CometEditor {
         bool changed = false;
         const auto cells = float(data.resolution - 1);
         const auto extent = Comet::Math::Vec2(data.width, data.depth);
-        const auto minimum = glm::clamp(
-            Comet::Math::Vec2i(glm::floor(((center - brush.radius) / extent + .5f) * cells)),
+        const auto minimum = Math::clamp(
+            Comet::Math::Vec2i(Math::floor(((center - brush.radius) / extent + .5f) * cells)),
             Comet::Math::Vec2i(0), Comet::Math::Vec2i(data.resolution - 1));
-        const auto maximum = glm::clamp(
-            Comet::Math::Vec2i(glm::ceil(((center + brush.radius) / extent + .5f) * cells)),
+        const auto maximum = Math::clamp(
+            Comet::Math::Vec2i(Math::ceil(((center + brush.radius) / extent + .5f) * cells)),
             Comet::Math::Vec2i(0), Comet::Math::Vec2i(data.resolution - 1));
         for(int z = minimum.y; z <= maximum.y; ++z)
             for(int x = minimum.x; x <= maximum.x; ++x) {
                 const Math::Vec2 point{
                     (x / cells - .5f) * data.width, (z / cells - .5f) * data.depth};
-                const float distance = glm::length(point - center) / brush.radius;
+                const float distance = Math::length(point - center) / brush.radius;
                 if(distance >= 1)
                     continue;
                 const float falloff = (1 - distance * distance) * (1 - distance * distance);
                 const auto index = size_t(z) * data.resolution + x;
                 if(brush.mode == TerrainBrush::Mode::Paint) {
-                    Comet::TerrainImporter::initialize_layer_weights(data);
+                    data.initialize_layer_weights();
                     auto& weights = data.layer_weights[index];
                     Math::Vec3 target(0);
                     target[brush.layer] = 1;
-                    const auto output = glm::mix(
+                    const auto output = Math::mix(
                         weights, target, float(-std::expm1(-delta * brush.strength * falloff)));
                     changed |= weights != output;
                     weights = output;
@@ -215,11 +215,12 @@ namespace CometEditor {
         const auto start = ray.origin + ray.direction * *entry;
         const Math::Vec2 grid{
             (start.x + data.width * .5f) / spacing.x, (start.z + data.depth * .5f) / spacing.y};
-        auto cell = glm::clamp(Math::Vec2i(grid), Math::Vec2i(0), Math::Vec2i(data.resolution - 2));
+        auto cell =
+            Math::clamp(Math::Vec2i(grid), Math::Vec2i(0), Math::Vec2i(data.resolution - 2));
         const Math::Vec2 direction{ray.direction.x, ray.direction.z},
             origin{ray.origin.x, ray.origin.z};
         const Math::Vec2 minimum{-data.width * .5f, -data.depth * .5f};
-        const auto step = Math::Vec2i(glm::sign(direction));
+        const auto step = Math::Vec2i(Math::sign(direction));
         for(uint32_t visited = 0; visited < 2 * data.resolution; ++visited) {
             const auto at = [&](int x, int z) {
                 return Math::Vec3(minimum.x + x * spacing.x,
@@ -248,8 +249,8 @@ namespace CometEditor {
                 cell.x += step.x;
             else
                 cell.y += step.y;
-            if(glm::any(glm::lessThan(cell, Math::Vec2i(0)))
-                || glm::any(glm::greaterThanEqual(cell, Math::Vec2i(data.resolution - 1))))
+            if(Math::any_less(cell, Math::Vec2i(0))
+                || Math::any_greater_equal(cell, Math::Vec2i(data.resolution - 1)))
                 break;
         }
         return {};

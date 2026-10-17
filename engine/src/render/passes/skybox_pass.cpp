@@ -15,7 +15,6 @@
 #include "skybox_frag.h"
 
 #include <cmath>
-#include <glm/gtc/matrix_transform.hpp>
 
 namespace Comet {
     Result<std::unique_ptr<SkyboxPass>, GraphicsError> SkyboxPass::create(Device& device,
@@ -89,11 +88,11 @@ namespace Comet {
             || !std::isfinite(submission.world.environment.rotation))
             return Draw::failure({"Invalid skybox environment"});
         const auto& camera = *submission.view_project_matrix;
-        if(glm::determinant(camera.projection) == 0 || glm::determinant(camera.view) == 0)
+        if(Math::determinant(camera.projection) == 0 || Math::determinant(camera.view) == 0)
             return Draw::failure({"Skybox camera matrices must be invertible"});
-        const auto rotation = glm::rotate(Math::Mat4(1.0f),
-            -glm::radians(submission.world.environment.rotation), Math::Vec3(0, 1, 0));
-        const auto camera_rotation = Math::Mat4(glm::mat3(Math::inverse(camera.view)));
+        const auto rotation = Math::rotate(Math::Mat4(1.0f),
+            -Math::radians(submission.world.environment.rotation), Math::Vec3(0, 1, 0));
+        const auto camera_rotation = Math::Mat4(Math::Mat3(Math::inverse(camera.view)));
         const auto clip_to_environment =
             rotation * camera_rotation * Math::inverse(camera.projection);
         for(unsigned column = 0; column < 4; ++column)

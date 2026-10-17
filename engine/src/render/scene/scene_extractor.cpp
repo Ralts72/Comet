@@ -35,13 +35,13 @@ namespace Comet {
                     return;
                 const auto matrix = interpolating ? scene.get_render_transform(entity).world_matrix
                                                   : scene.get_world_matrix(entity);
-                if(!Math::is_finite(matrix) || std::abs(glm::determinant(matrix)) < 1e-8f)
+                if(!Math::is_finite(matrix) || std::abs(Math::determinant(matrix)) < 1e-8f)
                     return;
                 ParticleWorldCollider result;
 
                 if(collider.shape == ColliderShape::Sphere) {
-                    const float scale = std::max({glm::length(Math::Vec3(matrix[0])),
-                        glm::length(Math::Vec3(matrix[1])), glm::length(Math::Vec3(matrix[2]))});
+                    const float scale = std::max({Math::length(Math::Vec3(matrix[0])),
+                        Math::length(Math::Vec3(matrix[1])), Math::length(Math::Vec3(matrix[2]))});
                     result.world_to_local = Math::translate(Math::Mat4(1), -Math::Vec3(matrix[3]));
                     result.extent_shape = Math::Vec4(Math::Vec3(collider.radius * scale), 1);
                 } else if(collider.shape == ColliderShape::Capsule) {
@@ -135,7 +135,7 @@ namespace Comet {
                 [&](Entity entity, const DecalComponent& decal,
                     const WorldTransformComponent& authoritative, const IdComponent& id) {
                     if(!decal.enabled || decal.color.a <= 0 || !Math::is_finite(decal.half_extents)
-                        || glm::any(glm::lessThanEqual(decal.half_extents, Math::Vec3(0))))
+                        || Math::any_less_equal(decal.half_extents, Math::Vec3(0)))
                         return;
                     const auto& world =
                         interpolating ? scene.get_render_transform(entity) : authoritative;
@@ -143,7 +143,7 @@ namespace Comet {
                         world.world_matrix * Math::scale(Math::Mat4(1), decal.half_extents * 2.f);
                     const auto bounds =
                         transform_box({Math::Vec3(-.5f), Math::Vec3(.5f)}, transform);
-                    if(!bounds || std::abs(glm::determinant(transform)) < 1e-8f)
+                    if(!bounds || std::abs(Math::determinant(transform)) < 1e-8f)
                         return;
                     output.decals.push_back({id.id, decal.texture, Math::inverse(transform),
                         *bounds, decal.color, decal.roughness, decal.normal_threshold,

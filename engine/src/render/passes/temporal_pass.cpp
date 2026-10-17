@@ -114,8 +114,8 @@ namespace Comet {
         const auto previous_world = Math::inverse(m_unjittered.view);
         const auto current_world = Math::inverse(camera.view);
         const bool cut =
-            glm::distance(Math::Vec3(previous_world[3]), Math::Vec3(current_world[3])) > 5
-            || glm::dot(Math::Vec3(previous_world[2]), Math::Vec3(current_world[2])) < .75f;
+            Math::distance(Math::Vec3(previous_world[3]), Math::Vec3(current_world[3])) > 5
+            || Math::dot(Math::Vec3(previous_world[2]), Math::Vec3(current_world[2])) < .75f;
         m_history_valid = m_recorded_serial && m_recorded_serial + 1 == serial
                           && m_lifetime == scene_lifetime
                           && m_unjittered.projection == camera.projection && !cut;

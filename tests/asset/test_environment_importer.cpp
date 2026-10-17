@@ -1,3 +1,4 @@
+#include "core/math_utils.h"
 #include "asset/import/environment_importer.h"
 #include "asset/database.h"
 #include "support/hdr_image.h"
@@ -5,15 +6,14 @@
 #include "common/file_io.h"
 
 #include <gtest/gtest.h>
-#include <glm/gtc/packing.hpp>
 #include <cstring>
 #include <limits>
 
 namespace Comet::Tests {
-    static glm::vec4 pixel_at(const TextureData& data, size_t pixel) {
-        glm::u16vec4 packed;
+    static Math::Vec4 pixel_at(const TextureData& data, size_t pixel) {
+        Math::Half4 packed;
         std::memcpy(&packed, data.pixels.data() + pixel * sizeof(packed), sizeof(packed));
-        return glm::unpackHalf(packed);
+        return Math::unpack_half(packed);
     }
 
     TEST(EnvironmentImporterTest, CapturedCubemapRoundTripsHdrDirectionsAndRejectsInvalidInput) {
@@ -27,8 +27,8 @@ namespace Comet::Tests {
             for(int face = 0; face < 6; ++face)
                 for(int y = 0; y < size; ++y)
                     for(int x = 0; x < size; ++x) {
-                        const auto packed = glm::packHalf(
-                            glm::vec4(2 + face, 2.0f + float(x) / size, 4.0f + float(y) / size, 1));
+                        const auto packed = Math::pack_half(Math::Vec4(
+                            2 + face, 2.0f + float(x) / size, 4.0f + float(y) / size, 1));
                         std::memcpy(
                             cube.pixels.data() + ((face * size + y) * size + x) * 8, &packed, 8);
                     }
@@ -55,7 +55,7 @@ namespace Comet::Tests {
             cube.mip_levels = 2;
             EXPECT_FALSE(EnvironmentImporter::encode_hdr(cube));
             cube.mip_levels = 1;
-            const auto nan = glm::packHalf(glm::vec4(std::numeric_limits<float>::quiet_NaN()));
+            const auto nan = Math::pack_half(Math::Vec4(std::numeric_limits<float>::quiet_NaN()));
             std::memcpy(cube.pixels.data(), &nan, 8);
             EXPECT_FALSE(EnvironmentImporter::encode_hdr(cube));
             cube.pixels.pop_back();
@@ -74,7 +74,7 @@ namespace Comet::Tests {
         const auto background = preview.take();
         ASSERT_TRUE(background);
         EXPECT_EQ(background->width, 128);
-        EXPECT_EQ(pixel_at(*background, 0), glm::vec4(4, 2, 1, 1));
+        EXPECT_EQ(pixel_at(*background, 0), Math::Vec4(4, 2, 1, 1));
         EXPECT_TRUE(background->cubemap);
         EXPECT_EQ(imported.value().background.width, 256);
         EXPECT_FALSE(imported.value().specular.pixels.empty());
@@ -90,7 +90,7 @@ namespace Comet::Tests {
         for(const auto* cube : {&data.irradiance, &data.specular}) {
             ASSERT_TRUE(cube->cubemap);
             for(size_t pixel = 0; pixel < cube->pixels.size() / 8; ++pixel)
-                EXPECT_EQ(pixel_at(*cube, pixel), glm::vec4(4, 2, 1, 1));
+                EXPECT_EQ(pixel_at(*cube, pixel), Math::Vec4(4, 2, 1, 1));
         }
         ASSERT_FALSE(data.brdf.cubemap);
         for(size_t pixel = 0; pixel < data.brdf.pixels.size() / 8; ++pixel) {
@@ -150,10 +150,10 @@ namespace Comet::Tests {
         EXPECT_EQ(data.mip_levels, 3u);
         ASSERT_EQ(data.pixels.size(), (16 + 4 + 1) * 6 * 8u);
         for(size_t offset = 0; offset < data.pixels.size(); offset += 8) {
-            glm::u16vec4 packed;
+            Math::Half4 packed;
             std::memcpy(&packed, data.pixels.data() + offset, sizeof(packed));
-            const auto pixel = glm::unpackHalf(packed);
-            EXPECT_EQ(pixel, glm::vec4(4, 2, 1, 1));
+            const auto pixel = Math::unpack_half(packed);
+            EXPECT_EQ(pixel, Math::Vec4(4, 2, 1, 1));
         }
     }
 
@@ -166,12 +166,12 @@ namespace Comet::Tests {
         });
         auto imported = EnvironmentImporter{}.import(path);
         ASSERT_TRUE(imported) << imported.error();
-        std::array<glm::vec4, 6> faces;
+        std::array<Math::Vec4, 6> faces;
         for(size_t face = 0; face < 6; ++face) {
-            glm::u16vec4 packed;
+            Math::Half4 packed;
             std::memcpy(
                 &packed, imported.value().background.pixels.data() + face * 8, sizeof(packed));
-            faces[face] = glm::unpackHalf(packed);
+            faces[face] = Math::unpack_half(packed);
         }
         EXPECT_FLOAT_EQ(faces[0].x, 0.625f); // +X：中央经线。
         EXPECT_FLOAT_EQ(faces[1].x, 0.625f); // -X：跨接缝环绕采样。

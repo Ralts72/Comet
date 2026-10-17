@@ -85,8 +85,8 @@ namespace Comet {
                     const auto a = mesh.vertices[mesh.indices[first]].position;
                     const auto b = mesh.vertices[mesh.indices[first + 1]].position;
                     const auto c = mesh.vertices[mesh.indices[first + 2]].position;
-                    normal = glm::cross(b - a, c - a);
-                    const float length = glm::length(normal);
+                    normal = Math::cross(b - a, c - a);
+                    const float length = Math::length(normal);
                     if(std::isfinite(length) && length > 1e-12f)
                         normal /= length;
                     else

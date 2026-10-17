@@ -225,9 +225,9 @@ namespace Comet::Tests {
                     std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
             ASSERT_TRUE(image);
-            glm::u16vec4 packed;
+            Math::Half4 packed;
             std::memcpy(&packed, image->pixels.data() + (16 * 33 + 16) * 8, 8);
-            const auto pixel = glm::unpackHalf(packed);
+            const auto pixel = Math::unpack_half(packed);
             for(int channel = 0; channel < 3; ++channel)
                 EXPECT_NEAR(
                     pixel[channel], enabled ? (*irradiance)[channel] * .8f * .96f : 0, .003f);
@@ -297,9 +297,9 @@ namespace Comet::Tests {
             for(int y = 0; y < 2; ++y)
                 for(int x = 0; x < 2; ++x) {
                     const auto pixel = (face * 32 * 32 + (8 + y * 16) * 32 + 8 + x * 16) * 8;
-                    glm::u16vec4 packed;
+                    Math::Half4 packed;
                     std::memcpy(&packed, image->pixels.data() + pixel, 8);
-                    const auto value = glm::unpackHalf(packed);
+                    const auto value = Math::unpack_half(packed);
                     EXPECT_NEAR(value.r, face + 2, 0.01) << face << ":" << x << "," << y;
                     EXPECT_NEAR(value.g, 1 + 3 * x, 0.01);
                     EXPECT_NEAR(value.b, 1 + 5 * y, 0.01);

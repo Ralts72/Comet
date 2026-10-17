@@ -156,7 +156,7 @@ namespace Comet::Tests {
         const float surface_depth = clip.z / clip.w;
         TextureData data{.width = 8, .height = 8, .format = Format::R16G16B16A16_SFLOAT};
         data.pixels.resize(8 * 8 * 4 * sizeof(uint16_t));
-        const auto encoded_depth = glm::packHalf1x16(surface_depth);
+        const auto encoded_depth = Math::pack_half(surface_depth);
         for(size_t i = 0; i < 64 * 4; ++i)
             std::memcpy(
                 data.pixels.data() + i * sizeof(uint16_t), &encoded_depth, sizeof(uint16_t));
@@ -254,7 +254,7 @@ namespace Comet::Tests {
                         EXPECT_GT(state.velocity.z, 0);
                     }
                     if(collision == ParticleCollision::None && frame == 5)
-                        EXPECT_GT(glm::length(Math::Vec2(state.position_age)), .001);
+                        EXPECT_GT(Math::length(Math::Vec2(state.position_age)), .001);
                     if(collision != ParticleCollision::None && frame == 6)
                         EXPECT_NEAR(state.position_age.z, .6f, .001);
                 }
@@ -436,8 +436,8 @@ namespace Comet::Tests {
                     expected += velocity * dt + acceleration * (.5f * dt * dt);
                     velocity += acceleration * dt;
                 }
-                EXPECT_LT(glm::length(Math::Vec3(state.position_age) - expected), .00001);
-                EXPECT_LT(glm::length(Math::Vec3(state.velocity) - velocity), .00001);
+                EXPECT_LT(Math::length(Math::Vec3(state.position_age) - expected), .00001);
+                EXPECT_LT(Math::length(Math::Vec3(state.velocity) - velocity), .00001);
                 previous = bytes;
             } else if(frame > 1)
                 EXPECT_EQ(bytes, previous);

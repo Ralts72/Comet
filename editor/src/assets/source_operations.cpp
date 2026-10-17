@@ -19,7 +19,6 @@
 #include "asset/script.h"
 #include "audio/audio.h"
 #include "diagnostics/logger.h"
-#include <fastgltf/core.hpp>
 
 #include <algorithm>
 #include <array>
@@ -288,67 +287,20 @@ namespace CometEditor::AssetSourceOperations {
         }
 
         Result<std::vector<std::filesystem::path>> model_dependencies(
-            const std::filesystem::path& source_path) {
+            const std::filesystem::path& source_path, const AssetImportLimits& limits) {
             using Dependencies = Result<std::vector<std::filesystem::path>>;
-            if(source_extension(source_path) == ".terrain") {
-                auto terrain = Comet::TerrainData::load(source_path);
-                if(!terrain)
-                    return Dependencies::failure(terrain.error());
-                std::vector<std::filesystem::path> dependencies;
-                const auto add = [&](const std::string& value) -> Result<void> {
-                    if(value.empty())
-                        return Result<void>::success();
-                    const std::filesystem::path relative(value);
-                    if(auto valid = validate_relative(relative); !valid)
-                        return valid;
-                    if(source_extension(relative) == ".meta")
-                        return Result<void>::failure("Terrain dependencies must be image sources");
-                    dependencies.push_back(relative.lexically_normal());
-                    return Result<void>::success();
-                };
-                if(auto result = add(terrain.value().heightmap); !result)
-                    return Dependencies::failure(result.error());
-                for(const auto& layer : terrain.value().layers)
-                    if(auto result = add(layer.texture); !result)
-                        return Dependencies::failure(result.error());
-                std::ranges::sort(dependencies);
-                dependencies.erase(
-                    std::unique(dependencies.begin(), dependencies.end()), dependencies.end());
-                return Dependencies::success(std::move(dependencies));
-            }
-            auto source = fastgltf::GltfDataBuffer::FromPath(source_path);
-            if(!source)
-                return Dependencies::failure(
-                    std::string(fastgltf::getErrorMessage(source.error())));
-            fastgltf::Parser parser;
-            auto asset = parser.loadGltf(source.get(), source_path.parent_path(),
-                fastgltf::Options::None, fastgltf::Category::Buffers | fastgltf::Category::Images);
-            if(!asset)
-                return Dependencies::failure(std::string(fastgltf::getErrorMessage(asset.error())));
+            auto info = ModelImporter::inspect_source(source_path, limits);
+            if(!info)
+                return Dependencies::failure(info.error());
             std::vector<std::filesystem::path> dependencies;
-            const auto collect = [&](const auto& data) -> Result<void> {
-                const auto* source_uri = std::get_if<fastgltf::sources::URI>(&data);
-                if(!source_uri)
-                    return Result<void>::success(); // 内嵌数据不需要复制独立文件。
-                const auto& uri = source_uri->uri;
-                if(!uri.isLocalPath() || !uri.scheme().empty() || !uri.query().empty()
-                    || !uri.fragment().empty())
-                    return Result<void>::failure(
-                        "Only relative local glTF dependencies are supported");
-                const auto relative = uri.fspath();
-                if(auto result = validate_relative(relative); !result)
-                    return result;
+            for(const auto& source : info.value().dependencies) {
+                auto relative = source.lexically_relative(source_path.parent_path());
+                if(auto valid = validate_relative(relative); !valid)
+                    return Dependencies::failure(valid.error());
                 if(relative.empty() || source_extension(relative) == ".meta")
-                    return Result<void>::failure("Invalid glTF dependency: " + relative.string());
-                dependencies.push_back(relative.lexically_normal());
-                return Result<void>::success();
-            };
-            for(const auto& buffer : asset->buffers)
-                if(auto result = collect(buffer.data); !result)
-                    return Dependencies::failure(result.error());
-            for(const auto& image : asset->images)
-                if(auto result = collect(image.data); !result)
-                    return Dependencies::failure(result.error());
+                    return Dependencies::failure("Invalid model dependency: " + relative.string());
+                dependencies.push_back(std::move(relative));
+            }
             return Dependencies::success(std::move(dependencies));
         }
     }
@@ -477,7 +429,7 @@ namespace CometEditor::AssetSourceOperations {
             const auto parent = std::filesystem::canonical(source.parent_path(), error);
             if(error)
                 return Result<void>::failure("Cannot resolve model directory: " + error.message());
-            const auto dependencies = model_dependencies(source);
+            const auto dependencies = model_dependencies(source, limits);
             if(!dependencies)
                 return Result<void>::failure(dependencies.error());
             for(const auto& dependency : dependencies.value()) {
@@ -558,7 +510,7 @@ namespace CometEditor::AssetSourceOperations {
             switch(*type) {
                 case AssetType::Model: {
                     // 再检查暂存副本，拒绝复制期间改变了依赖列表的源文件。
-                    const auto dependencies = model_dependencies(source);
+                    const auto dependencies = model_dependencies(source, limits);
                     if(!dependencies)
                         return Result<void>::failure(dependencies.error());
                     for(const auto& dependency : dependencies.value()) {

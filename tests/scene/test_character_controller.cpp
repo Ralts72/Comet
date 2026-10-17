@@ -666,7 +666,7 @@ namespace Comet::Tests {
         bool drive(float x, float z, int steps = 300) {
             for(int step = 0; step < steps; ++step) {
                 const auto delta = Math::Vec2(x - position().x, z - position().z);
-                if(glm::length(delta) < 0.09f) {
+                if(Math::length(delta) < 0.09f) {
                     move(0, 0);
                     return tick();
                 }

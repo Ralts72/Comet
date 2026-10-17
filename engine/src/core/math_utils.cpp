@@ -26,12 +26,18 @@ namespace Comet::Math {
             return std::nullopt;
         return scale->x;
     }
-    std::optional<Mat4> without_scale(const Mat4& matrix) {
-        Vec3 scale, translation, skew;
-        Vec4 perspective;
-        Quat rotation;
-        if(!glm::decompose(matrix, scale, rotation, translation, skew, perspective))
+    std::optional<TransformDecomposition> decompose(const Mat4& matrix) {
+        TransformDecomposition result;
+        if(!is_finite(matrix)
+            || !glm::decompose(matrix, result.scale, result.rotation, result.translation,
+                result.skew, result.perspective))
             return std::nullopt;
-        return translate(Mat4(1), translation) * to_mat4(glm::normalize(rotation));
+        return result;
+    }
+    std::optional<Mat4> without_scale(const Mat4& matrix) {
+        const auto parts = decompose(matrix);
+        if(!parts)
+            return std::nullopt;
+        return translate(Mat4(1), parts->translation) * to_mat4(glm::normalize(parts->rotation));
     }
 }

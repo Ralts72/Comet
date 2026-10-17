@@ -115,7 +115,7 @@ namespace Comet::Tests {
             expect_color(
                 sampler.sample(CpuCubeSampler::face_direction(face, 0, 0)), colors[face], 0);
         EXPECT_EQ(sampler.decoded_bytes(), 24 * sizeof(Math::Vec3));
-        expect_color(sampler.sample(glm::normalize(Math::Vec3(1, 1, 0))), {0.5f, 0, 0.5f}, 1e-6f);
+        expect_color(sampler.sample(Math::normalize(Math::Vec3(1, 1, 0))), {0.5f, 0, 0.5f}, 1e-6f);
         expect_color(sampler.sample({1, 0, 0}, 0.5f), {1.5f, 1, 1}, 0);
         EXPECT_EQ(sampler.decoded_bytes(), checked.value());
         auto invalid = *data;
@@ -189,7 +189,7 @@ namespace Comet::Tests {
             for(unsigned step = 1; step <= 3600; ++step) {
                 const auto current = data.sample({.3f + step * .00025f, .7f, z}, {0, 1, 0}, 0);
                 ASSERT_TRUE(current);
-                largest_step = std::max(largest_step, glm::length(*current - *previous));
+                largest_step = std::max(largest_step, Math::length(*current - *previous));
                 previous = current;
             }
             EXPECT_LT(largest_step, .01f) << z;
@@ -204,7 +204,7 @@ namespace Comet::Tests {
                 const auto reconstructed = IrradianceData::visibility_coordinate(direction);
                 EXPECT_NEAR(reconstructed.x, uv.x, 1e-6f);
                 EXPECT_NEAR(reconstructed.y, uv.y, 1e-6f);
-                EXPECT_NEAR(glm::length(direction), 1, 1e-6f);
+                EXPECT_NEAR(Math::length(direction), 1, 1e-6f);
             }
         }
     }

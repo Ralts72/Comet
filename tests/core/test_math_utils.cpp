@@ -28,7 +28,7 @@ namespace Comet::Tests {
         const float large = std::numeric_limits<float>::max();
         const auto planar = Math::clamp_unit_length(Math::Vec2(large, -large));
         EXPECT_TRUE(Math::is_finite(planar));
-        EXPECT_NEAR(glm::length(planar), 1, 0.00001f);
+        EXPECT_NEAR(Math::length(planar), 1, 0.00001f);
         EXPECT_NEAR(planar.x, -planar.y, 0.00001f);
         const auto spatial = Math::clamp_unit_length(Math::Vec3(large));
         EXPECT_TRUE(Math::is_finite(spatial));

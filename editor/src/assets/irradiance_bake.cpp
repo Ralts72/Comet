@@ -218,7 +218,7 @@ namespace CometEditor {
                     result.emissive = Math::Vec3(color) * data.scalar_properties.at("intensity");
                     return result;
                 }
-                result.base_color = glm::clamp(
+                result.base_color = Math::clamp(
                     data.vector_properties.at("base_color"), Math::Vec4(0), Math::Vec4(1));
                 result.metallic = data.scalar_properties.at("metallic");
                 result.emissive = Math::Vec3(data.vector_properties.at("emissive_color"))

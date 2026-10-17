@@ -1,7 +1,6 @@
 #include "gameplay/pose_constraints.h"
 #include "animation/animation_data.h"
 #include "scene/scene.h"
-#include <glm/gtc/matrix_inverse.hpp>
 #include <cmath>
 #include <algorithm>
 
@@ -21,7 +20,7 @@ namespace Comet::Gameplay {
             const auto world = scene.get_world_matrix(model);
             if(!Math::uniform_scale(world))
                 return Added::failure({"Limb IK requires positive uniform model scale"});
-            const auto inverse = glm::affineInverse(world);
+            const auto inverse = Math::affine_inverse(world);
             for(const auto& request : targets) {
                 if(!request.entity)
                     continue;
@@ -46,7 +45,7 @@ namespace Comet::Gameplay {
                         return Added::failure(
                             {"IK target rotation requires positive uniform scale"});
                     constraint.rotation =
-                        glm::normalize(glm::quat_cast(Math::Mat3(local) / *scale));
+                        Math::normalize(Math::to_quat(Math::Mat3(local) / *scale));
                 }
                 if(found != output.ik.end())
                     *found = constraint;

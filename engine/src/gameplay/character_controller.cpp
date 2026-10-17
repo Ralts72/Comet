@@ -18,7 +18,7 @@ namespace Comet::Gameplay {
             const auto rotation = pose_rotation(scene, reference);
             Math::Vec3 forward{-rotation[2].x, 0, -rotation[2].z};
             // 垂直俯视时由相机右轴确定平面方向，避免归一化近零向量。
-            if(glm::dot(forward, forward) < 0.000001f)
+            if(Math::dot(forward, forward) < 0.000001f)
                 forward = {rotation[0].z, 0, -rotation[0].x};
             const auto basis = Math::view_basis(forward, {0, 1, 0});
             if(!basis)
@@ -33,10 +33,10 @@ namespace Comet::Gameplay {
             const auto yaw = std::atan2(-direction.x, -direction.y) * Math::RAD_TO_DEG;
             Math::Mat3 rotation(Math::compose_trs(Math::Vec3(0), {0, yaw, 0}, Math::Vec3(1)));
             if(const auto parent = scene.get_parent(entity))
-                rotation = glm::transpose(pose_rotation(scene, parent)) * rotation;
+                rotation = Math::transpose(pose_rotation(scene, parent)) * rotation;
             auto transform = entity.get_component<TransformComponent>();
             transform.rotation = Math::wrap_degrees(
-                glm::degrees(glm::eulerAngles(glm::normalize(glm::quat_cast(rotation)))));
+                Math::degrees(Math::euler_angles(Math::normalize(Math::to_quat(rotation)))));
             return transform;
         }
     }

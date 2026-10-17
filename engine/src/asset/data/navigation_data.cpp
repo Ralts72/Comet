@@ -16,9 +16,8 @@ namespace Comet {
         if(!library_version || (reference_bytes != 4 && reference_bytes != 8)
             || (byte_order != 1 && byte_order != 2) || tile.empty() || tile.size() > MAX_TILE_BYTES)
             return Result<void>::failure("Invalid navigation product header or tile size");
-        if(!Math::is_finite(query_extents)
-            || glm::any(glm::lessThanEqual(query_extents, Math::Vec3(0)))
-            || glm::any(glm::greaterThan(query_extents, Math::Vec3(100000))))
+        if(!Math::is_finite(query_extents) || Math::any_less_equal(query_extents, Math::Vec3(0))
+            || Math::any_greater(query_extents, Math::Vec3(100000)))
             return Result<void>::failure("Invalid navigation query extents");
         return Result<void>::success();
     }

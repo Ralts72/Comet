@@ -1,6 +1,5 @@
 #include "asset/data/cubemap_sampling.h"
 
-#include <glm/gtc/packing.hpp>
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -11,9 +10,9 @@ namespace Comet {
     namespace {
         Math::Vec3 read_pixel(const TextureData& data, const std::size_t offset) {
             if(data.format == Format::R16G16B16A16_SFLOAT) {
-                glm::u16vec4 packed;
+                Math::Half4 packed;
                 std::memcpy(&packed, data.pixels.data() + offset, 8);
-                return Math::Vec3(glm::unpackHalf(packed));
+                return Math::Vec3(Math::unpack_half(packed));
             }
             Math::Vec4 pixel;
             std::memcpy(&pixel, data.pixels.data() + offset, 16);
@@ -42,7 +41,7 @@ namespace Comet {
                 "CPU cubemap sampling payload size does not match its mip chain");
         for(std::size_t index = 0; index < count; ++index) {
             const auto pixel = read_pixel(data, index * texel_size);
-            if(!Math::is_finite(pixel) || glm::any(glm::lessThan(pixel, Math::Vec3(0))))
+            if(!Math::is_finite(pixel) || Math::any_less(pixel, Math::Vec3(0)))
                 return Checked::failure(
                     "CPU cubemap sampling requires finite nonnegative radiance");
         }
@@ -63,11 +62,11 @@ namespace Comet {
     Math::Vec3 CpuCubeSampler::face_direction(const int face, const float x, const float y) {
         const std::array<Math::Vec3, 6> directions{
             {{1, -y, -x}, {-1, -y, x}, {x, 1, y}, {x, -1, -y}, {x, -y, 1}, {-x, -y, -1}}};
-        return glm::normalize(directions[face]);
+        return Math::normalize(directions[face]);
     }
 
     CpuCubeSampler::Coordinate CpuCubeSampler::coordinate(const Math::Vec3 d) {
-        const auto a = glm::abs(d);
+        const auto a = Math::abs(d);
         if(a.x >= a.y && a.x >= a.z) {
             if(d.x > 0)
                 return {0, {-d.z / a.x, -d.y / a.x}};
@@ -91,7 +90,7 @@ namespace Comet {
         const auto first = sample_level(c, low);
         if(low == high || lod == float(low))
             return first;
-        return glm::mix(first, sample_level(c, high), lod - low);
+        return Math::mix(first, sample_level(c, high), lod - low);
     }
 
     Math::Vec3 CpuCubeSampler::texel(int face, int x, int y, const std::uint32_t mip) const {
@@ -118,8 +117,8 @@ namespace Comet {
         }
         const auto p = (c.uv * 0.5f + 0.5f) * float(m_data.width >> mip) - 0.5f;
         const int x = int(std::floor(p.x)), y = int(std::floor(p.y));
-        return glm::mix(glm::mix(texel(c.face, x, y, mip), texel(c.face, x + 1, y, mip), p.x - x),
-            glm::mix(texel(c.face, x, y + 1, mip), texel(c.face, x + 1, y + 1, mip), p.x - x),
+        return Math::mix(Math::mix(texel(c.face, x, y, mip), texel(c.face, x + 1, y, mip), p.x - x),
+            Math::mix(texel(c.face, x, y + 1, mip), texel(c.face, x + 1, y + 1, mip), p.x - x),
             p.y - y);
     }
 

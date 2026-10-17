@@ -349,7 +349,7 @@ namespace Comet {
                 Math::Vec4(settings.acceleration, settings.lifetime), settings.start_color,
                 settings.end_color,
                 {settings.start_size, settings.end_size, settings.speed,
-                    std::cos(glm::radians(settings.spread))},
+                    std::cos(Math::radians(settings.spread))},
                 {float(settings.atlas_columns), float(settings.atlas_rows),
                     float(settings.frame_count), 0},
                 {settings.frame_rate, settings.loop_animation ? 1.f : 0.f, 0, 0},
@@ -402,7 +402,7 @@ namespace Comet {
                         resources->collision->node_count, 0}};
                 extra.wind = Math::Vec4(settings.wind, settings.vortex_strength);
                 extra.vortex_center = Math::Vec4(settings.vortex_center, settings.vortex_radius);
-                extra.vortex_axis = Math::Vec4(glm::normalize(settings.vortex_axis), 0);
+                extra.vortex_axis = Math::Vec4(Math::normalize(settings.vortex_axis), 0);
                 if(field) {
                     extra.field_minimum =
                         Math::Vec4(field->data.bounds.minimum, settings.vector_field_strength);

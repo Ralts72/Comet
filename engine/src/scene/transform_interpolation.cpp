@@ -13,13 +13,13 @@ namespace Comet {
 
         Math::Mat4 interpolated_pose(
             const TransformComponent& previous, const TransformComponent& current, float alpha) {
-            const auto position = glm::mix(previous.translation, current.translation, alpha);
+            const auto position = Math::mix(previous.translation, current.translation, alpha);
             if(previous.rotation == current.rotation)
                 return Math::compose_trs(position, current.rotation, Math::Vec3(1));
-            const Math::Quat first(glm::radians(Math::wrap_degrees(previous.rotation)));
-            const Math::Quat second(glm::radians(Math::wrap_degrees(current.rotation)));
+            const Math::Quat first(Math::radians(Math::wrap_degrees(previous.rotation)));
+            const Math::Quat second(Math::radians(Math::wrap_degrees(current.rotation)));
             return Math::translate(Math::Mat4(1), position)
-                   * glm::mat4_cast(glm::normalize(glm::slerp(first, second, alpha)));
+                   * Math::to_mat4(Math::normalize(Math::slerp(first, second, alpha)));
         }
     }
 
@@ -198,7 +198,7 @@ namespace Comet {
                 scale = local->scale;
             } else {
                 pose_local = interpolated_pose(previous->second, *local, m_alpha);
-                scale = glm::mix(previous->second.scale, local->scale, m_alpha);
+                scale = Math::mix(previous->second.scale, local->scale, m_alpha);
             }
         }
         auto model = Math::scale(pose_local, scale);

@@ -33,7 +33,7 @@ namespace Comet::Tests {
             const float x = frame >= 8 ? .5f : -.5f;
             world.render_items.push_back({.entity_id = 1,
                 .model_matrix = Math::translate(Math::Mat4(1), {x, .2f, 0})
-                                * glm::mat4_cast(glm::angleAxis(.4f, Math::Vec3(0, 0, 1)))
+                                * Math::to_mat4(Math::angle_axis(.4f, Math::Vec3(0, 0, 1)))
                                 * Math::scale(Math::Mat4(1), {.3f, .3f, 1}),
                 .mesh = mesh,
                 .material = {.resource = red}});

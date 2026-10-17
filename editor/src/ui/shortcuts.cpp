@@ -90,7 +90,7 @@ namespace CometEditor {
         using Result = Comet::Result<EditorShortcuts>;
         EditorShortcuts result;
         const Comet::Json::Context context("shortcut config", source);
-        simdjson::dom::parser parser;
+        Comet::Json::Parser parser;
         auto root = context.parse(parser, contents);
         if(!root)
             return Result::failure(root.error());

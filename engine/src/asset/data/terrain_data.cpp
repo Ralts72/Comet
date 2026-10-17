@@ -2,9 +2,64 @@
 #include "common/file_io.h"
 #include "common/json.h"
 #include <bit>
+#include <algorithm>
 #include <cmath>
 
 namespace Comet {
+    namespace {
+        float smooth(float first, float last, float value) {
+            const float t = std::clamp((value - first) / (last - first), 0.f, 1.f);
+            return t * t * (3 - 2 * t);
+        }
+    }
+    float TerrainData::sample_height(Math::Vec2 grid) const {
+        float x = grid.x, z = grid.y;
+        x = std::clamp(x, 0.f, float(resolution - 1));
+        z = std::clamp(z, 0.f, float(resolution - 1));
+        const uint32_t x0 = uint32_t(x), z0 = uint32_t(z);
+        const auto at = [&](uint32_t a, uint32_t b) { return heights[size_t(b) * resolution + a]; };
+        const uint32_t x1 = std::min(x0 + 1, resolution - 1), z1 = std::min(z0 + 1, resolution - 1);
+        return std::lerp(std::lerp(at(x0, z0), at(x1, z0), x - x0),
+            std::lerp(at(x0, z1), at(x1, z1), x - x0), z - z0);
+    }
+    Math::Vec3 TerrainData::sample_normal(Math::Vec2 grid) const {
+        grid = Math::clamp(grid, Math::Vec2(0), Math::Vec2(resolution - 1));
+        const float x = grid.x, z = grid.y;
+        const float left = std::max(x - 1, 0.f), right = std::min(x + 1, float(resolution - 1));
+        const float near = std::max(z - 1, 0.f), far = std::min(z + 1, float(resolution - 1));
+        const float dx = (sample_height({right, z}) - sample_height({left, z})) * height_scale
+                         / ((right - left) * width / (resolution - 1));
+        const float dz = (sample_height({x, far}) - sample_height({x, near})) * height_scale
+                         / ((far - near) * depth / (resolution - 1));
+        return Math::normalize(Math::Vec3(-dx, 1, -dz));
+    }
+    Math::Vec3 TerrainData::sample_weights(Math::Vec2 grid) const {
+        const float x = grid.x, z = grid.y;
+        if(layer_weights.empty()) {
+            const float rock = smooth(slope_start, slope_end, 1 - sample_normal(grid).y);
+            const float high = smooth(height_start, height_end, sample_height({x, z}));
+            return {(1 - rock) * (1 - high), rock, (1 - rock) * high};
+        }
+        const auto coordinate =
+            Math::clamp(Math::Vec2(x, z), Math::Vec2(0), Math::Vec2(resolution - 1));
+        const auto first = Math::min(Math::Vec2u(coordinate), Math::Vec2u(resolution - 2));
+        const auto blend = coordinate - Math::Vec2(first);
+        const auto at = [&](uint32_t a, uint32_t b) {
+            return layer_weights[size_t(b) * resolution + a];
+        };
+        return Math::mix(Math::mix(at(first.x, first.y), at(first.x + 1, first.y), blend.x),
+            Math::mix(at(first.x, first.y + 1), at(first.x + 1, first.y + 1), blend.x), blend.y);
+    }
+    void TerrainData::initialize_layer_weights() {
+        if(!layer_weights.empty())
+            return;
+        std::vector<Math::Vec3> weights;
+        weights.reserve(size_t(resolution) * resolution);
+        for(uint32_t z = 0; z < resolution; ++z)
+            for(uint32_t x = 0; x < resolution; ++x)
+                weights.push_back(sample_weights({float(x), float(z)}));
+        layer_weights = std::move(weights);
+    }
     Result<void> TerrainData::validate() const {
         if(resolution < 5 || resolution > 1025 || !std::has_single_bit(resolution - 1)
             || chunk_cells < 4 || chunk_cells > 128 || !std::has_single_bit(chunk_cells)
@@ -20,8 +75,8 @@ namespace Comet {
         if(!layer_weights.empty() && layer_weights.size() != size_t(resolution) * resolution)
             return Result<void>::failure("材质权重数量须与高度网格一致");
         for(const auto value : layer_weights)
-            if(!Math::is_finite(value) || glm::any(glm::lessThan(value, Math::Vec3(0)))
-                || glm::any(glm::greaterThan(value, Math::Vec3(1)))
+            if(!Math::is_finite(value) || Math::any_less(value, Math::Vec3(0))
+                || Math::any_greater(value, Math::Vec3(1))
                 || std::abs(value.x + value.y + value.z - 1) > .0001f)
                 return Result<void>::failure("三层材质权重须为有限的 0～1 数值且合计为 1");
         for(float value : heights)
@@ -34,8 +89,8 @@ namespace Comet {
         if(!std::isfinite(roughness) || roughness < .045f || roughness > 1)
             return Result<void>::failure("地形粗糙度须为 0.045～1");
         for(const auto& layer : layers)
-            if(!Math::is_finite(layer.color) || glm::any(glm::lessThan(layer.color, Math::Vec3(0)))
-                || glm::any(glm::greaterThan(layer.color, Math::Vec3(1)))
+            if(!Math::is_finite(layer.color) || Math::any_less(layer.color, Math::Vec3(0))
+                || Math::any_greater(layer.color, Math::Vec3(1))
                 || !std::isfinite(layer.normal_scale) || layer.normal_scale < 0
                 || layer.normal_scale > 4 || !std::isfinite(layer.roughness) || layer.roughness < 0
                 || layer.roughness > 1 || !std::isfinite(layer.tiling) || layer.tiling <= 0

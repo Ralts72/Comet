@@ -24,6 +24,30 @@ set(EDITOR_UI_HEADERS
     "project/(player_input_panel|input_widgets)\\.h|ui/(imgui_context|widgets|language)\\.h")
 set(ENGINE_SOURCE "${COMET_SOURCE_ROOT}/engine/src")
 
+# 数学与 JSON 后端从已有公共入口访问，避免具体接口重新散入业务代码。
+foreach(directory engine/src editor app tools)
+    file(GLOB_RECURSE backend_consumers RELATIVE "${COMET_SOURCE_ROOT}"
+        "${COMET_SOURCE_ROOT}/${directory}/*.h"
+        "${COMET_SOURCE_ROOT}/${directory}/*.cpp"
+        "${COMET_SOURCE_ROOT}/${directory}/*.mm")
+    foreach(path IN LISTS backend_consumers)
+        if(NOT path MATCHES "^engine/src/core/math_utils\\.(h|cpp)$")
+            file(STRINGS "${COMET_SOURCE_ROOT}/${path}" backend_uses
+                REGEX "glm::|#[ \t]*include[ \t]*[<\"]glm/")
+            if(backend_uses)
+                message(FATAL_ERROR "Use core/math_utils.h instead of GLM directly: ${path}")
+            endif()
+        endif()
+        if(NOT path MATCHES "^engine/src/common/json\\.(h|cpp)$")
+            file(STRINGS "${COMET_SOURCE_ROOT}/${path}" backend_uses
+                REGEX "simdjson::|#[ \t]*include[ \t]*[<\"]simdjson\\.h")
+            if(backend_uses)
+                message(FATAL_ERROR "Use common/json.h instead of simdjson directly: ${path}")
+            endif()
+        endif()
+    endforeach()
+endforeach()
+
 # Check each internal module's transitive engine-owned includes.
 include("${COMET_SOURCE_ROOT}/engine/cmake/module_sources.cmake")
 set(FOUNDATION_HEADERS
@@ -169,7 +193,7 @@ file(GLOB_RECURSE EDITOR_FILES RELATIVE "${EDITOR_SOURCE}"
 set(EDITOR_IMGUI_FILES ui/imgui_context.h ui/imgui_context.cpp)
 list(REMOVE_ITEM EDITOR_FILES ${EDITOR_IMGUI_FILES})
 check_includes("${EDITOR_SOURCE}" "${EDITOR_FILES}"
-    "core/engine\\.h|render/(scene/scene_renderer|render_context|frame_scheduler|presentation)\\.h|[Vv]ulkan|GLFW/"
+    "core/engine\\.h|render/(scene/scene_renderer|render_context|frame_scheduler|presentation)\\.h|[Vv]ulkan|GLFW/|fastgltf/"
     "Editor features must use explicit module workflows, not Engine or rendering internals")
 
 # ImGui 呈现适配单独编译，允许连接图形后端，不依赖编辑器工作流。

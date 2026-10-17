@@ -197,9 +197,9 @@ namespace Comet {
             }
             for(std::size_t index = 0; index < mesh.skin.size(); ++index) {
                 auto& influence = mesh.skin[index];
-                const float sum = glm::dot(influence.weights, Math::Vec4(1));
+                const float sum = Math::dot(influence.weights, Math::Vec4(1));
                 if(!Math::is_finite(influence.weights) || sum < 0.0001f
-                    || glm::any(glm::lessThan(influence.weights, Math::Vec4(0))))
+                    || Math::any_less(influence.weights, Math::Vec4(0)))
                     return Imported::failure("Invalid skin weights");
                 influence.weights /= sum;
                 for(int slot = 0; slot < 4; ++slot) {
@@ -456,9 +456,9 @@ namespace Comet {
                         const auto normal = data.vertices[first_vertex + index].normal;
                         const auto direction = Math::Vec3(tangent);
                         if(!Math::is_finite(tangent) || std::abs(tangent.w) != 1.f
-                            || glm::dot(direction, direction) < 1e-12f
-                            || glm::dot(
-                                   glm::cross(normal, direction), glm::cross(normal, direction))
+                            || Math::dot(direction, direction) < 1e-12f
+                            || Math::dot(
+                                   Math::cross(normal, direction), Math::cross(normal, direction))
                                    < 1e-12f) {
                             invalid_attribute = true;
                             return;

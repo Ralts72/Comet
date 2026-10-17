@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
-#include <glm/gtc/matrix_inverse.hpp>
 
 namespace Comet {
     static_assert(sizeof(LightingData::Light) == 64);
@@ -290,8 +289,9 @@ namespace Comet {
             const auto view = light_view_matrix(light.direction, light.position);
             const float radius = light.range * tangent;
             // 通用求逆的末行可能有舍入误差；这里必须保留仿射矩阵的精确末行。
-            const auto bounds = transform_box(
-                {{-radius, -radius, -light.range}, {radius, radius, 0}}, glm::affineInverse(view));
+            const auto bounds =
+                transform_box({{-radius, -radius, -light.range}, {radius, radius, 0}},
+                    Math::affine_inverse(view));
             if(!bounds || !camera_frustum.intersects(*bounds))
                 continue;
             const auto shadow = perspective_shadow(
@@ -323,7 +323,7 @@ namespace Comet {
             const BoundingBox bounds{
                 light.position - Math::Vec3(light.range), light.position + Math::Vec3(light.range)};
             const auto closest =
-                glm::clamp(light.position, world_bounds.minimum, world_bounds.maximum);
+                Math::clamp(light.position, world_bounds.minimum, world_bounds.maximum);
             if(!camera_frustum.intersects(bounds)
                 || Math::length(closest - light.position) >= light.range)
                 continue;

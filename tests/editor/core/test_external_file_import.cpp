@@ -1,5 +1,6 @@
 #include "asset/asset_manager.h"
 #include "asset/data/mesh_data.h"
+#include "asset/data/terrain_data.h"
 #include "asset/data/texture_data.h"
 #include "asset/registry.h"
 #include "assets/source_operations.h"
@@ -332,6 +333,28 @@ namespace Comet::Tests {
         EXPECT_TRUE(std::filesystem::exists(source));
     }
 
+    TEST_F(ExternalFileImportTest, TerrainCopiesAllLayersAndNestedVegetationDependencies) {
+        ASSERT_TRUE(std::filesystem::exists(mesh()));
+        texture("normal.png");
+        texture("roughness.png");
+        TerrainData terrain;
+        terrain.resolution = 9;
+        terrain.chunk_cells = 4;
+        terrain.albedo_resolution = 16;
+        terrain.heights.resize(81);
+        terrain.layers[0].normal_texture = "normal.png";
+        terrain.layers[0].roughness_texture = "roughness.png";
+        terrain.vegetation.model = "model.gltf";
+        terrain.vegetation.count = 1;
+        const auto source = external / "ground.terrain";
+        ASSERT_TRUE(terrain.save(source));
+        const auto report = import({source});
+        ASSERT_TRUE(report.succeeded()) << report.issues.front().message;
+        for(const auto* path : {"ground.terrain", "normal.png", "roughness.png", "model.gltf",
+                "data/model.bin", "images/albedo.png"})
+            EXPECT_TRUE(std::filesystem::exists(paths.assets() / "folder" / path)) << path;
+    }
+
     TEST_F(ExternalFileImportTest, ImportsGlbToRoot) {
         std::string json =
             read(std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY) / "assets/meshes/cube.gltf");
@@ -380,8 +403,9 @@ namespace Comet::Tests {
     }
 
     TEST_F(ExternalFileImportTest, RejectsRemoteParentAndAbsoluteDependencies) {
-        for(const std::string uri : {"https://example.invalid/buffer.bin", "../outside.bin",
-                "/absolute.bin", "data/%2e%2e/model.bin"}) {
+        for(const std::string uri :
+            {"https://example.invalid/buffer.bin", "../outside.bin", "/absolute.bin",
+                "data/%2e%2e/model.bin", "data/model.bin?version=1", "data/model.bin#part"}) {
             const auto source = mesh(uri);
             EXPECT_FALSE(import({source}).succeeded()) << uri;
             expect_empty();

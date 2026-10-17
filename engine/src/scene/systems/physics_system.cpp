@@ -102,7 +102,7 @@ namespace Comet {
             world_transform.translation = Math::Vec3(matrix[3]);
             world_transform.scale = *scale;
             world_transform.rotation =
-                glm::degrees(glm::eulerAngles(glm::normalize(glm::quat_cast(rotation))));
+                Math::degrees(Math::euler_angles(Math::normalize(Math::to_quat(rotation))));
         }
         if(character && scene.m_registry.all_of<RigidBodyComponent>(handle))
             return Result<PhysicsService::ObjectChange, Error>::failure(

@@ -3,7 +3,6 @@
 #include "common/result.h"
 #include "core/geometry.h"
 #include "core/math_utils.h"
-#include <glm/gtc/quaternion.hpp>
 #include <cstdint>
 #include <limits>
 #include <string>
@@ -17,7 +16,7 @@ namespace Comet {
     inline constexpr uint32_t NO_ANIMATION_NODE = std::numeric_limits<uint32_t>::max();
     struct JointTransform {
         Math::Vec3 translation{0};
-        glm::quat rotation{1, 0, 0, 0};
+        Math::Quat rotation{1, 0, 0, 0};
         Math::Vec3 scale{1};
     };
     struct AnimationNode {

@@ -5,31 +5,31 @@
 #include <utility>
 
 namespace Comet::Json {
-    Result<Node> Context::parse(simdjson::dom::parser& parser, std::string_view contents) const {
+    Result<Node> Context::parse(Parser& parser, std::string_view contents) const {
         Node root;
         if(const auto result = parser.parse(contents.data(), contents.size()).get(root))
             return Result<Node>::failure(error("<json>", simdjson::error_message(result)));
         return Result<Node>::success(root);
     }
 
-    Result<simdjson::dom::object> Context::object(Node node, std::string_view location) const {
-        simdjson::dom::object result;
+    Result<Object> Context::object(Node node, std::string_view location) const {
+        Object result;
         if(node.get_object().get(result))
-            return Result<simdjson::dom::object>::failure(error(location, "expected an object"));
+            return Result<Object>::failure(error(location, "expected an object"));
         std::unordered_set<std::string_view> keys;
         for(const auto field : result) {
             if(!keys.insert(field.key).second)
-                return Result<simdjson::dom::object>::failure(
+                return Result<Object>::failure(
                     error(location, "duplicate field '" + std::string(field.key) + "'"));
         }
-        return Result<simdjson::dom::object>::success(result);
+        return Result<Object>::success(result);
     }
 
-    Result<simdjson::dom::array> Context::array(Node node, std::string_view location) const {
-        simdjson::dom::array result;
+    Result<Array> Context::array(Node node, std::string_view location) const {
+        Array result;
         if(node.get_array().get(result))
-            return Result<simdjson::dom::array>::failure(error(location, "expected an array"));
-        return Result<simdjson::dom::array>::success(result);
+            return Result<Array>::failure(error(location, "expected an array"));
+        return Result<Array>::success(result);
     }
 
     Result<Node> Context::required_child(

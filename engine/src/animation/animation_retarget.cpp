@@ -1,7 +1,6 @@
 #include "animation/animation_retarget.h"
 #include <cctype>
 #include <set>
-#include <glm/gtc/matrix_inverse.hpp>
 #include <algorithm>
 #include <unordered_set>
 
@@ -18,11 +17,11 @@ namespace Comet {
             for(const auto i : data.evaluation_order) {
                 const auto& rest = local.empty() ? data.nodes[i].rest : local[i];
                 world[i] = Math::translate(Math::Mat4(1), rest.translation)
-                           * glm::mat4_cast(rest.rotation) * Math::scale(Math::Mat4(1), rest.scale);
+                           * Math::to_mat4(rest.rotation) * Math::scale(Math::Mat4(1), rest.scale);
                 if(data.nodes[i].parent != NO_ANIMATION_NODE)
                     world[i] = world[data.nodes[i].parent] * world[i];
             }
-            const auto basis = glm::affineInverse(world[data.mesh_node]);
+            const auto basis = Math::affine_inverse(world[data.mesh_node]);
             std::vector<RestFrame> frames;
             frames.reserve(world.size() + 1);
             for(const auto& matrix : world) {
@@ -32,14 +31,14 @@ namespace Comet {
                     return Result<std::vector<RestFrame>>::failure(
                         "Retargeting requires positive uniform rest scales");
                 frames.push_back({Math::Vec3(local[3]),
-                    glm::normalize(glm::quat_cast(Math::Mat3(local) / *scale)), *scale});
+                    Math::normalize(Math::to_quat(Math::Mat3(local) / *scale)), *scale});
             }
             const auto scale = Math::uniform_scale(basis);
             if(!scale)
                 return Result<std::vector<RestFrame>>::failure("Invalid retarget mesh basis");
             // 最后一个元素表示根节点的父空间，仍使用对应网格的坐标系。
             frames.push_back({Math::Vec3(basis[3]),
-                glm::normalize(glm::quat_cast(Math::Mat3(basis) / *scale)), *scale});
+                Math::normalize(Math::to_quat(Math::Mat3(basis) / *scale)), *scale});
             return Result<std::vector<RestFrame>>::success(std::move(frames));
         }
         Result<std::map<std::string, uint32_t>> named_nodes(const AnimationData& data) {
@@ -65,7 +64,7 @@ namespace Comet {
                 if(found == names.end())
                     return Posed::failure("Reference pose bone is missing: " + name);
                 if(!Math::is_finite(degrees)
-                    || glm::any(glm::greaterThan(glm::abs(degrees), Math::Vec3(180))))
+                    || Math::any_greater(Math::abs(degrees), Math::Vec3(180)))
                     return Posed::failure("Invalid reference pose correction: " + name);
                 auto ancestor = data.mesh_node;
                 while(ancestor != NO_ANIMATION_NODE && ancestor != found->second)
@@ -73,7 +72,7 @@ namespace Comet {
                 if(ancestor == found->second)
                     return Posed::failure("Reference pose cannot rotate the mesh basis");
                 auto& rotation = local[found->second].rotation;
-                rotation = glm::normalize(rotation * Math::Quat(glm::radians(degrees)));
+                rotation = Math::normalize(rotation * Math::Quat(Math::radians(degrees)));
             }
             return Posed::success(std::move(local));
         }
@@ -163,7 +162,7 @@ namespace Comet {
             std::vector<float> distance(nodes.size(), 0);
             for(size_t i = 1; i < nodes.size(); ++i)
                 distance[i] = distance[i - 1]
-                              + glm::length(rest[nodes[i]].position - rest[nodes[i - 1]].position);
+                              + Math::length(rest[nodes[i]].position - rest[nodes[i - 1]].position);
             if(distance.back() < 1e-5f)
                 return Result<std::vector<float>>::failure("Retarget chain has zero rest length");
             const auto length = distance.back();
@@ -180,9 +179,9 @@ namespace Comet {
                 if(parent != NO_ANIMATION_NODE)
                     rotations[node] = rotations[parent] * rotations[node];
             }
-            const auto basis = glm::inverse(rotations[data.mesh_node]);
+            const auto basis = Math::inverse(rotations[data.mesh_node]);
             for(auto& value : rotations)
-                value = glm::normalize(basis * value);
+                value = Math::normalize(basis * value);
             return rotations;
         }
         Result<void> bake_chains(const AnimationData& source, AnimationData& target,
@@ -213,7 +212,7 @@ namespace Comet {
             std::vector<Math::Quat> inverse_rest;
             inverse_rest.reserve(source_rest.size());
             for(const auto& frame : source_rest)
-                inverse_rest.push_back(glm::inverse(frame.rotation));
+                inverse_rest.push_back(Math::inverse(frame.rotation));
             for(size_t clip_index = 0; clip_index < source.clips.size(); ++clip_index) {
                 const auto& clip = source.clips[clip_index];
                 if(clip.duration > 600)
@@ -254,8 +253,8 @@ namespace Comet {
                     for(const auto& sample : samples) {
                         const auto first = from[sample.first] * inverse_rest[sample.first];
                         const auto last = from[sample.last] * inverse_rest[sample.last];
-                        const auto delta = glm::normalize(glm::slerp(first, last, sample.alpha));
-                        desired[sample.node] = glm::normalize(glm::slerp(to[sample.node],
+                        const auto delta = Math::normalize(Math::slerp(first, last, sample.alpha));
+                        desired[sample.node] = Math::normalize(Math::slerp(to[sample.node],
                             delta * target_rest[sample.node].rotation, sample.weight));
                     }
                     // 按目标父序重建局部旋转，父链与子链可共同受原有躯干／根运动驱动。
@@ -264,14 +263,14 @@ namespace Comet {
                         if(channel_for_node[node] >= 0) {
                             auto local = desired[node];
                             if(parent != NO_ANIMATION_NODE)
-                                local = glm::inverse(to[parent]) * local;
+                                local = Math::inverse(to[parent]) * local;
                             else
-                                local = glm::inverse(target_rest.back().rotation) * local;
-                            local = glm::normalize(local);
+                                local = Math::inverse(target_rest.back().rotation) * local;
+                            local = Math::normalize(local);
                             auto& values = baked[channel_for_node[node]].values;
                             if(!values.empty()
-                                && glm::dot(local, Math::Quat(values.back().w, values.back().x,
-                                                       values.back().y, values.back().z))
+                                && Math::dot(local, Math::Quat(values.back().w, values.back().x,
+                                                        values.back().y, values.back().z))
                                        < 0)
                                 local = -local;
                             values.push_back({local.x, local.y, local.z, local.w});
@@ -292,20 +291,20 @@ namespace Comet {
             for(std::size_t i = 0; i < channel.values.size(); ++i) {
                 const auto& value = channel.values[i];
                 if(cubic && i % 3 != 1) {
-                    if(glm::length(value) > .0001f)
+                    if(Math::length(value) > .0001f)
                         return true;
                     continue;
                 }
                 if(channel.path == AnimationChannel::Path::Rotation) {
                     const auto rotation =
-                        glm::normalize(Math::Quat(value.w, value.x, value.y, value.z));
-                    if(std::abs(glm::dot(rotation, rest.rotation)) < .99999f)
+                        Math::normalize(Math::Quat(value.w, value.x, value.y, value.z));
+                    if(std::abs(Math::dot(rotation, rest.rotation)) < .99999f)
                         return true;
                 } else {
                     const auto expected = channel.path == AnimationChannel::Path::Scale
                                               ? rest.scale
                                               : rest.translation;
-                    if(glm::length(Math::Vec3(value) - expected) > .0001f)
+                    if(Math::length(Math::Vec3(value) - expected) > .0001f)
                         return true;
                 }
             }
@@ -371,7 +370,7 @@ namespace Comet {
                 return Result<void>::failure("Too many retarget pose corrections");
             for(const auto& [name, degrees] : *pose)
                 if(name.empty() || !Math::is_finite(degrees)
-                    || glm::any(glm::greaterThan(glm::abs(degrees), Math::Vec3(180))))
+                    || Math::any_greater(Math::abs(degrees), Math::Vec3(180)))
                     return Result<void>::failure("Invalid reference pose correction: " + name);
         }
         std::unordered_set<std::string> targets;
@@ -493,11 +492,11 @@ namespace Comet {
             for(const auto& chain : chains) {
                 float first = 0, second = 0;
                 for(size_t i = 1; i < chain.source.size(); ++i)
-                    first += glm::length(source_rest.value()[chain.source[i]].position
-                                         - source_rest.value()[chain.source[i - 1]].position);
+                    first += Math::length(source_rest.value()[chain.source[i]].position
+                                          - source_rest.value()[chain.source[i - 1]].position);
                 for(size_t i = 1; i < chain.target.size(); ++i)
-                    second += glm::length(target_rest.value()[chain.target[i]].position
-                                          - target_rest.value()[chain.target[i - 1]].position);
+                    second += Math::length(target_rest.value()[chain.target[i]].position
+                                           - target_rest.value()[chain.target[i - 1]].position);
                 ratios.push_back(second / first);
             }
             for(uint32_t i = 0; i < source.nodes.size(); ++i) {
@@ -506,11 +505,11 @@ namespace Comet {
                 const auto parent = mapped_parent(source, i, mapping);
                 if(parent == NO_ANIMATION_NODE)
                     continue;
-                const auto source_length = glm::length(
+                const auto source_length = Math::length(
                     source_rest.value()[i].position - source_rest.value()[parent].position);
                 const auto target_length =
-                    glm::length(target_rest.value()[mapping[i]].position
-                                - target_rest.value()[mapping[parent]].position);
+                    Math::length(target_rest.value()[mapping[i]].position
+                                 - target_rest.value()[mapping[parent]].position);
                 if(source_length > 1e-5f && target_length > 1e-5f)
                     ratios.push_back(target_length / source_length);
             }
@@ -579,8 +578,8 @@ namespace Comet {
                 const auto& second =
                     target_rest.value()[target_parent == NO_ANIMATION_NODE ? target.nodes.size()
                                                                            : target_parent];
-                const auto pre = glm::inverse(second.rotation) * first.rotation;
-                const auto post = glm::inverse(source_rest.value()[from].rotation)
+                const auto pre = Math::inverse(second.rotation) * first.rotation;
+                const auto post = Math::inverse(source_rest.value()[from].rotation)
                                   * target_rest.value()[to].rotation;
                 auto copy = channel;
                 copy.node = to;
@@ -591,7 +590,7 @@ namespace Comet {
                     if(channel.path == AnimationChannel::Path::Rotation) {
                         auto rotation = pre * Math::Quat(value.w, value.x, value.y, value.z) * post;
                         if(!cubic || i % 3 == 1)
-                            rotation = glm::normalize(rotation);
+                            rotation = Math::normalize(rotation);
                         value = {rotation.x, rotation.y, rotation.z, rotation.w};
                     } else {
                         auto translation = Math::Vec3(value);
@@ -622,10 +621,11 @@ namespace Comet {
                     const auto& second =
                         target_rest.value()[parent_to == NO_ANIMATION_NODE ? target.nodes.size()
                                                                            : parent_to];
-                    const auto q = glm::normalize(glm::inverse(second.rotation) * first.rotation
-                                                  * source.nodes[from].rest.rotation
-                                                  * glm::inverse(source_rest.value()[from].rotation)
-                                                  * target_rest.value()[to].rotation);
+                    const auto q =
+                        Math::normalize(Math::inverse(second.rotation) * first.rotation
+                                        * source.nodes[from].rest.rotation
+                                        * Math::inverse(source_rest.value()[from].rotation)
+                                        * target_rest.value()[to].rotation);
                     converted.channels.push_back({to, AnimationChannel::Path::Rotation,
                         AnimationChannel::Interpolation::Linear, {0}, {{q.x, q.y, q.z, q.w}}});
                 }

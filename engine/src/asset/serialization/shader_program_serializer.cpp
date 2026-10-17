@@ -330,7 +330,7 @@ namespace Comet {
     Result<ShaderProgramMaterial> ShaderProgramSerializer::deserialize_material(
         const std::string_view contents) const {
         const Json::Context context("shader material", "<artifact>");
-        simdjson::dom::parser parser;
+        Json::Parser parser;
         auto root = context.parse(parser, contents);
         if(!root)
             return Result<ShaderProgramMaterial>::failure(root.error());

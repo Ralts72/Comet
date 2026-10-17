@@ -38,7 +38,6 @@
 #include "pbr_vert.h"
 
 #include <gtest/gtest.h>
-#include <glm/gtc/packing.hpp>
 #include <spdlog/sinks/ostream_sink.h>
 #include <cstring>
 #include <cstdlib>
@@ -47,33 +46,34 @@
 namespace Comet::Tests {
     class RenderGraphGpuTest: public RenderGpuTest {
     protected:
-        static glm::dvec3 pbr_reference(glm::dvec3 normal, glm::dvec3 view, glm::dvec3 light,
-            glm::dvec3 base, double metallic, double roughness, double radiance) {
-            if(glm::length(normal) < 1e-6)
-                return glm::dvec3(0);
-            normal = glm::normalize(normal);
-            view = glm::normalize(view);
-            light = glm::normalize(light);
-            const double nl = std::clamp(glm::dot(normal, light), 0.0, 1.0);
-            const double nv = std::clamp(glm::dot(normal, view), 0.0, 1.0);
+        static Math::Vec3d pbr_reference(Math::Vec3d normal, Math::Vec3d view, Math::Vec3d light,
+            Math::Vec3d base, double metallic, double roughness, double radiance) {
+            if(Math::length(normal) < 1e-6)
+                return Math::Vec3d(0);
+            normal = Math::normalize(normal);
+            view = Math::normalize(view);
+            light = Math::normalize(light);
+            const double nl = std::clamp(Math::dot(normal, light), 0.0, 1.0);
+            const double nv = std::clamp(Math::dot(normal, view), 0.0, 1.0);
             if(nl <= 0 || nv <= 0)
-                return glm::dvec3(0);
-            const auto halfway = glm::normalize(light + view);
-            const double nh = std::clamp(glm::dot(normal, halfway), 0.0, 1.0);
-            const double vh = std::clamp(glm::dot(view, halfway), 0.0, 1.0);
+                return Math::Vec3d(0);
+            const auto halfway = Math::normalize(light + view);
+            const double nh = std::clamp(Math::dot(normal, halfway), 0.0, 1.0);
+            const double vh = std::clamp(Math::dot(view, halfway), 0.0, 1.0);
             const double a2 = std::pow(std::clamp(roughness, 0.045, 1.0), 4);
             const double distribution =
-                a2 / (glm::pi<double>() * std::pow(nh * nh * (a2 - 1) + 1, 2));
+                a2 / (std::numbers::pi * std::pow(nh * nh * (a2 - 1) + 1, 2));
             const double geometry = 2 * nl * nv
                                     / (nv * std::sqrt(a2 + (1 - a2) * nl * nl)
                                         + nl * std::sqrt(a2 + (1 - a2) * nv * nv));
             const double grazing = std::pow(1 - vh, 5);
             const double fresnel = 0.04 + 0.96 * grazing;
-            const auto dielectric = base * (1 - fresnel) / glm::pi<double>()
-                                    + glm::dvec3(fresnel * distribution * geometry / (4 * nl * nv));
+            const auto dielectric =
+                base * (1 - fresnel) / std::numbers::pi
+                + Math::Vec3d(fresnel * distribution * geometry / (4 * nl * nv));
             const auto metal =
                 (base + (1.0 - base) * grazing) * distribution * geometry / (4 * nl * nv);
-            return glm::mix(dielectric, metal, std::clamp(metallic, 0.0, 1.0)) * radiance * nl;
+            return Math::mix(dielectric, metal, std::clamp(metallic, 0.0, 1.0)) * radiance * nl;
         }
         static int mapped_byte(float hdr, float exposure = 1.0f) {
             const auto linear = 1.0f - std::exp(-std::max(hdr, 0.0f) * exposure);

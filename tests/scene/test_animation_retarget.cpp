@@ -52,8 +52,8 @@ namespace Comet::Tests {
                 .translations = {"source_root"}};
         }
         Math::Quat rotation(const Math::Mat4& matrix) {
-            return glm::normalize(
-                glm::quat_cast(Math::Mat3(matrix) / *Math::uniform_scale(matrix)));
+            return Math::normalize(
+                Math::to_quat(Math::Mat3(matrix) / *Math::uniform_scale(matrix)));
         }
         void compare_rotations(const AnimationData& source, const AnimationData& target,
             const AnimationData& bound, double time) {
@@ -65,10 +65,11 @@ namespace Comet::Tests {
             ASSERT_TRUE(first && first_rest && second_rest && actual);
             for(std::size_t i = 0; i < source.joints.size(); ++i) {
                 const auto expected = rotation(first.value().bone_matrices[i])
-                                      * glm::inverse(rotation(first_rest.value().bone_matrices[i]))
+                                      * Math::inverse(rotation(first_rest.value().bone_matrices[i]))
                                       * rotation(second_rest.value().bone_matrices[i]);
-                EXPECT_NEAR(std::abs(glm::dot(rotation(actual.value().bone_matrices[i]), expected)),
-                    1, .0001);
+                EXPECT_NEAR(
+                    std::abs(Math::dot(rotation(actual.value().bone_matrices[i]), expected)), 1,
+                    .0001);
             }
         }
     }
@@ -105,9 +106,9 @@ namespace Comet::Tests {
         ASSERT_TRUE(frame) << frame.error();
         EXPECT_EQ(frame.value().local_transforms[2].translation, data.nodes[2].rest.translation);
         const auto expected =
-            data.nodes[2].rest.rotation * Math::Quat(glm::radians(Math::Vec3(0, 0, 45)));
+            data.nodes[2].rest.rotation * Math::Quat(Math::radians(Math::Vec3(0, 0, 45)));
         EXPECT_NEAR(
-            std::abs(glm::dot(frame.value().local_transforms[2].rotation, expected)), 1, .00001);
+            std::abs(Math::dot(frame.value().local_transforms[2].rotation, expected)), 1, .00001);
         EXPECT_FALSE(retarget_reference_pose(data, {{"mesh", {0, 0, 0}}}));
         EXPECT_FALSE(retarget_reference_pose(data, {{"missing", {0, 0, 0}}}));
         EXPECT_FALSE(retarget_reference_pose(data, {{"hip", {0, 181, 0}}}));
@@ -144,8 +145,8 @@ namespace Comet::Tests {
                     pose.value().local_transforms[i].translation, target.nodes[i].rest.translation);
             const auto expected = Math::angle_axis(float(time) * .8f * (2.f / 3), {0, 0, 1});
             EXPECT_NEAR(
-                std::abs(glm::dot(pose.value().local_transforms[2].rotation, expected)), 1, .0001);
-            EXPECT_NEAR(std::abs(glm::dot(rotation(pose.value().bone_matrices.back()),
+                std::abs(Math::dot(pose.value().local_transforms[2].rotation, expected)), 1, .0001);
+            EXPECT_NEAR(std::abs(Math::dot(rotation(pose.value().bone_matrices.back()),
                             Math::angle_axis(float(time) * .8f, {0, 0, 1}))),
                 1, .0001);
         }
@@ -315,8 +316,8 @@ namespace Comet::Tests {
             ASSERT_TRUE(chain_pose && node_pose);
             for(size_t joint = 0; joint < chain_pose.value().matrices.size(); ++joint)
                 for(int column = 0; column < 4; ++column)
-                    EXPECT_LT(glm::length(chain_pose.value().matrices[joint][column]
-                                          - node_pose.value().matrices[joint][column]),
+                    EXPECT_LT(Math::length(chain_pose.value().matrices[joint][column]
+                                           - node_pose.value().matrices[joint][column]),
                         .005f);
         }
         auto suggested = suggest_bone_mapping(*source.value().animation, *target.value().animation);
@@ -337,8 +338,8 @@ namespace Comet::Tests {
             ASSERT_EQ(actual_pose.value().matrices.size(), expected_pose.value().matrices.size());
             for(std::size_t i = 0; i < actual_pose.value().matrices.size(); ++i)
                 for(int column = 0; column < 4; ++column)
-                    EXPECT_LT(glm::length(actual_pose.value().matrices[i][column]
-                                          - expected_pose.value().matrices[i][column]),
+                    EXPECT_LT(Math::length(actual_pose.value().matrices[i][column]
+                                           - expected_pose.value().matrices[i][column]),
                         .002);
         }
         auto actual_motion = animation_root_motion(
@@ -347,7 +348,7 @@ namespace Comet::Tests {
             expected.value(), {.clip = "root_walk", .time = .75}, 2.25, {.node = "root"});
         ASSERT_TRUE(actual_motion && expected_motion);
         EXPECT_LT(
-            glm::length(actual_motion.value().translation - expected_motion.value().translation),
+            Math::length(actual_motion.value().translation - expected_motion.value().translation),
             .001);
         const auto original_controller =
             AnimationControllerSerializer{}.load(assets / "animations/root_motion.ani");
@@ -461,11 +462,11 @@ namespace Comet::Tests {
         ASSERT_TRUE(calibrated) << calibrated.error();
         auto reference_source = source, reference_target = target;
         reference_source.nodes[1].rest.rotation =
-            glm::normalize(reference_source.nodes[1].rest.rotation
-                           * Math::Quat(glm::radians(Math::Vec3(5, 0, 0))));
+            Math::normalize(reference_source.nodes[1].rest.rotation
+                            * Math::Quat(Math::radians(Math::Vec3(5, 0, 0))));
         reference_target.nodes[2].rest.rotation =
-            glm::normalize(reference_target.nodes[2].rest.rotation
-                           * Math::Quat(glm::radians(Math::Vec3(0, 0, 20))));
+            Math::normalize(reference_target.nodes[2].rest.rotation
+                            * Math::Quat(Math::radians(Math::Vec3(0, 0, 20))));
         AnimationPlayback frame{.current = {.clip = "motion", .time = .37, .loop = false}};
         auto input = sample_animation(source, &frame),
              source_rest = sample_animation(reference_source, nullptr),
@@ -474,10 +475,10 @@ namespace Comet::Tests {
         ASSERT_TRUE(input && source_rest && target_rest && output);
         for(size_t i = 0; i < source.joints.size(); ++i) {
             const auto expected = rotation(input.value().bone_matrices[i])
-                                  * glm::inverse(rotation(source_rest.value().bone_matrices[i]))
+                                  * Math::inverse(rotation(source_rest.value().bone_matrices[i]))
                                   * rotation(target_rest.value().bone_matrices[i]);
             EXPECT_NEAR(
-                std::abs(glm::dot(rotation(output.value().bone_matrices[i]), expected)), 1, .0001);
+                std::abs(Math::dot(rotation(output.value().bone_matrices[i]), expected)), 1, .0001);
         }
         EXPECT_EQ(calibrated.value().nodes[2].rest.rotation, target.nodes[2].rest.rotation);
         AnimationLibrary library;

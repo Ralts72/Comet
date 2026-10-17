@@ -1,3 +1,4 @@
+#include "core/math_utils.h"
 #include "animation/animation_system.h"
 #include "scene/scene.h"
 #include "diagnostics/profiler.h"
@@ -78,7 +79,7 @@ namespace Comet {
         selection.parameter = definition.blend_parameters(state, animator.parameters);
         if(selection.state == playback.state && state.smoothing > 0) {
             const float weight = float(-std::expm1(-delta / state.smoothing));
-            selection.parameter = glm::mix(playback.parameter, selection.parameter, weight);
+            selection.parameter = Math::mix(playback.parameter, selection.parameter, weight);
         }
         auto mixed = definition.sample(state, selection.parameter);
         if(!mixed)
@@ -254,9 +255,9 @@ namespace Comet {
                     weight = float(
                         (integral(playback.transition_time) - integral(transition_start)) / delta);
                 }
-                AnimationMotion motion{.translation = glm::mix(previous_motion.translation,
+                AnimationMotion motion{.translation = Math::mix(previous_motion.translation,
                                            current_motion.translation, weight),
-                    .yaw = glm::mix(previous_motion.yaw, current_motion.yaw, weight),
+                    .yaw = Math::mix(previous_motion.yaw, current_motion.yaw, weight),
                     .up = current_motion.up};
                 if(!m_motion) {
                     result =
@@ -283,7 +284,7 @@ namespace Comet {
                     const auto& state = *definition.find_state(layer.state);
                     auto value = definition.blend_parameters(state, animator.parameters);
                     if(!entering && state.smoothing > 0)
-                        value = glm::mix(playback.layer_parameters[i], value,
+                        value = Math::mix(playback.layer_parameters[i], value,
                             float(-std::expm1(-delta / state.smoothing)));
                     playback.layer_parameters[i] = value;
                     auto sample = definition.sample_layer(layer, animator.parameters, value);

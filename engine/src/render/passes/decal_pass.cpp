@@ -31,11 +31,11 @@ namespace Comet {
                     return {{0, 0}, {size.x, size.y}};
                 const auto pixel =
                     (Math::Vec2(clip) / clip.w * Math::Vec2(.5f, -.5f) + .5f) * Math::Vec2(size);
-                lower = glm::min(lower, pixel);
-                upper = glm::max(upper, pixel);
+                lower = Math::min(lower, pixel);
+                upper = Math::max(upper, pixel);
             }
-            lower = glm::clamp(glm::floor(lower), Math::Vec2(0), Math::Vec2(size));
-            upper = glm::clamp(glm::ceil(upper), lower, Math::Vec2(size));
+            lower = Math::clamp(Math::floor(lower), Math::Vec2(0), Math::Vec2(size));
+            upper = Math::clamp(Math::ceil(upper), lower, Math::Vec2(size));
             return {{int32_t(lower.x), int32_t(lower.y)},
                 {uint32_t(upper.x - lower.x), uint32_t(upper.y - lower.y)}};
         }

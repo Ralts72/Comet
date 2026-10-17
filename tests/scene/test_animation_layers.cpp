@@ -275,7 +275,7 @@ namespace Comet::Tests {
         EXPECT_NEAR(spine.translation.x, 6, .0001);
         EXPECT_NEAR(spine.scale.x, 4, .0001);
         const auto expected = Math::angle_axis(Math::PI * 5 / 12, {0, 0, 1});
-        EXPECT_NEAR(std::abs(glm::dot(spine.rotation, expected)), 1, .0001);
+        EXPECT_NEAR(std::abs(Math::dot(spine.rotation, expected)), 1, .0001);
         EXPECT_EQ(pose.value().local_transforms[1].translation, Math::Vec3(0));
         // 末端骨骼没有动画通道，参考差值为零，不能再次加上绑定偏移。
         EXPECT_EQ(pose.value().local_transforms[3].translation, data.nodes[3].rest.translation);

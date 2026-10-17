@@ -45,6 +45,27 @@ namespace Comet::Tests {
             return data;
         }
     }
+    TEST(TerrainImporterTest, SharedSamplingClampsEdgesAndPreservesWeightsWhenPaintingBegins) {
+        auto data = terrain();
+        EXPECT_FLOAT_EQ(data.sample_height({2.5f, 3}), .25f);
+        EXPECT_FLOAT_EQ(data.sample_height({-2, 10}), 0);
+        EXPECT_FLOAT_EQ(data.sample_height({10, -2}), .8f);
+        const auto normal = data.sample_normal({0, 0});
+        EXPECT_LT(Math::length(normal - Math::normalize(Math::Vec3(-.2f, 1, 0))), .00001f);
+        EXPECT_EQ(data.sample_normal({-5, -5}), normal);
+        const auto automatic = data.sample_weights({3, 4});
+        data.initialize_layer_weights();
+        EXPECT_EQ(data.sample_weights({3, 4}), automatic);
+        const auto painted = data.layer_weights;
+        data.initialize_layer_weights();
+        EXPECT_EQ(data.layer_weights, painted);
+        data.layer_weights[0] = {1, 0, 0};
+        data.layer_weights[1] = {0, 1, 0};
+        data.layer_weights[data.resolution] = {0, 0, 1};
+        data.layer_weights[data.resolution + 1] = {0, 1, 0};
+        EXPECT_EQ(data.sample_weights({.5f, .5f}), Math::Vec3(.25f, .5f, .25f));
+        EXPECT_EQ(data.sample_weights({-5, -5}), Math::Vec3(1, 0, 0));
+    }
     TEST(TerrainImporterTest, ValidatesAuthoringAndPreservesRawPngAlpha) {
         auto data = terrain();
         auto json = data.serialize();
@@ -290,7 +311,7 @@ namespace Comet::Tests {
         const auto bend = scene.get_vertex_bend(part);
         EXPECT_EQ(root.get_component<TransformComponent>().rotation, original);
         EXPECT_EQ(bend.z, 2);
-        EXPECT_GT(glm::length(Math::Vec2(bend)), 0);
+        EXPECT_GT(Math::length(Math::Vec2(bend)), 0);
         ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
         ASSERT_TRUE(runtime.advance(.2));
         EXPECT_EQ(scene.get_vertex_bend(part), bend);

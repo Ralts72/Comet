@@ -43,9 +43,9 @@ namespace Comet::IrradianceBake {
             Math::Vec3 reference{0, 0, 1};
             if(std::abs(normal.z) > 0.9f)
                 reference = {0, 1, 0};
-            const auto tangent = glm::normalize(glm::cross(reference, normal));
+            const auto tangent = Math::normalize(Math::cross(reference, normal));
             return tangent * (radius * std::cos(angle))
-                   + glm::cross(normal, tangent) * (radius * std::sin(angle))
+                   + Math::cross(normal, tangent) * (radius * std::sin(angle))
                    + normal * std::sqrt(std::max(0.0f, 1 - radius * radius));
         }
 
@@ -143,9 +143,9 @@ namespace Comet::IrradianceBake {
                 m_environment_cosine = std::cos(angle);
                 for(const auto& material : m_input.materials) {
                     if(!Math::is_finite(material.base_color) || !Math::is_finite(material.emissive)
-                        || glm::any(glm::lessThan(material.base_color, Math::Vec4(0)))
-                        || glm::any(glm::greaterThan(material.base_color, Math::Vec4(1)))
-                        || glm::any(glm::lessThan(material.emissive, Math::Vec3(0)))
+                        || Math::any_less(material.base_color, Math::Vec4(0))
+                        || Math::any_greater(material.base_color, Math::Vec4(1))
+                        || Math::any_less(material.emissive, Math::Vec3(0))
                         || !std::isfinite(material.metallic) || material.metallic < 0
                         || material.metallic > 1 || !material.surface.valid())
                         return Result<void>::failure("Invalid irradiance bake material");
@@ -213,10 +213,11 @@ namespace Comet::IrradianceBake {
                         || transform[3].w != 1)
                         return Result<void>::failure(
                             "Irradiance bake requires affine object transforms");
-                    const float determinant = glm::determinant(Math::Mat3(transform));
+                    const float determinant = Math::determinant(Math::Mat3(transform));
                     if(!std::isfinite(determinant) || std::abs(determinant) < 1e-10f)
                         return Result<void>::failure("Irradiance bake transform is singular");
-                    const auto normal_matrix = glm::transpose(glm::inverse(Math::Mat3(transform)));
+                    const auto normal_matrix =
+                        Math::transpose(Math::inverse(Math::Mat3(transform)));
                     const auto count =
                         mesh.indices.empty() ? mesh.vertices.size() : mesh.indices.size();
                     if(count % 3 != 0 || count / 3 > MAX_TRIANGLES - m_triangles.size())
@@ -247,14 +248,14 @@ namespace Comet::IrradianceBake {
                                     "Irradiance bake mesh transform overflow");
                         }
                         const auto normal = Math::normalized_direction(
-                            glm::cross(triangle.positions[1] - triangle.positions[0],
+                            Math::cross(triangle.positions[1] - triangle.positions[0],
                                 triangle.positions[2] - triangle.positions[0]));
                         if(!normal)
                             continue;
                         triangle.geometric_normal = *normal;
                         const auto sum =
                             triangle.normals[0] + triangle.normals[1] + triangle.normals[2];
-                        if(glm::dot(sum, triangle.geometric_normal) < 0)
+                        if(Math::dot(sum, triangle.geometric_normal) < 0)
                             triangle.geometric_normal *= -1;
                         m_triangles.push_back(triangle);
                         if((vertex & 1023u) == 0 && cancelled())
@@ -326,20 +327,20 @@ namespace Comet::IrradianceBake {
                         const auto& triangle = m_triangles[i];
                         const auto edge1 = triangle.positions[1] - triangle.positions[0];
                         const auto edge2 = triangle.positions[2] - triangle.positions[0];
-                        const auto p = glm::cross(direction, edge2);
-                        const float determinant = glm::dot(edge1, p);
+                        const auto p = Math::cross(direction, edge2);
+                        const float determinant = Math::dot(edge1, p);
                         if(std::abs(determinant) < 1e-9f)
                             continue;
                         const float inverse = 1 / determinant;
                         const auto translated = origin - triangle.positions[0];
-                        const float u = glm::dot(translated, p) * inverse;
+                        const float u = Math::dot(translated, p) * inverse;
                         if(u < 0 || u > 1)
                             continue;
-                        const auto q = glm::cross(translated, edge1);
-                        const float v = glm::dot(direction, q) * inverse;
+                        const auto q = Math::cross(translated, edge1);
+                        const float v = Math::dot(direction, q) * inverse;
                         if(v < 0 || u + v > 1)
                             continue;
-                        const float t = glm::dot(edge2, q) * inverse;
+                        const float t = Math::dot(edge2, q) * inverse;
                         if(t <= RAY_BIAS * 0.25f || t >= distance)
                             continue;
                         const Math::Vec3 barycentric{1 - u - v, u, v};
@@ -378,7 +379,7 @@ namespace Comet::IrradianceBake {
                     float attenuation = 1;
                     if(light.type != static_cast<float>(LightType::Directional)) {
                         const auto delta = light.position - position;
-                        const float squared = glm::dot(delta, delta);
+                        const float squared = Math::dot(delta, delta);
                         if(squared < 1e-8f || squared >= light.range * light.range)
                             continue;
                         distance = std::sqrt(squared);
@@ -387,7 +388,7 @@ namespace Comet::IrradianceBake {
                             std::max(1 - std::pow(distance / light.range, 4.0f), 0.0f);
                         attenuation = falloff * falloff / std::max(squared, 0.01f);
                         if(light.type == static_cast<float>(LightType::Spot)) {
-                            const float alignment = glm::dot(-direction, light.direction);
+                            const float alignment = Math::dot(-direction, light.direction);
                             if(light.inner_cone_cos - light.outer_cone_cos > 1e-6f) {
                                 const float t =
                                     std::clamp((alignment - light.outer_cone_cos)
@@ -398,9 +399,9 @@ namespace Comet::IrradianceBake {
                                 attenuation = 0;
                         }
                     }
-                    const float cosine = std::max(0.0f, glm::dot(normal, direction));
+                    const float cosine = std::max(0.0f, Math::dot(normal, direction));
                     if(cosine <= 0 || attenuation <= 0
-                        || glm::dot(geometric_normal, direction) <= 0)
+                        || Math::dot(geometric_normal, direction) <= 0)
                         continue;
                     if(!intersect(position + geometric_normal * RAY_BIAS, direction,
                            std::max(RAY_BIAS, distance - RAY_BIAS)))
@@ -421,7 +422,7 @@ namespace Comet::IrradianceBake {
                     const auto& triangle = m_triangles[hit->triangle];
                     const auto& material = m_input.materials[triangle.material];
                     auto geometric = triangle.geometric_normal;
-                    if(glm::dot(direction, geometric) > 0) {
+                    if(Math::dot(direction, geometric) > 0) {
                         if(!material.surface.double_sided) {
                             first_backface = depth == 0;
                             break;
@@ -440,23 +441,23 @@ namespace Comet::IrradianceBake {
                                                    + triangle.normals[1] * hit->barycentric.y
                                                    + triangle.normals[2] * hit->barycentric.z)
                             .value_or(geometric);
-                    if(glm::dot(normal, geometric) < 0)
+                    if(Math::dot(normal, geometric) < 0)
                         normal *= -1;
                     const float metallic = std::clamp(
                         material.metallic * texture(material.metallic_roughness_texture, uv).b,
                         0.0f, 1.0f);
                     const auto diffuse =
-                        glm::clamp(Math::Vec3(material.base_color)
-                                       * Math::Vec3(texture(material.base_color_texture, uv)),
+                        Math::clamp(Math::Vec3(material.base_color)
+                                        * Math::Vec3(texture(material.base_color_texture, uv)),
                             Math::Vec3(0), Math::Vec3(1))
                         * (0.96f * (1 - metallic));
                     result += throughput * diffuse * direct_irradiance(position, normal, geometric)
                               / Math::PI;
                     throughput *= diffuse;
-                    if(glm::max(throughput.x, glm::max(throughput.y, throughput.z)) < 1e-5f)
+                    if(Math::max(throughput.x, Math::max(throughput.y, throughput.z)) < 1e-5f)
                         break;
                     direction = cosine_direction(normal, state);
-                    if(glm::dot(direction, geometric) <= 0)
+                    if(Math::dot(direction, geometric) <= 0)
                         break;
                     origin = position + geometric * RAY_BIAS;
                 }
@@ -540,10 +541,10 @@ namespace Comet::IrradianceBake {
             return Grid::failure(
                 "Invalid irradiance bake bounds, spacing, samples or bounce count");
         const auto size = settings.bounds.size();
-        if(glm::any(glm::lessThanEqual(size, Math::Vec3(0))))
+        if(Math::any_less_equal(size, Math::Vec3(0)))
             return Grid::failure("Irradiance bake requires a volume with positive extent");
-        const auto dimensions = glm::max(glm::ceil(size / settings.spacing), Math::Vec3(2));
-        if(!Math::is_finite(dimensions) || glm::any(glm::greaterThan(dimensions, Math::Vec3(64))))
+        const auto dimensions = Math::max(Math::ceil(size / settings.spacing), Math::Vec3(2));
+        if(!Math::is_finite(dimensions) || Math::any_greater(dimensions, Math::Vec3(64)))
             return Grid::failure("Irradiance bake exceeds 64 probes per axis");
         const Math::Vec3u grid(dimensions);
         if(std::size_t(grid.x) * grid.y * grid.z > IrradianceData::MAX_PROBES)
