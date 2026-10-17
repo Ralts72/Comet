@@ -87,7 +87,7 @@ function script:damage(amount)
     comet.emit("combat.flash", nil, self.parameters.model)
     if not self.parameters.player then
         comet.session_set("combat.target", self.parameters.label .. "：" .. math.floor(self.health)
-            .. " / " .. self.tuning.health)
+            .. " / " .. math.floor(self.tuning.health))
     end
     if self.health == 0 then
         self.attacking = false
@@ -98,6 +98,40 @@ function script:damage(amount)
             self.remove_after = 1.2
         end
     end
+end
+
+function script:update_player()
+    local won = comet.session_get("combat.defeated") >= self.tuning.opponents
+    comet.control_character(self.health > 0 and not self.attacking and not won, self.controls)
+    if self.health > 0 and not won and not self.attacking and self.cooldown == 0
+        and comet.action_pressed("character.attack") then self:begin_attack() end
+    local _, y = comet.position()
+    if y < -8 then comet.restart_scene() end
+end
+
+function script:update_guard(dt)
+    if self.health <= 0 then
+        comet.move_character(0, 0, false)
+        self.remove_after = self.remove_after - dt
+        if self.remove_after <= 0 then comet.destroy_entity(comet.self_entity()) end
+        return
+    end
+    local target = self.parameters.target
+    if not target:is_valid() or comet.session_get("combat.health.player") <= 0 then
+        comet.move_character(0, 0, false)
+        return
+    end
+    local x, _, z = comet.position()
+    local tx, ty, tz = target:transform_point(0, 0, 0)
+    local dx, dz = tx - x, tz - z
+    if not self.attacking and dx * dx + dz * dz >= (self.tuning.range * 0.8)^2 then
+        comet.navigate_to(tx, ty, tz, true)
+        return
+    end
+    comet.move_character(0, 0, false)
+    if self.attacking then return end
+    comet.face_movement(self.parameters.visual, dx, dz)
+    if self.cooldown == 0 then self:begin_attack() end
 end
 
 function script:fixed_update(dt)
@@ -114,36 +148,9 @@ function script:fixed_update(dt)
         comet.set_animation_parameter(self.parameters.model, "attacking", false)
     end
     if self.parameters.player then
-        local won = comet.session_get("combat.defeated") >= self.tuning.opponents
-        comet.control_character(self.health > 0 and not self.attacking and not won, self.controls)
-        if self.health > 0 and not won and not self.attacking and self.cooldown == 0
-            and comet.action_pressed("character.attack") then self:begin_attack() end
-        local _, y = comet.position()
-        if y < -8 then comet.restart_scene() end
-        return
-    end
-    if self.health <= 0 then
-        comet.move_character(0, 0, false)
-        self.remove_after = self.remove_after - dt
-        if self.remove_after <= 0 then comet.destroy_entity(comet.self_entity()) end
-        return
-    end
-    local target = self.parameters.target
-    if not target:is_valid() or comet.session_get("combat.health.player") <= 0 then
-        comet.move_character(0, 0, false)
-        return
-    end
-    local x, _, z = comet.position()
-    local tx, ty, tz = target:transform_point(0, 0, 0)
-    local dx, dz = tx - x, tz - z
-    if self.attacking then
-        comet.move_character(0, 0, false)
-    elseif dx * dx + dz * dz < (self.tuning.range * 0.8)^2 then
-        comet.move_character(0, 0, false)
-        comet.face_movement(self.parameters.visual, dx, dz)
-        if self.cooldown == 0 then self:begin_attack() end
+        self:update_player()
     else
-        comet.navigate_to(tx, ty, tz, true)
+        self:update_guard(dt)
     end
 end
 

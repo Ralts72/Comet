@@ -56,6 +56,24 @@ namespace Comet {
         uint32_t evaluated_probes = 0;
         uint32_t visibility_refresh_remaining = 0;
         bool initialized = false;
+
+        void clear(CommandBuffer& command) const {
+            const vk::ImageSubresourceRange color(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1);
+            for(const auto& image : volumes)
+                command.get().clearColorImage(image->probes->get_image_view()->get_image()->get(),
+                    vk::ImageLayout::eTransferDstOptimal,
+                    vk::ClearColorValue(std::array<float, 4>{0, 0, 0, 0}), color);
+        }
+
+        void copy(CommandBuffer& command) const {
+            const vk::ImageSubresourceLayers layer(vk::ImageAspectFlagBits::eColor, 0, 0, 1);
+            const vk::ImageCopy region(layer, {}, layer, {},
+                {Irradiance::TEXELS_PER_PROBE, volumes[output]->probe_count(), 1});
+            command.get().copyImage(volumes[output]->probes->get_image_view()->get_image()->get(),
+                vk::ImageLayout::eTransferSrcOptimal,
+                volumes[1 - output]->probes->get_image_view()->get_image()->get(),
+                vk::ImageLayout::eTransferDstOptimal, region);
+        }
     };
     struct RealtimeIrradiancePass::Resources {
         std::shared_ptr<Program> program;
@@ -64,6 +82,8 @@ namespace Comet {
         std::unique_ptr<DescriptorPool> pool;
         std::vector<DescriptorSet> descriptors;
         Result<void, GraphicsError> bind(Device& device);
+        void trace(
+            CommandBuffer& command, const RenderIrradianceVolume& volume, uint32_t grant) const;
     };
 
     struct RealtimeIrradiancePass::Timing {
@@ -264,6 +284,31 @@ namespace Comet {
         return Bound::success();
     }
 
+    void RealtimeIrradiancePass::Resources::trace(
+        CommandBuffer& command, const RenderIrradianceVolume& volume, uint32_t grant) const {
+        const auto& scene = buffers->source;
+        const auto output = 1 - history->output;
+        const auto& result = history->volumes[output];
+        const bool refresh = history->visibility_refresh_remaining > 0;
+        const Parameters parameters{{result->origin, volume.max_distance},
+            {result->spacing,
+                refresh ? std::min(volume.history_weight, .5f) : volume.history_weight},
+            {Math::Vec3(result->dimensions), 0},
+            {2.f * std::max({result->spacing.x, result->spacing.y, result->spacing.z}),
+                refresh ? 0.f : volume.history_weight, 0, 0},
+            Math::Vec4(scene->background, 1),
+            {history->cursor, grant, volume.update_rays, history->iteration},
+            {uint32_t(scene->geometry->nodes.size()), uint32_t(scene->lighting->light_count), 0,
+                uint32_t(scene->emitters->size())},
+            scene->environment};
+        const auto set = descriptors[output].get();
+        command.get().bindDescriptorSets(
+            vk::PipelineBindPoint::eCompute, program->layout.get(), 0, 1, &set, 0, nullptr);
+        command.get().pushConstants(program->layout.get(), vk::ShaderStageFlagBits::eCompute, 0,
+            sizeof(parameters), &parameters);
+        command.get().dispatch(grant, 1, 1);
+    }
+
     Result<void, GraphicsError> RealtimeIrradiancePass::prepare(uint64_t scene_lifetime,
         const std::shared_ptr<const RayScene>& scene,
         std::span<const RenderIrradianceVolume> volumes) {
@@ -358,13 +403,13 @@ namespace Comet {
         RenderGraph::Pass clear_pass{"initialize GI histories"}, copy_pass{"preserve GI probes"},
             trace_pass{"update GI probes"};
         std::vector<RenderGraph::Binding> bindings;
+        bindings.reserve(volumes.size() * 2);
         std::array<std::size_t, LightingData::MAX_IRRADIANCE_VOLUMES> active;
         std::size_t active_count = 0;
         for(std::size_t i = 0; i < volumes.size(); ++i) {
             auto& history = *m_regions[i]->history;
-            const auto d = history.volumes[0]->dimensions;
             if(geometry_moved)
-                history.visibility_refresh_remaining = d.x * d.y * d.z;
+                history.visibility_refresh_remaining = history.volumes[0]->probe_count();
             outputs[i] = {volumes[i], history.volumes[history.output], 0, history.cursor, 0,
                 history.evaluated_probes};
             if(!grants[i] && history.initialized)
@@ -404,68 +449,30 @@ namespace Comet {
         auto plan = graph.compile();
         if(!plan)
             return Recorded::failure({plan.error()});
+        const auto active_regions = std::span(active).first(active_count);
         const auto record = [&](RenderGraph::PassId pass, CommandBuffer& command) {
-            const vk::ImageSubresourceRange color(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1);
-            for(const auto i : std::span(active).first(active_count)) {
+            if(trace && pass == *trace)
+                command.get().bindPipeline(
+                    vk::PipelineBindPoint::eCompute, m_program->pipeline.get());
+            for(const auto i : active_regions) {
                 const auto& resources = m_regions[i];
-                const auto& scene = resources->buffers->source;
                 const auto& history = *resources->history;
-                const auto output = 1 - history.output;
-                const auto& result = history.volumes[output];
-                const auto d = result->dimensions;
-                if(clear && pass == *clear && !history.initialized) {
-                    for(const auto& image : history.volumes)
-                        command.get().clearColorImage(
-                            image->probes->get_image_view()->get_image()->get(),
-                            vk::ImageLayout::eTransferDstOptimal,
-                            vk::ClearColorValue(std::array<float, 4>{0, 0, 0, 0}), color);
-                } else if(copy && pass == *copy && grants[i]) {
-                    const vk::ImageSubresourceLayers layer(
-                        vk::ImageAspectFlagBits::eColor, 0, 0, 1);
-                    const vk::ImageCopy region(
-                        layer, {}, layer, {}, {Irradiance::TEXELS_PER_PROBE, d.x * d.y * d.z, 1});
-                    command.get().copyImage(history.volumes[history.output]
-                                                ->probes->get_image_view()
-                                                ->get_image()
-                                                ->get(),
-                        vk::ImageLayout::eTransferSrcOptimal,
-                        result->probes->get_image_view()->get_image()->get(),
-                        vk::ImageLayout::eTransferDstOptimal, region);
-                } else if(trace && pass == *trace && grants[i]) {
-                    const auto& volume = volumes[i];
-                    const bool refresh = history.visibility_refresh_remaining > 0;
-                    const Parameters parameters{{result->origin, volume.max_distance},
-                        {result->spacing,
-                            refresh ? std::min(volume.history_weight, .5f) : volume.history_weight},
-                        {Math::Vec3(d), 0},
-                        {2.f * std::max({result->spacing.x, result->spacing.y, result->spacing.z}),
-                            refresh ? 0.f : volume.history_weight, 0, 0},
-                        Math::Vec4(scene->background, 1),
-                        {history.cursor, grants[i], volume.update_rays, history.iteration},
-                        {uint32_t(scene->geometry->nodes.size()),
-                            uint32_t(scene->lighting->light_count), 0,
-                            uint32_t(scene->emitters->size())},
-                        scene->environment};
-                    const auto set = resources->descriptors[output].get();
-                    command.get().bindPipeline(
-                        vk::PipelineBindPoint::eCompute, m_program->pipeline.get());
-                    command.get().bindDescriptorSets(vk::PipelineBindPoint::eCompute,
-                        m_program->layout.get(), 0, 1, &set, 0, nullptr);
-                    command.get().pushConstants(m_program->layout.get(),
-                        vk::ShaderStageFlagBits::eCompute, 0, sizeof(parameters), &parameters);
-                    command.get().dispatch(grants[i], 1, 1);
-                }
+                if(clear && pass == *clear && !history.initialized)
+                    history.clear(command);
+                else if(copy && pass == *copy && grants[i])
+                    history.copy(command);
+                else if(trace && pass == *trace && grants[i])
+                    resources->trace(command, volumes[i], grants[i]);
             }
             return Recorded::success();
         };
-        for(const auto i : std::span(active).first(active_count))
+        for(const auto i : active_regions)
             frames.retain_current_frame_resource(m_regions[i]);
         if(auto recorded = plan.value().record(frames, bindings, record); !recorded)
             return recorded;
-        for(const auto i : std::span(active).first(active_count)) {
+        for(const auto i : active_regions) {
             auto& history = *m_regions[i]->history;
-            const auto d = history.volumes[0]->dimensions;
-            const auto count = d.x * d.y * d.z;
+            const auto count = history.volumes[0]->probe_count();
             history.initialized = true;
             // 首圈连续更新；完整求值后无需逐探针 CPU 标记。
             history.evaluated_probes = std::min(count, history.evaluated_probes + grants[i]);
@@ -499,8 +506,8 @@ namespace Comet {
         std::array<uint32_t, LightingData::MAX_IRRADIANCE_VOLUMES> grants{}, limits{};
         uint32_t remaining = 0;
         for(std::size_t i = 0; i < volumes.size(); ++i) {
-            const auto d = m_regions[i]->history->volumes[0]->dimensions;
-            limits[i] = std::min(volumes[i].update_budget, d.x * d.y * d.z);
+            limits[i] = std::min(
+                volumes[i].update_budget, m_regions[i]->history->volumes[0]->probe_count());
             remaining += limits[i];
         }
         remaining = std::min(remaining, total_budget);
@@ -539,8 +546,7 @@ namespace Comet {
             !recorded)
             return Updated::failure(recorded.error());
         for(std::size_t i = 0; i < volumes.size(); ++i) {
-            const auto d = outputs[i].resource->dimensions;
-            m_statistics.probes += d.x * d.y * d.z;
+            m_statistics.probes += outputs[i].resource->probe_count();
             m_statistics.evaluated_probes += outputs[i].evaluated_probes;
             m_statistics.updated_probes += grants[i];
             m_statistics.rays += grants[i] * (volumes[i].update_rays + 64);

@@ -73,7 +73,7 @@ namespace Comet::Tests {
             data.spacing = volume.spacing;
             data.dimensions = volume.dimensions;
             data.max_distance = 100;
-            data.probes.resize(volume.dimensions.x * volume.dimensions.y * volume.dimensions.z);
+            data.probes.resize(volume.probe_count());
             const auto bytes = readback.read();
             std::memcpy(data.probes.data(), bytes.data(), bytes.size());
             return data;
@@ -663,7 +663,11 @@ namespace Comet::Tests {
         for(unsigned i = 0; i < positions.size(); ++i) {
             auto resource = std::make_shared<Irradiance>(*created.value());
             resource->origin.x = positions[i];
-            world.irradiance_volumes.push_back({{.entity_id = 6 - i}, resource});
+            world.irradiance_volumes.push_back({{.entity_id = 6 - i,
+                                                    .intensity = float(i + 1),
+                                                    .normal_bias = .01f * i,
+                                                    .blend_distance = .25f * i},
+                resource});
         }
         const auto selected = ViewLightingData::prepare(
             {world, ViewProjectMatrix{Math::Mat4(1), Math::ortho(-10, 10, -10, 10, .1f, 100)}}, {});
@@ -671,8 +675,18 @@ namespace Comet::Tests {
         EXPECT_EQ(selected.excess_irradiance_volumes, 1u); // 屏外区域不计入超预算。
         EXPECT_EQ(selected.irradiance_probes, 32u);
         const std::array<unsigned, 4> expected{3, 1, 4, 2};
-        for(unsigned i = 0; i < expected.size(); ++i)
-            EXPECT_EQ(selected.irradiance[i], world.irradiance_volumes[expected[i]].resource);
+        for(unsigned i = 0; i < expected.size(); ++i) {
+            const auto& resolved = world.irradiance_volumes[expected[i]];
+            EXPECT_EQ(selected.irradiance[i], resolved.resource);
+            const auto& parameters = selected.lighting.irradiance_volumes[i];
+            EXPECT_EQ(parameters.origin_intensity,
+                Math::Vec4(resolved.resource->origin, resolved.volume.intensity));
+            EXPECT_EQ(parameters.spacing_bias,
+                Math::Vec4(resolved.resource->spacing, resolved.volume.normal_bias));
+            EXPECT_EQ(
+                parameters.dimensions_blend, Math::Vec4(Math::Vec3(resolved.resource->dimensions),
+                                                 resolved.volume.blend_distance));
+        }
     }
 
     TEST_F(RealtimeIrradianceGpuTest, OverlappingBakedAndLiveRegionsBlendWithoutAddingEnergy) {

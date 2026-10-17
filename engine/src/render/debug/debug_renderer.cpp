@@ -168,8 +168,7 @@ namespace Comet {
             const auto& irradiance = volumes[index];
             if(!irradiance)
                 continue;
-            const auto count =
-                irradiance->dimensions.x * irradiance->dimensions.y * irradiance->dimensions.z;
+            const auto count = irradiance->probe_count();
             const ResolvedIrradianceVolume* live = nullptr;
             for(const auto& candidate : realtime)
                 if(candidate.resource == irradiance) {

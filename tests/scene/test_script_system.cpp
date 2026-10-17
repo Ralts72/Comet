@@ -898,6 +898,13 @@ namespace Comet::Tests {
         EXPECT_EQ(receiver.get_component<TransformComponent>().translation, Math::Vec3(7, 0, 0));
         EXPECT_EQ(sender.get_component<TransformComponent>().translation, Math::Vec3(0));
         EXPECT_EQ(bystander.get_component<TransformComponent>().translation, Math::Vec3(0));
+        for(const auto recipient : {sender, receiver, bystander})
+            ASSERT_TRUE(scene.emit_event("test.hit", 1.f, recipient));
+        ASSERT_TRUE(scene.emit_event("test.hit", 1.f, scene.create_entity("No script")));
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_EQ(sender.get_component<TransformComponent>().translation, Math::Vec3(1, 0, 0));
+        EXPECT_EQ(receiver.get_component<TransformComponent>().translation, Math::Vec3(8, 0, 0));
+        EXPECT_EQ(bystander.get_component<TransformComponent>().translation, Math::Vec3(1, 0, 0));
         ASSERT_TRUE(scene.emit_event("test.hit", 11.f, receiver));
         const auto uuid = receiver.get_uuid();
         scene.destroy_entity(receiver);

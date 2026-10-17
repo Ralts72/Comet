@@ -390,7 +390,7 @@ miniaudio 的设备、解码器、页面与任务队列封装在 AudioPlayback �
 换版保留兼容参数覆盖，重建 self／模块，不迁移任意 Lua 状态，也不自动改写 Edit 内容；暂停时待继续或单步再换版。
 项目 require 使用预先冻结的源码闭包，实例只执行已准备模块，不在运行回调中查找文件。模块为 source-only，不创建资产身份。
 内存、指令、日志、实体／事件请求都有预算；实体和接触交付在阶段边界复核身份，停止回调不访问 Scene。
-定向 `comet.emit(name, value, entity)` 使用现有阶段消息，排队时固定 UUID 与运行实体身份，交付时拒绝已销毁／重建的接收者。`entity:transform_point` 查询权威层级变换，`comet.face_movement` 复用 Gameplay 的朝向计算；战斗数值、命中规则与反馈留在 demo，不向 ScriptSystem 增加战斗状态。
+定向 `comet.emit(name, value, entity)` 使用现有阶段消息，排队时固定 UUID 与运行实体身份，交付时按 UUID 定位已有实例并拒绝已销毁／重建的接收者；广播仍遍历当前订阅。`entity:transform_point` 查询权威层级变换，`comet.face_movement` 复用 Gameplay 的朝向计算；战斗数值、命中规则与反馈留在 demo，不向 ScriptSystem 增加战斗状态。
 ScriptSystem 每个阶段保留结构同步，用 Registry revision 跳过没有发布变化的资产扫描；失败组比较成员与参数快照，修正参数仍可重试。结构扫描与资产扫描分别计数，不隐藏 fixed／update 之间的实体变更。UI 控制器的 VM 与行为实例分别拥有权限和寿命。
 
 ### 脚本材质覆盖
@@ -571,7 +571,7 @@ CPU 产品移交 RenderAssetFactory 创建 GPU 候选；App／Editor 注入 Engi
 
 探针可视化由 DebugRenderer 复用当前 View 的 GI 描述符，直接读取有效性并拼装状态和更新范围；SceneRenderer 只安排绘制顺序，不解释探针状态，不增加 GPU 读回或第二套探针状态。
 
-Renderer 在各 View 绘制之前调用一次 `RealtimeIrradiancePass`，以场景总预算和各区域上限轮转更新球谐和方向距离矩，各区域两个历史图像独立交替读写；各 View 的 ViewBindings 只采样这些已发布输出。GPU 场景 buffer、compute 程序和计时查询每世界共用；采样图像数组共用一个 sampler，保持 Deferred 与 16-sampler 设备兼容。历史图像创建、资源描述符绑定与逐帧更新分别处理；先完整准备候选，再替换当前资源。同帧区域合入一次图计划，先集中清空／复制，再录制独立计算与统一导出，避免区域间反复切换 transfer／compute；采样时每区域选择一次图像，不在各球谐 texel 读取中重复选择。
+Renderer 在各 View 绘制之前调用一次 `RealtimeIrradiancePass`，以场景总预算和各区域上限轮转更新球谐和方向距离矩，各区域两个历史图像独立交替读写；各 View 的 ViewBindings 只采样这些已发布输出。GPU 场景 buffer、compute 程序和计时查询每世界共用；采样图像数组共用一个 sampler，保持 Deferred 与 16-sampler 设备兼容。区域历史负责清空／复制图像，区域资源负责追踪参数与描述符，Pass 编排阶段并在录制成功后推进历史；资源换代先完整准备候选再提交。同帧区域合入一次图计划，先集中清空／复制，再录制独立计算与统一导出，避免区域间反复切换 transfer／compute；采样时每区域选择一次图像，不在各球谐 texel 读取中重复选择。
 
 ### 编译、反射与缓存边界
 

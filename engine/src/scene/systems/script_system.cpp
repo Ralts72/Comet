@@ -416,11 +416,15 @@ namespace Comet {
     Result<void, Error> ScriptSystem::dispatch_events(Scene& scene, const Context& context) {
         const auto events = scene.take_events();
         for(const auto& event : events) {
-            for(auto& [key, entry] : m_entries) {
+            const auto first =
+                event.target ? m_entries.lower_bound(Key{event.target, 0, {}}) : m_entries.begin();
+            for(auto it = first; it != m_entries.end(); ++it) {
+                auto& [key, entry] = *it;
+                if(event.target && key.entity != event.target)
+                    break;
                 if(!is_live(key, entry))
                     continue;
-                if(event.target
-                    && (event.target != key.entity || event.target_id != entry.entity.get_id()))
+                if(event.target && event.target_id != entry.entity.get_id())
                     continue;
                 const auto& handlers = entry.script->event_handlers();
                 const auto handler = handlers.find(event.name);

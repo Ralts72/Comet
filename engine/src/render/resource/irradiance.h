@@ -5,6 +5,7 @@
 #include "core/geometry.h"
 #include "graphics/result.h"
 
+#include <cstdint>
 #include <memory>
 
 namespace Comet {
@@ -18,6 +19,9 @@ namespace Comet {
         Math::Vec3u dimensions{2};
         std::shared_ptr<Texture> probes;
 
+        [[nodiscard]] uint32_t probe_count() const {
+            return dimensions.x * dimensions.y * dimensions.z;
+        }
         [[nodiscard]] BoundingBox bounds() const;
         [[nodiscard]] static Result<std::shared_ptr<Irradiance>, GraphicsError> try_create(
             RenderResourceFactory& resources, IrradianceData data);

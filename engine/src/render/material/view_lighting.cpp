@@ -15,6 +15,7 @@
 #include "render/resource/irradiance.h"
 #include "render/resource/texture.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace Comet {
@@ -80,18 +81,22 @@ namespace Comet {
         selected.lighting.reflection_metadata = {
             float(selected.probe_count), float(selected.excess_probes), 0, 0};
         const auto camera = Math::Vec3(Math::inverse(view.view)[3]);
-        std::array<std::pair<float, EntityId>, LightingData::MAX_IRRADIANCE_VOLUMES> priorities;
-        uint32_t candidates = 0;
+        struct IrradianceCandidate {
+            std::pair<float, EntityId> priority;
+            const RenderIrradianceVolume* volume;
+            std::shared_ptr<Irradiance> resource;
+        };
+        std::array<IrradianceCandidate, LightingData::MAX_IRRADIANCE_VOLUMES> candidates;
+        uint32_t candidate_count = 0;
         for(const auto& resolved : submission.world.irradiance_volumes) {
             const auto& volume = resolved.volume;
             auto resource = resolved.resource;
             if(volume.realtime) {
                 resource.reset();
-                for(const auto& live : submission.realtime_irradiance)
-                    if(live.volume.entity_id == volume.entity_id) {
-                        resource = live.resource;
-                        break;
-                    }
+                const auto live = std::ranges::find(submission.realtime_irradiance,
+                    volume.entity_id, [](const auto& region) { return region.volume.entity_id; });
+                if(live != submission.realtime_irradiance.end())
+                    resource = live->resource;
             }
             if(!resource || !resource->probes || !std::isfinite(volume.intensity)
                 || volume.intensity <= 0 || volume.intensity > SceneEnvironment::MAX_INTENSITY
@@ -100,39 +105,34 @@ namespace Comet {
                 || volume.blend_distance < 0
                 || (frustum && !frustum->intersects(resource->bounds())))
                 continue;
-            ++candidates;
+            ++candidate_count;
             const auto bounds = resource->bounds();
             const auto delta = camera - glm::clamp(camera, bounds.minimum, bounds.maximum);
             const auto priority = std::pair(glm::dot(delta, delta), volume.entity_id);
-            auto index =
-                std::min(selected.irradiance_volume_count, LightingData::MAX_IRRADIANCE_VOLUMES);
-            while(index && priority < priorities[index - 1]) {
-                if(index < LightingData::MAX_IRRADIANCE_VOLUMES) {
-                    priorities[index] = priorities[index - 1];
-                    selected.irradiance[index] = selected.irradiance[index - 1];
-                    selected.lighting.irradiance_volumes[index] =
-                        selected.lighting.irradiance_volumes[index - 1];
-                }
-                --index;
-            }
-            if(index == LightingData::MAX_IRRADIANCE_VOLUMES)
+            const auto position = std::ranges::lower_bound(candidates.begin(),
+                candidates.begin() + selected.irradiance_volume_count, priority, {},
+                &IrradianceCandidate::priority);
+            if(position == candidates.end())
                 continue;
-            priorities[index] = priority;
+            selected.irradiance_volume_count = std::min(
+                selected.irradiance_volume_count + 1, LightingData::MAX_IRRADIANCE_VOLUMES);
+            const auto end = candidates.begin() + selected.irradiance_volume_count;
+            std::move_backward(position, end - 1, end);
+            *position = {priority, &volume, std::move(resource)};
+        }
+        for(uint32_t index = 0; index < selected.irradiance_volume_count; ++index) {
+            const auto& candidate = candidates[index];
+            const auto& volume = *candidate.volume;
+            const auto& resource = candidate.resource;
             selected.irradiance[index] = resource;
             selected.lighting.irradiance_volumes[index] = {{resource->origin, volume.intensity},
                 {resource->spacing, volume.normal_bias},
                 {Math::Vec3(resource->dimensions), volume.blend_distance}};
-            selected.irradiance_volume_count = std::min(
-                selected.irradiance_volume_count + 1, LightingData::MAX_IRRADIANCE_VOLUMES);
+            selected.irradiance_probes += resource->probe_count();
         }
-        selected.excess_irradiance_volumes = candidates - selected.irradiance_volume_count;
+        selected.excess_irradiance_volumes = candidate_count - selected.irradiance_volume_count;
         selected.lighting.irradiance_metadata = {float(selected.irradiance_volume_count),
             float(selected.excess_irradiance_volumes), 0, 0};
-        for(const auto& resource : selected.irradiance)
-            if(resource) {
-                const auto dimensions = resource->dimensions;
-                selected.irradiance_probes += dimensions.x * dimensions.y * dimensions.z;
-            }
         selected.irradiance_bytes = uint64_t(selected.irradiance_probes)
                                     * Irradiance::TEXELS_PER_PROBE * sizeof(Math::Vec4);
         return selected;
