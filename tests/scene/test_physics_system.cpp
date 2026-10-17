@@ -698,7 +698,7 @@ namespace Comet::Tests {
         }
     }
 
-    TEST(PhysicsSystemTest, RejectsParentedBodiesAndCleansPartialStart) {
+    TEST(PhysicsSystemTest, RejectsParentedDynamicBodiesAndCleansPartialStart) {
         Scene scene;
         PhysicsService physics;
         add_body(scene, "Floor", BodyMotion::Static, {0, -1, 0});

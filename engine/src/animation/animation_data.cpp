@@ -439,6 +439,16 @@ namespace Comet {
                 return Result<float>::failure(status.error());
         return Result<float>::success(total > 0 ? duration / total : 0);
     }
+    Result<size_t> AnimationData::find_joint(std::string_view name) const {
+        const auto node = std::ranges::find(nodes, name, &AnimationNode::name);
+        if(node == nodes.end() || std::ranges::count(nodes, name, &AnimationNode::name) != 1)
+            return Result<size_t>::failure("Missing or ambiguous bone: " + std::string(name));
+        const auto joint =
+            std::ranges::find(joints, uint32_t(node - nodes.begin()), &SkinJoint::node);
+        if(joint == joints.end())
+            return Result<size_t>::failure("Bone is not part of the skin: " + std::string(name));
+        return Result<size_t>::success(size_t(joint - joints.begin()));
+    }
     const AnimationClip* AnimationData::find_clip(const std::string_view name) const {
         for(const auto& clip : clips)
             if(clip.name == name)

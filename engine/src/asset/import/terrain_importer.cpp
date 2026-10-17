@@ -159,24 +159,39 @@ namespace Comet {
         Result<void> bake_material(ModelImportData& model, const HeightField& field,
             const std::filesystem::path& source, const AssetImportLimits& limits, size_t budget) {
             const auto& data = field.data;
-            std::array<std::optional<CpuTextureImage>, 3> textures;
+            struct LayerImages {
+                std::optional<CpuTextureImage> albedo, normal, roughness;
+            };
+            std::array<LayerImages, 3> textures;
             size_t remaining = budget;
-            for(size_t i = 0; i < textures.size(); ++i) {
-                if(data.layers[i].texture.empty())
-                    continue;
-                auto decoded = TextureImporter{}.import(
-                    dependency(source, data.layers[i].texture), {}, remaining, limits);
-                if(!decoded)
-                    return Result<void>::failure(decoded.error());
-                auto image = CpuTextureImage::decode(decoded.value(), remaining);
-                if(!image)
-                    return Result<void>::failure(image.error());
-                remaining -= image.value().pixels.size() * sizeof(Math::Vec4);
-                textures[i] = std::move(image).value();
+            for(size_t layer = 0; layer < data.layers.size(); ++layer) {
+                const auto& config = data.layers[layer];
+                const std::array paths{
+                    config.texture, config.normal_texture, config.roughness_texture};
+                const std::array targets{
+                    &textures[layer].albedo, &textures[layer].normal, &textures[layer].roughness};
+                for(size_t kind = 0; kind < paths.size(); ++kind) {
+                    if(paths[kind].empty())
+                        continue;
+                    TextureImportSettings settings;
+                    settings.color_space =
+                        kind == 0 ? TextureColorSpace::Srgb : TextureColorSpace::Linear;
+                    settings.normal_map = kind == 1;
+                    auto decoded = TextureImporter{}.import(
+                        dependency(source, paths[kind]), settings, remaining, limits);
+                    if(!decoded)
+                        return Result<void>::failure(decoded.error());
+                    auto image = CpuTextureImage::decode(decoded.value(), remaining);
+                    if(!image)
+                        return Result<void>::failure(image.error());
+                    remaining -= image.value().pixels.size() * sizeof(Math::Vec4);
+                    *targets[kind] = std::move(image).value();
+                }
             }
             TextureData image{
                 .width = int(data.albedo_resolution), .height = int(data.albedo_resolution)};
             image.pixels.resize(size_t(image.width) * image.height * 4);
+            auto normals = image, roughness = image;
             for(int y = 0; y < image.height; ++y)
                 for(int x = 0; x < image.width; ++x) {
                     const Math::Vec2 uv(
@@ -187,33 +202,144 @@ namespace Comet {
                     const float high =
                         smooth(data.height_start, data.height_end, field.height(grid.x, grid.y));
                     const std::array weights{(1 - rock) * (1 - high), rock, (1 - rock) * high};
-                    Math::Vec3 color(0);
+                    Math::Vec3 color(0), normal(0);
+                    float rough = 0;
                     for(size_t i = 0; i < textures.size(); ++i) {
-                        auto layer = data.layers[i].color;
-                        if(textures[i])
-                            layer *= Math::Vec3(textures[i]->sample(uv * data.layers[i].tiling));
+                        const auto& config = data.layers[i];
+                        const auto tiled = uv * config.tiling;
+                        auto layer = config.color;
+                        if(textures[i].albedo)
+                            layer *= Math::Vec3(textures[i].albedo->sample(tiled));
                         color += layer * weights[i];
+                        Math::Vec3 direction(0, 0, 1);
+                        if(textures[i].normal) {
+                            direction = Math::Vec3(textures[i].normal->sample(tiled)) * 2.f - 1.f;
+                            direction.x *= config.normal_scale;
+                            direction.y *= config.normal_scale;
+                            direction.z = std::max(direction.z, .001f);
+                            direction = glm::normalize(direction);
+                        }
+                        normal += direction * weights[i];
+                        rough +=
+                            config.roughness
+                            * (textures[i].roughness ? textures[i].roughness->sample(tiled).r : 1)
+                            * weights[i];
                     }
+                    normal = glm::normalize(normal);
                     const auto offset = (size_t(y) * image.width + x) * 4;
-                    for(int c = 0; c < 3; ++c)
+                    for(int c = 0; c < 3; ++c) {
                         image.pixels[offset + c] = srgb(color[c]);
-                    image.pixels[offset + 3] = 255;
+                        normals.pixels[offset + c] =
+                            uint8_t(std::lround(std::clamp(normal[c] * .5f + .5f, 0.f, 1.f) * 255));
+                    }
+                    image.pixels[offset + 3] = normals.pixels[offset + 3] = 255;
+                    roughness.pixels[offset] = roughness.pixels[offset + 3] = 255;
+                    roughness.pixels[offset + 1] =
+                        uint8_t(std::lround(std::clamp(rough, 0.f, 1.f) * 255));
+                    roughness.pixels[offset + 2] = 0;
                 }
             if(auto result = add_texture(model, "terrain/albedo", std::move(image)); !result)
                 return result;
+            if(auto r = add_texture(model, "terrain/normal", std::move(normals)); !r)
+                return r;
+            if(auto r = add_texture(model, "terrain/roughness", std::move(roughness)); !r)
+                return r;
             ModelImportData::Material material;
             material.name = "terrain/surface";
             material.data.template_name = "pbr";
             material.data.scalar_properties = {{"metallic", 0}, {"roughness", data.roughness}};
             material.textures.push_back({"base_color_texture", 0, {}});
+            material.textures.push_back({"normal_texture", 1,
+                {.color_space = TextureColorSpace::Linear, .normal_map = true}});
+            material.textures.push_back(
+                {"metallic_roughness_texture", 2, {.color_space = TextureColorSpace::Linear}});
             model.materials.push_back(std::move(material));
             return Result<void>::success();
         }
-        Result<void> add_vegetation(ModelImportData& model, const HeightField& field) {
-            const auto& data = field.data;
-            const auto& config = data.vegetation;
-            if(!config.count)
-                return Result<void>::success();
+        using VegetationMeshes = std::vector<uint32_t>;
+        Result<VegetationMeshes> import_vegetation_meshes(ModelImportData& model,
+            const std::filesystem::path& source, const AssetImportLimits& limits, size_t budget) {
+            using Prepared = Result<VegetationMeshes>;
+            VegetationMeshes grass_meshes;
+            auto imported = ModelImporter{}.import(source, budget, limits);
+            if(!imported)
+                return Prepared::failure(imported.error());
+            auto& custom = imported.value();
+            const auto material_base = uint32_t(model.materials.size());
+            const auto texture_base = uint32_t(model.textures.size());
+            const auto image_base = uint32_t(model.images.size());
+            for(size_t i = 0; i < custom.materials.size(); ++i) {
+                auto& material = custom.materials[i];
+                material.name = i == 0 ? "vegetation/surface" : "vegetation/" + material.name;
+                for(auto& texture : material.textures)
+                    texture.texture += texture_base;
+                model.materials.push_back(std::move(material));
+            }
+            for(auto& texture : custom.textures) {
+                texture.name = "vegetation/" + texture.name;
+                texture.image += image_base;
+                model.textures.push_back(std::move(texture));
+            }
+            for(auto& image : custom.images) {
+                image.name = "vegetation/" + image.name;
+                model.images.push_back(std::move(image));
+            }
+            std::vector<Math::Mat4> transforms(custom.nodes.size(), Math::Mat4(1));
+            std::vector<std::vector<uint32_t>> children(custom.nodes.size());
+            for(uint32_t i = 0; i < custom.nodes.size(); ++i)
+                if(custom.nodes[i].parent != ModelImportData::NONE)
+                    children[custom.nodes[i].parent].push_back(i);
+            auto order = custom.scenes[custom.default_scene].roots;
+            for(size_t cursor = 0; cursor < order.size(); ++cursor) {
+                const auto index = order[cursor];
+                const auto& node = custom.nodes[index];
+                const auto& t = node.transform;
+                auto world = Math::translate(Math::Mat4(1), t.translation)
+                             * glm::mat4_cast(t.rotation) * Math::scale(Math::Mat4(1), t.scale);
+                if(node.parent != ModelImportData::NONE)
+                    world = transforms[node.parent] * world;
+                transforms[index] = world;
+                const auto basis = Math::Mat3(world);
+                const auto determinant = glm::determinant(basis);
+                if(std::abs(determinant) < 1e-8f)
+                    return Prepared::failure("植被模型变换不可为零缩放");
+                const auto normals = glm::transpose(glm::inverse(basis));
+                for(const auto selected : node.meshes) {
+                    const auto& original = custom.meshes[selected];
+                    if(original.skin_node)
+                        return Prepared::failure("植被散布需要静态网格");
+                    auto mesh = original;
+                    mesh.name = grass_meshes.empty()
+                                    ? "vegetation/blade"
+                                    : "vegetation/" + std::to_string(grass_meshes.size());
+                    mesh.source_mesh = uint32_t(model.meshes.size());
+                    mesh.source_primitive = 0;
+                    if(mesh.material != ModelImportData::NONE)
+                        mesh.material += material_base;
+                    for(auto& vertex : mesh.data.vertices) {
+                        vertex.position = Math::Vec3(world * Math::Vec4(vertex.position, 1));
+                        vertex.normal = glm::normalize(normals * vertex.normal);
+                        auto tangent = basis * Math::Vec3(vertex.tangent);
+                        tangent -= vertex.normal * glm::dot(vertex.normal, tangent);
+                        if(glm::length(tangent) > 1e-8f)
+                            tangent = glm::normalize(tangent);
+                        vertex.tangent =
+                            Math::Vec4(tangent, vertex.tangent.w * (determinant < 0 ? -1.f : 1.f));
+                    }
+                    if(determinant < 0)
+                        for(size_t i = 0; i < mesh.data.indices.size(); i += 3)
+                            std::swap(mesh.data.indices[i], mesh.data.indices[i + 1]);
+                    grass_meshes.push_back(uint32_t(model.meshes.size()));
+                    model.meshes.push_back(std::move(mesh));
+                }
+                order.insert(order.end(), children[index].begin(), children[index].end());
+            }
+            if(grass_meshes.empty())
+                return Prepared::failure("植被模型没有可绘制网格");
+            return Prepared::success(std::move(grass_meshes));
+        }
+        Result<VegetationMeshes> make_default_vegetation(ModelImportData& model) {
+            using Prepared = Result<VegetationMeshes>;
             TextureData mask{.width = 32, .height = 64};
             mask.pixels.resize(32 * 64 * 4);
             for(int y = 0; y < 64; ++y)
@@ -227,13 +353,15 @@ namespace Comet {
                     mask.pixels[p + 3] = leaf ? 255 : 0;
                 }
             if(auto result = add_texture(model, "vegetation/blade", std::move(mask)); !result)
-                return result;
+                return Prepared::failure(result.error());
             ModelImportData::Material material;
             material.name = "vegetation/surface";
             material.data.template_name = "pbr";
             material.data.surface = {AlphaMode::Mask, .5f, true};
             material.data.scalar_properties = {{"metallic", 0}, {"roughness", .9f}};
-            material.textures.push_back({"base_color_texture", 1, {}});
+            material.textures.push_back(
+                {"base_color_texture", uint32_t(model.textures.size() - 1), {}});
+            const auto material_index = uint32_t(model.materials.size());
             model.materials.push_back(std::move(material));
             MeshData mesh;
             for(int axis = 0; axis < 2; ++axis) {
@@ -251,7 +379,24 @@ namespace Comet {
                     mesh.indices.end(), {base, base + 1, base + 2, base + 1, base + 3, base + 2});
             }
             const uint32_t grass_mesh = uint32_t(model.meshes.size());
-            model.meshes.push_back({"vegetation/blade", grass_mesh, 0, {}, 1, std::move(mesh)});
+            model.meshes.push_back(
+                {"vegetation/blade", grass_mesh, 0, {}, material_index, std::move(mesh)});
+            return Prepared::success({grass_mesh});
+        }
+        Result<void> add_vegetation(ModelImportData& model, const HeightField& field,
+            const std::filesystem::path& source, const AssetImportLimits& limits, size_t budget) {
+            const auto& data = field.data;
+            const auto& config = data.vegetation;
+            if(!config.count)
+                return Result<void>::success();
+            auto meshes = config.model.empty()
+                              ? make_default_vegetation(model)
+                              : import_vegetation_meshes(
+                                    model, dependency(source, config.model), limits, budget);
+            if(!meshes)
+                return Result<void>::failure(meshes.error());
+            if(config.count * meshes.value().size() * sizeof(uint32_t) > budget)
+                return Result<void>::failure("植被实例超过内存预算");
             std::mt19937 random(config.seed);
             // 使用确定的整数转换，不依赖不同标准库的 uniform_real_distribution 实现。
             const auto unit = [&] { return float(random() >> 8) / 16777216.f; };
@@ -273,7 +418,9 @@ namespace Comet {
                     glm::angleAxis(unit() * glm::two_pi<float>(), Math::Vec3(0, 1, 0));
                 node.transform.scale =
                     Math::Vec3(std::lerp(config.min_height, config.max_height, unit()));
-                node.meshes = {grass_mesh};
+                node.meshes = meshes.value();
+                node.wind = {
+                    config.wind_amplitude, 0, config.wind_amplitude * .6f, config.wind_frequency};
                 model.scenes[0].roots.push_back(uint32_t(model.nodes.size()));
                 model.nodes.push_back(std::move(node));
             }
@@ -294,7 +441,7 @@ namespace Comet {
                 + chunks * chunks
                       * (size_t(data.chunk_cells) * data.chunk_cells * 6 + data.chunk_cells * 24)
                       * sizeof(uint32_t) * 2
-                + size_t(data.albedo_resolution) * data.albedo_resolution * 24
+                + size_t(data.albedo_resolution) * data.albedo_resolution * 48
                 + data.vegetation.count * 512;
             ModelImporter::SourceInfo info{bytes, {}};
             if(!data.heightmap.empty()) {
@@ -308,19 +455,36 @@ namespace Comet {
                 info.working_bytes += size_t(bytes) + size_t(data.resolution) * data.resolution * 2;
                 info.dependencies.push_back(path);
             }
-            for(const auto& layer : data.layers) {
-                if(layer.texture.empty())
-                    continue;
-                const auto path = dependency(source, layer.texture);
-                auto working = TextureImporter::working_bytes(path, limits);
-                if(!working)
-                    return Info::failure(working.error());
-                if(working.value() > (limits.mesh_working_bytes
-                                         - std::min(info.working_bytes, limits.mesh_working_bytes))
-                                         / 3)
-                    return Info::failure("地形贴图超过导入内存预算");
-                info.working_bytes += working.value() * 3; // RGBA 解码及线性浮点采样副本。
+            for(const auto& layer : data.layers)
+                for(const auto& texture :
+                    {layer.texture, layer.normal_texture, layer.roughness_texture}) {
+                    if(texture.empty())
+                        continue;
+                    const auto path = dependency(source, texture);
+                    auto working = TextureImporter::working_bytes(path, limits);
+                    if(!working)
+                        return Info::failure(working.error());
+                    if(working.value()
+                        > (limits.mesh_working_bytes
+                              - std::min(info.working_bytes, limits.mesh_working_bytes))
+                              / 3)
+                        return Info::failure("地形贴图超过导入内存预算");
+                    info.working_bytes += working.value() * 3;
+                    info.dependencies.push_back(path);
+                }
+            if(!data.vegetation.model.empty() && data.vegetation.count) {
+                const auto path = dependency(source, data.vegetation.model);
+                auto vegetation = ModelImporter::inspect_source(path, limits);
+                if(!vegetation)
+                    return Info::failure(vegetation.error());
+                if(vegetation.value().working_bytes
+                    > limits.mesh_working_bytes
+                          - std::min(info.working_bytes, limits.mesh_working_bytes))
+                    return Info::failure("植被模型超过导入内存预算");
+                info.working_bytes += vegetation.value().working_bytes;
                 info.dependencies.push_back(path);
+                for(const auto& item : vegetation.value().dependencies)
+                    info.dependencies.push_back(item);
             }
             if(info.working_bytes > limits.mesh_working_bytes)
                 return Info::failure("地形超过导入内存预算");
@@ -383,7 +547,7 @@ namespace Comet {
             }
         if(auto result = bake_material(model, field, source, limits, memory_budget); !result)
             return Imported::failure(result.error());
-        if(auto result = add_vegetation(model, field); !result)
+        if(auto result = add_vegetation(model, field, source, limits, memory_budget); !result)
             return Imported::failure(result.error());
         return Imported::success(std::move(model));
     }

@@ -6,6 +6,7 @@
 #include "core/math_utils.h"
 
 #include <cstdint>
+#include <array>
 #include <vector>
 
 namespace Comet {
@@ -20,6 +21,9 @@ namespace Comet {
         bool gpu_dynamics = false;
         float turbulence = 0;
         float turbulence_frequency = 1;
+        bool gpu_world_collision = false;
+        Math::Vec3 wind{0}, vortex_center{0}, vortex_axis{0, 1, 0};
+        float vortex_strength = 0, vortex_radius = 5;
         bool enabled = true;
         uint32_t capacity = 128;
         uint32_t seed = 1;
@@ -84,6 +88,12 @@ namespace Comet {
         double spacing = 0;
         uint64_t first = 0;
         uint32_t count = 0;
+    };
+    struct ParticleWorldCollider {
+        static constexpr uint32_t MAX_COLLIDERS = 64;
+        Math::Mat4 world_to_local{1};
+        Math::Vec4 extent_shape{.5f, .5f, .5f, 0}; // XYZ 半尺寸／球半径，W: 0 盒、1 球。
+        std::array<uint32_t, 4> layers{1, 0, 0, 0};
     };
     struct GpuParticleEmitter {
         ParticleEmitterComponent settings;

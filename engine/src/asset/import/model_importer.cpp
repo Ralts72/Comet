@@ -600,7 +600,8 @@ namespace Comet {
             ModelData::Node output{.key = "node/" + node_keys[index],
                 .name = std::move(node.name),
                 .parent = node.parent,
-                .transform = node.transform};
+                .transform = node.transform,
+                .wind = node.wind};
             for(const auto mesh : node.meshes) {
                 if(mesh >= parts.size())
                     return Bound::failure("Model node references an invalid mesh");

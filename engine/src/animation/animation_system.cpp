@@ -106,7 +106,9 @@ namespace Comet {
                     : nullptr;
             const bool foot_placement = entity.has_component<FootPlacementComponent>()
                                         && entity.get_component<FootPlacementComponent>().enabled;
-            if(fixed && *fixed != (bool(root) || foot_placement))
+            const bool hand_placement = entity.has_component<HandIKComponent>()
+                                        && entity.get_component<HandIKComponent>().enabled;
+            if(fixed && *fixed != (bool(root) || foot_placement || hand_placement))
                 return;
             if(!std::isfinite(animator.speed) || animator.speed < 0
                 || !std::isfinite(animator.transition) || animator.transition < 0) {

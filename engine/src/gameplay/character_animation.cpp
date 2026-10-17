@@ -18,7 +18,9 @@ namespace Comet::Gameplay {
                 const bool foot_placement =
                     entity.has_component<FootPlacementComponent>()
                     && entity.get_component<FootPlacementComponent>().enabled;
-                if(fixed && *fixed != (root_motion || foot_placement))
+                const bool hand_placement = entity.has_component<HandIKComponent>()
+                                            && entity.get_component<HandIKComponent>().enabled;
+                if(fixed && *fixed != (root_motion || foot_placement || hand_placement))
                     return;
                 CharacterController::State state;
                 state.grounded = true;

@@ -24,7 +24,8 @@ namespace Comet {
         ~GpuParticleSimulation();
         Result<void, GraphicsError> prepare(FrameScheduler&, const ViewProjectMatrix&,
             std::span<const GpuParticleEmitter>, bool sorted = true,
-            const std::shared_ptr<ImageView>& depth = nullptr, uint64_t scene_lifetime = 0);
+            const std::shared_ptr<ImageView>& depth = nullptr, uint64_t scene_lifetime = 0,
+            std::span<const ParticleWorldCollider> colliders = {});
         [[nodiscard]] std::span<const Output> outputs() const { return m_outputs; }
         void reset();
 

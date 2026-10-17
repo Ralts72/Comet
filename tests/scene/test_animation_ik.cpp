@@ -96,7 +96,7 @@ namespace Comet::Tests {
         EXPECT_FALSE(apply_animation_constraints(data, scaled.value(), std::span(&constraint, 1)));
     }
 
-    TEST(AnimationIKTest, SceneReusesOnlyUnconstrainedPoseWithIdenticalSamplingInputs) {
+    TEST(AnimationIKTest, SceneReuseRequiresIdenticalSamplingAndCompatibleConstraints) {
         auto data = std::make_shared<AnimationData>(limb());
         data->clips = {{"idle", 1}};
         Scene scene;

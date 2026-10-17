@@ -225,6 +225,44 @@ namespace CometEditor {
                         settings.translations.begin() + *remove_translation);
                 if(ImGui::SmallButton("添加位移骨骼"))
                     settings.translations.emplace_back();
+                const auto pose_editor = [](const char* label, auto& pose) {
+                    ImGui::PushID(label);
+                    if(ImGui::TreeNode(label)) {
+                        std::optional<std::string> removed;
+                        std::optional<std::pair<std::string, std::string>> renamed;
+                        for(auto& [bone, angles] : pose) {
+                            ImGui::PushID(bone.c_str());
+                            auto name = bone;
+                            if(Ui::input_text(
+                                   "骨骼（回车确认）", name, ImGuiInputTextFlags_EnterReturnsTrue)
+                                && !name.empty() && name != bone && !pose.contains(name))
+                                renamed = {bone, name};
+                            ImGui::DragFloat3("局部参考修正（度）", &angles.x, .5f, -180, 180);
+                            if(ImGui::SmallButton("移除校准"))
+                                removed = bone;
+                            ImGui::PopID();
+                        }
+                        if(removed)
+                            pose.erase(*removed);
+                        if(renamed) {
+                            auto entry = pose.extract(renamed->first);
+                            if(!entry.empty()) {
+                                entry.key() = renamed->second;
+                                pose.insert(std::move(entry));
+                            }
+                        }
+                        if(ImGui::SmallButton("添加校准")) {
+                            for(unsigned i = 1;; ++i)
+                                if(pose.emplace("bone" + std::to_string(i), Comet::Math::Vec3(0))
+                                        .second)
+                                    break;
+                        }
+                        ImGui::TreePop();
+                    }
+                    ImGui::PopID();
+                };
+                pose_editor("源参考姿态", settings.source_pose);
+                pose_editor("目标参考姿态", settings.target_pose);
                 ImGui::SeparatorText("骨骼链重定向");
                 ImGui::TextWrapped(
                     "指定源与目标链的起点、末端；中间骨骼数可以不同。按累计骨长传递旋转，链内配置优先于单骨骼映射。");

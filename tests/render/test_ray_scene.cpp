@@ -576,4 +576,56 @@ namespace Comet::Tests {
         EXPECT_EQ(full.update(world, read, {}, images).value(), original.value());
     }
 
+    TEST(RaySceneTest, SkinningRefitsSharedTopologyAndKeepsPreviousSnapshots) {
+        auto material = std::make_shared<Material>("skin", "pbr");
+        auto world = trace_world(material);
+        auto mesh = triangle_mesh();
+        auto animation = std::make_shared<AnimationData>();
+        animation->mesh_node = 0;
+        animation->nodes = {{"mesh"}, {"root"}};
+        animation->evaluation_order = {0, 1};
+        animation->joints = {{1, Math::Mat4(1), calculate_mesh_bounds(mesh)}};
+        animation->clips = {{"move", 1,
+            {{1, AnimationChannel::Path::Translation, AnimationChannel::Interpolation::Linear,
+                {0, 1}, {{0, 0, 0, 0}, {2, 0, 0, 0}}}}}};
+        mesh.animation = animation;
+        mesh.skin.resize(3);
+        for(auto& weights : mesh.skin)
+            weights.weights = {1, 0, 0, 0};
+        auto playback = std::make_shared<AnimationPlayback>();
+        playback->current = {.clip = "move", .time = 0, .loop = false};
+        world.render_items[0].animation = playback;
+        size_t reads = 0;
+        RaySceneBuilder builder;
+        const auto update = [&] {
+            return builder.update(world, [&](AssetHandle) {
+                ++reads;
+                return Result<MeshData, Error>::success(mesh);
+            });
+        };
+        auto first = update();
+        ASSERT_TRUE(first) << first.error();
+        const auto original = first.value()->geometry->triangles[0].positions[0];
+        playback = std::make_shared<AnimationPlayback>(*playback);
+        playback->current.time = .5;
+        world.render_items[0].animation = playback;
+        auto second = update();
+        ASSERT_TRUE(second) << second.error();
+        EXPECT_EQ(reads, 1u);
+        EXPECT_EQ(first.value()->geometry->topology, second.value()->geometry->topology);
+        EXPECT_NEAR(second.value()->geometry->triangles[0].positions[0].x, original.x + 1, .0001);
+        EXPECT_EQ(first.value()->geometry->triangles[0].positions[0], original);
+        EXPECT_EQ(builder.statistics().geometry_builds, 1u);
+        EXPECT_EQ(builder.statistics().geometry_refits, 1u);
+        auto paused = update();
+        ASSERT_TRUE(paused);
+        EXPECT_EQ(paused.value(), second.value());
+        world.render_items[0].model_matrix = Math::translate(Math::Mat4(1), {0, 2, 0});
+        auto moved = update();
+        ASSERT_TRUE(moved);
+        EXPECT_EQ(moved.value()->geometry->deformations[0].vertices,
+            second.value()->geometry->deformations[0].vertices);
+        EXPECT_NEAR(moved.value()->geometry->triangles[0].positions[0].y, original.y + 2, .0001);
+    }
+
 }

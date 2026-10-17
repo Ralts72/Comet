@@ -4,6 +4,7 @@
 #include "asset/data/texture_sampling.h"
 #include "asset/data/cubemap_sampling.h"
 #include "render/material/material.h"
+#include "render/resource/mesh.h"
 #include "render/material/material_layout.h"
 #include "render/material/material_runtime.h"
 #include "render/scene/render_submission.h"
@@ -103,6 +104,7 @@ namespace Comet {
                 topology.write_u64(item.mesh_revision);
                 topology.write_u64(revision ? revision(item.mesh_handle) : 0);
                 topology.write_u32(bool(item.mesh));
+                transforms.write_u64(reinterpret_cast<uintptr_t>(item.animation.get()));
                 for(int column = 0; column < 4; ++column)
                     for(int row = 0; row < 4; ++row)
                         transforms.write_float(item.model_matrix[column][row]);
@@ -331,12 +333,69 @@ namespace Comet {
             return Math::is_finite(matrix)
                    && std::abs(glm::determinant(Math::Mat3(matrix))) >= 1e-10f;
         }
-        Result<void> transform_triangle(
-            RayScene::Triangle& triangle, const MeshData& mesh, const MeshTransform& transform) {
+        Result<RayScene::Geometry::Deformation> deform_mesh(
+            const MeshData& mesh, const ResolvedRenderItem& item) {
+            using Deformed = Result<RayScene::Geometry::Deformation>;
+            if(mesh.skin.empty())
+                return Deformed::success({item.animation, {}});
+            if(!mesh.animation || mesh.skin.size() != mesh.vertices.size())
+                return Deformed::failure("蒙皮射线网格缺少完整骨骼数据");
+            const auto& source = item.mesh && item.mesh->animation_data()
+                                     ? item.mesh->animation_data()
+                                     : mesh.animation;
+            std::string error;
+            std::optional<AnimationPose> sampled;
+            const AnimationPose* pose = nullptr;
+            if(item.animation && item.animation->pose && item.animation->pose_source == source) {
+                if(!item.animation->pose_error.empty())
+                    return Deformed::failure(item.animation->pose_error);
+                pose = item.animation->pose.get();
+            } else {
+                auto evaluated =
+                    resolve_animation_pose(*source, item.animation.get(), error, false);
+                if(!evaluated)
+                    return Deformed::failure(evaluated.error());
+                if(!error.empty())
+                    return Deformed::failure(error);
+                sampled = std::move(evaluated).value();
+                pose = &*sampled;
+            }
+            auto vertices = std::make_shared<std::vector<MeshVertex>>(mesh.vertices);
+            for(size_t i = 0; i < vertices->size(); ++i) {
+                const auto& influence = mesh.skin[i];
+                Math::Mat4 skin(0);
+                for(size_t j = 0; j < 4; ++j) {
+                    if(influence.weights[j] == 0)
+                        continue;
+                    if(influence.joints[j] >= pose->matrices.size())
+                        return Deformed::failure("射线蒙皮骨骼索引越界");
+                    skin += pose->matrices[influence.joints[j]] * influence.weights[j];
+                }
+                auto& vertex = (*vertices)[i];
+                vertex.position = Math::Vec3(skin * Math::Vec4(vertex.position, 1));
+                const auto basis = Math::Mat3(skin);
+                const auto determinant = glm::determinant(basis);
+                const auto normal_basis =
+                    std::abs(determinant) > 1e-8f ? glm::transpose(glm::inverse(basis)) : basis;
+                vertex.normal = Math::normalized_direction(normal_basis * vertex.normal)
+                                    .value_or(vertex.normal);
+                vertex.tangent = Math::Vec4(
+                    basis * Math::Vec3(vertex.tangent), vertex.tangent.w * glm::sign(determinant));
+            }
+            return Deformed::success({item.animation, std::move(vertices)});
+        }
+        std::span<const MeshVertex> deformed_vertices(
+            const MeshData& mesh, const RayScene::Geometry::Deformation& deformation) {
+            if(deformation.vertices)
+                return *deformation.vertices;
+            return mesh.vertices;
+        }
+        Result<void> transform_triangle(RayScene::Triangle& triangle,
+            std::span<const MeshVertex> vertices, const MeshTransform& transform) {
             for(size_t i = 0; i < 3; ++i) {
                 // 对应光栅的镜像 front-face 切换，保持几何正面与变换后的法线同向。
                 const auto source = transform.orientation < 0 && i > 0 ? 3 - i : i;
-                const auto& vertex = mesh.vertices[triangle.surface[source + 1]];
+                const auto& vertex = vertices[triangle.surface[source + 1]];
                 triangle.positions[i] = transform.model * Math::Vec4(vertex.position, 1);
                 auto normal = Math::normalized_direction(transform.normal * vertex.normal);
                 triangle.normals[i] = Math::Vec4(normal.value_or(Math::Vec3(0)), vertex.texcoord.x);
@@ -371,6 +430,7 @@ namespace Comet {
             auto result = std::make_shared<RayScene::Geometry>();
             auto topology = std::make_shared<RayScene::Geometry::Topology>();
             std::map<AssetHandle, std::shared_ptr<const MeshData>> meshes;
+            size_t skinned_vertices = 0;
             for(const auto& item : world.render_items) {
                 if(!valid_transform(item.model_matrix))
                     return Built::failure("射线场景物体变换无效或不可逆");
@@ -383,15 +443,24 @@ namespace Comet {
                 }
                 const auto source = meshes.at(item.mesh_handle);
                 const auto& mesh = *source;
-                if(!mesh.skin.empty())
-                    return Built::failure("射线场景首版仅接受非蒙皮网格");
-                const auto vertices =
+                if(!mesh.skin.empty()) {
+                    skinned_vertices += mesh.vertices.size();
+                    if(skinned_vertices > RayScene::MAX_SKINNED_VERTICES)
+                        return Built::failure(
+                            "实时射线场景蒙皮顶点超过 65536 预算；可关闭重模型的 GI 贡献");
+                }
+                auto deformed = deform_mesh(mesh, item);
+                if(!deformed)
+                    return Built::failure(deformed.error());
+                const auto vertices = deformed_vertices(mesh, deformed.value());
+                result->deformations.push_back(std::move(deformed).value());
+                const auto index_count =
                     mesh.indices.empty() ? mesh.vertices.size() : mesh.indices.size();
-                if(vertices % 3 != 0
-                    || vertices / 3 > RayScene::MAX_TRIANGLES - result->triangles.size())
+                if(index_count % 3 != 0
+                    || index_count / 3 > RayScene::MAX_TRIANGLES - result->triangles.size())
                     return Built::failure("射线场景三角形不完整或超过 262144 个预算");
                 const MeshTransform transform(item.model_matrix);
-                for(size_t first = 0; first < vertices; first += 3) {
+                for(size_t first = 0; first < index_count; first += 3) {
                     RayScene::Triangle triangle;
                     triangle.surface[0] = static_cast<uint32_t>(topology->meshes.size());
                     for(size_t i = 0; i < 3; ++i) {
@@ -401,7 +470,7 @@ namespace Comet {
                             return Built::failure("射线场景网格索引越界");
                         triangle.surface[i + 1] = static_cast<uint32_t>(index);
                     }
-                    if(auto transformed = transform_triangle(triangle, mesh, transform);
+                    if(auto transformed = transform_triangle(triangle, vertices, transform);
                         !transformed)
                         return Built::failure(transformed.error());
                     // 退化判定留在源空间，避免改变缩放时改变拓扑与发光面索引。
@@ -428,19 +497,29 @@ namespace Comet {
             std::vector<std::optional<MeshTransform>> transforms(world.render_items.size());
             for(size_t i = 0; i < world.render_items.size(); ++i) {
                 const auto& matrix = world.render_items[i].model_matrix;
-                if(matrix == previous.transforms[i])
+                if(matrix == previous.transforms[i]
+                    && world.render_items[i].animation == previous.deformations[i].playback)
                     continue;
                 if(!valid_transform(matrix))
                     return Built::failure("射线场景物体变换无效或不可逆");
                 result->transforms[i] = matrix;
                 transforms[i].emplace(matrix);
+                if(world.render_items[i].animation != previous.deformations[i].playback) {
+                    auto deformed =
+                        deform_mesh(*previous.topology->meshes[i], world.render_items[i]);
+                    if(!deformed)
+                        return Built::failure(deformed.error());
+                    result->deformations[i] = std::move(deformed).value();
+                }
             }
             for(auto& triangle : result->triangles) {
                 const auto object = triangle.surface[0];
                 if(!transforms[object])
                     continue;
-                if(auto transformed = transform_triangle(
-                       triangle, *previous.topology->meshes[object], *transforms[object]);
+                if(auto transformed = transform_triangle(triangle,
+                       deformed_vertices(
+                           *previous.topology->meshes[object], result->deformations[object]),
+                       *transforms[object]);
                     !transformed)
                     return Built::failure(transformed.error());
             }

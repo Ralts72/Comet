@@ -259,13 +259,23 @@
       "type": "mesh"
     },
     {
+      "key": "texture/name/11:vegetation//srgb",
+      "guid": 7811937602912933466,
+      "type": "texture"
+    },
+    {
       "key": "texture/name/14:terrain/albedo/srgb",
       "guid": 2267576054535237409,
       "type": "texture"
     },
     {
-      "key": "texture/name/16:vegetation/blade/srgb",
-      "guid": 1895559463472348908,
+      "key": "texture/name/14:terrain/normal/normal",
+      "guid": 2546513013913781260,
+      "type": "texture"
+    },
+    {
+      "key": "texture/name/17:terrain/roughness/linear",
+      "guid": 13572994707883742248,
       "type": "texture"
     }
   ]

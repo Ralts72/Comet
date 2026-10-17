@@ -115,4 +115,102 @@ namespace Comet::Tests {
                 }
             }
     }
+    TEST_F(RenderGraphGpuTest, GpuWorldCollisionAndFieldsWorkOutsideTheCameraAndHonorLayers) {
+        auto& context = engine->get_renderer().get_render_context();
+        auto& device = context.get_device();
+        const ViewProjectMatrix camera{Math::look_at({100, 100, 100}, {101, 100, 100}, {0, 1, 0}),
+            Math::ortho(-1, 1, -1, 1, .1f, 10)};
+        TextureData data{.width = 1, .height = 1, .pixels = {255, 255, 255, 255}};
+        auto depth = engine->get_render_resources().try_create_texture(std::move(data));
+        ASSERT_TRUE(depth);
+        struct State {
+            Math::Vec4 position_age, velocity;
+            std::array<uint32_t, 4> metadata;
+        };
+        for(bool sphere : {false, true})
+            for(auto mode :
+                {ParticleCollision::None, ParticleCollision::Bounce, ParticleCollision::Kill})
+                for(bool layers : {false, true}) {
+                    SCOPED_TRACE(sphere);
+                    SCOPED_TRACE(int(mode));
+                    SCOPED_TRACE(layers);
+                    GpuParticleSimulation simulation(device, 1);
+                    FrameScheduler frames(device, 1);
+                    frames.initialize_swapchain_images(1);
+                    FrameWait wait{device, frames};
+                    ParticleWorldCollider collider;
+                    collider.world_to_local =
+                        Math::translate(Math::Mat4(1), {0, sphere ? 0.f : .5f, 0});
+                    collider.extent_shape =
+                        sphere ? Math::Vec4(1, 1, 1, 1) : Math::Vec4(10, .5f, 10, 0);
+                    GpuParticleEmitter emitter;
+                    emitter.id = 1;
+                    emitter.count = 1;
+                    emitter.settings.simulation = ParticleSimulation::GPU;
+                    emitter.settings.gpu_dynamics = true;
+                    emitter.settings.gpu_world_collision = true;
+                    emitter.settings.capacity = 1;
+                    emitter.settings.speed = 0;
+                    emitter.settings.lifetime = 4;
+                    emitter.settings.acceleration = {0, -20, 0};
+                    emitter.settings.wind = {1, 0, 0};
+                    emitter.settings.vortex_strength = 2;
+                    emitter.settings.vortex_center = {-.5f, 2, 0};
+                    emitter.settings.collision = mode;
+                    emitter.settings.collision_layers = layers ? 1 : 2;
+                    emitter.settings.collision_radius = .01f;
+                    emitter.settings.restitution = .75f;
+                    emitter.spawns = {{Math::translate(Math::Mat4(1), {0, 2, 0}), 0, 0, 0, 1}};
+                    std::vector<std::byte> previous;
+                    for(int frame = 0; frame <= 11; ++frame) {
+                        emitter.time = std::min(frame, 10) * .05;
+                        begin_frame(frames);
+                        auto prepared = simulation.prepare(frames, camera, std::span(&emitter, 1),
+                            false, depth.value()->get_image_view(), 1, std::span(&collider, 1));
+                        ASSERT_TRUE(prepared) << prepared.error();
+                        auto readback = std::make_shared<Readback>(device,
+                            context.get_context().get_physical_device(),
+                            sizeof(vk::DrawIndirectCommand) + sizeof(State));
+                        auto command = frames.get_current_command_buffer().get();
+                        command.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
+                            vk::PipelineStageFlagBits::eTransfer, {},
+                            vk::MemoryBarrier(vk::AccessFlagBits::eShaderWrite,
+                                vk::AccessFlagBits::eTransferRead),
+                            {}, {});
+                        command.copyBuffer(simulation.outputs().front().indirect->get(),
+                            readback->get(), vk::BufferCopy(0, 0, readback->get_size()));
+                        frames.retain_current_frame_resource(readback);
+                        std::vector<QueueSemaphoreSubmit> waits;
+                        if(auto ready = depth.value()->get_ready_completion(); ready.is_valid())
+                            waits.emplace_back(
+                                ready, Flags<PipelineStage>(PipelineStage::ComputeShader));
+                        submit(device, frames, waits);
+                        frames.wait_for_all_slots();
+                        const auto bytes = readback->read();
+                        if(frame == 10)
+                            previous = bytes;
+                        if(frame != 11)
+                            continue;
+                        EXPECT_EQ(bytes, previous);
+                        State state;
+                        vk::DrawIndirectCommand draw;
+                        std::memcpy(&draw, bytes.data(), sizeof(draw));
+                        std::memcpy(&state, bytes.data() + sizeof(draw), sizeof(state));
+                        EXPECT_TRUE(Math::is_finite(state.position_age));
+                        EXPECT_TRUE(Math::is_finite(state.velocity));
+                        EXPECT_GT(state.position_age.x, 0);
+                        EXPECT_LT(state.position_age.z, 0);
+                        if(!layers || mode == ParticleCollision::None)
+                            EXPECT_LT(state.position_age.y, 0);
+                        else if(mode == ParticleCollision::Kill)
+                            EXPECT_EQ(draw.instanceCount, 0u);
+                        else {
+                            EXPECT_EQ(draw.instanceCount, 1u);
+                            EXPECT_GT(state.position_age.y, sphere ? 1.f : 0.f);
+                            EXPECT_GT(state.velocity.y, 0);
+                        }
+                    }
+                }
+    }
+
 }

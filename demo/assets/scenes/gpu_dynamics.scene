@@ -178,7 +178,7 @@
     {
       "uuid": "b30039ee-0757-48b6-b915-8b95f0e889b1",
       "components": {
-        "name": "GPU 火花（GPU 深度反弹）",
+        "name": "GPU 火花（世界盒／球反弹，转动相机对照）",
         "transform": {
           "translation": [
             3,
@@ -227,7 +227,13 @@
           "restitution": 0.65,
           "friction": 0.15,
           "simulation": "gpu",
-          "gpu_dynamics": true
+          "gpu_dynamics": true,
+          "wind": [
+            0.4,
+            0,
+            0
+          ],
+          "gpu_world_collision": true
         }
       }
     },
@@ -338,14 +344,31 @@
           "collision": "none",
           "gpu_dynamics": true,
           "turbulence": 0.4,
-          "turbulence_frequency": 1.5
+          "turbulence_frequency": 1.5,
+          "wind": [
+            0.4,
+            0,
+            0
+          ],
+          "vortex_center": [
+            1.4,
+            1.3,
+            0
+          ],
+          "vortex_axis": [
+            0,
+            1,
+            0
+          ],
+          "vortex_radius": 3,
+          "vortex_strength": 1.8
         }
       }
     },
     {
       "uuid": "f3c5a44a-e11a-4dba-88d7-f7036efed1ea",
       "components": {
-        "name": "GPU 压力对照：65536 火花（手动启用）",
+        "name": "GPU 火花（世界盒／球反弹，转动相机对照）",
         "transform": {
           "translation": [
             0,
@@ -396,7 +419,13 @@
           "simulation": "gpu",
           "enabled": false,
           "burst": 65536,
-          "gpu_dynamics": true
+          "gpu_dynamics": true,
+          "wind": [
+            0.4,
+            0,
+            0
+          ],
+          "gpu_world_collision": true
         }
       }
     }

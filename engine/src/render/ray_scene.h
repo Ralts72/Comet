@@ -15,6 +15,7 @@ namespace Comet {
 
     // Main 构造的只读世界空间快照；不持有 Scene、资产服务或 GPU 对象。
     struct RayScene {
+        static constexpr uint32_t MAX_SKINNED_VERTICES = 65536;
         static constexpr uint32_t MAX_TRIANGLES = 262144;
         static constexpr size_t MAX_TEXTURE_BYTES = 128 * 1024 * 1024;
         struct Triangle {
@@ -51,6 +52,11 @@ namespace Comet {
             // 变换更新复用源顶点和三角形顺序；旧快照仍拥有独立的世界坐标与 BVH。
             std::shared_ptr<const Topology> topology;
             std::vector<Math::Mat4> transforms;
+            struct Deformation {
+                std::shared_ptr<const AnimationPlayback> playback;
+                std::shared_ptr<const std::vector<MeshVertex>> vertices;
+            };
+            std::vector<Deformation> deformations;
             std::vector<Triangle> triangles;
             std::vector<Node> nodes;
         };

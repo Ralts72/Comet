@@ -258,6 +258,12 @@ namespace CometEditor::Tests {
         const auto parent = scene.create_entity();
         ASSERT_TRUE(scene.set_parent(entity, parent));
         EXPECT_EQ(color(), Math::Vec4(1, 0.2f, 0.2f, 1));
+        entity.edit_component<RigidBodyComponent>(
+            [](auto& value) { value.motion = BodyMotion::Static; });
+        EXPECT_EQ(color(), Math::Vec4(0.1f, 0.9f, 0.9f, 1));
+        parent.edit_transform([](auto& value) { value.scale = {2, 1, 1}; });
+        entity.edit_transform([](auto& value) { value.rotation.y = 30; });
+        EXPECT_EQ(color(), Math::Vec4(1, 0.2f, 0.2f, 1));
         ASSERT_TRUE(scene.clear_parent(entity));
         entity.edit_component<ColliderComponent>(
             [](auto& value) { value.shape = ColliderShape::Sphere; });

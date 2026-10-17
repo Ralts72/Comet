@@ -125,6 +125,10 @@ set(COMET_GAMEPLAY_SOURCES
     src/gameplay/character_animation.cpp
     src/gameplay/root_motion.cpp
     src/gameplay/root_motion.h
+    src/gameplay/wind_sway.cpp
+    src/gameplay/wind_sway.h
+    src/gameplay/hand_placement.cpp
+    src/gameplay/hand_placement.h
     src/gameplay/foot_placement.cpp
     src/gameplay/foot_placement.h
     src/gameplay/checkpoint_store.cpp

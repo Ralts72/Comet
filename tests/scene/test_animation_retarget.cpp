@@ -406,4 +406,47 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.stop());
     }
 
+    TEST(AnimationRetargetTest, ReferencePoseCalibrationIsBoundWithoutMutatingSharedSources) {
+        auto source = rig(false), target = rig(true);
+        auto settings = profile();
+        settings.target_pose["hip"] = {0, 0, 20};
+        settings.source_pose["source_root"] = {5, 0, 0};
+        auto calibrated = retarget_animation(source, target, settings);
+        ASSERT_TRUE(calibrated) << calibrated.error();
+        auto reference_source = source, reference_target = target;
+        reference_source.nodes[1].rest.rotation =
+            glm::normalize(reference_source.nodes[1].rest.rotation
+                           * Math::Quat(glm::radians(Math::Vec3(5, 0, 0))));
+        reference_target.nodes[2].rest.rotation =
+            glm::normalize(reference_target.nodes[2].rest.rotation
+                           * Math::Quat(glm::radians(Math::Vec3(0, 0, 20))));
+        AnimationPlayback frame{.current = {.clip = "motion", .time = .37, .loop = false}};
+        auto input = sample_animation(source, &frame),
+             source_rest = sample_animation(reference_source, nullptr),
+             target_rest = sample_animation(reference_target, nullptr),
+             output = sample_animation(calibrated.value(), &frame);
+        ASSERT_TRUE(input && source_rest && target_rest && output);
+        for(size_t i = 0; i < source.joints.size(); ++i) {
+            const auto expected = rotation(input.value().bone_matrices[i])
+                                  * glm::inverse(rotation(source_rest.value().bone_matrices[i]))
+                                  * rotation(target_rest.value().bone_matrices[i]);
+            EXPECT_NEAR(
+                std::abs(glm::dot(rotation(output.value().bone_matrices[i]), expected)), 1, .0001);
+        }
+        EXPECT_EQ(calibrated.value().nodes[2].rest.rotation, target.nodes[2].rest.rotation);
+        AnimationLibrary library;
+        library.entries = {{"walk", AssetHandle{12}, "motion"}};
+        library.retargets = {{AssetHandle{12}, settings}};
+        auto text = library.serialize();
+        ASSERT_TRUE(text);
+        auto decoded = AnimationLibrary::deserialize(text.value());
+        ASSERT_TRUE(decoded) << decoded.error();
+        EXPECT_EQ(decoded.value(), library);
+        settings.target_pose["missing"] = {0, 0, 0};
+        EXPECT_FALSE(retarget_animation(source, target, settings));
+        settings.target_pose.clear();
+        settings.source_pose["source_mesh"] = {1, 0, 0};
+        EXPECT_FALSE(retarget_animation(source, target, settings));
+    }
+
 }

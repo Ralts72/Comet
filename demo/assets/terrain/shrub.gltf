@@ -1,0 +1,124 @@
+{
+  "asset": {
+    "version": "2.0",
+    "generator": "Comet sample"
+  },
+  "buffers": [
+    {
+      "uri": "data:application/octet-stream;base64,ZmbmvgAAAAAAAACAZmbmPgAAAAAAAAAAAACAvgAAgD8AAACAAACAPgAAgD8AAAAAZmZmvgAAAABCiMe+ZmZmPgAAAABCiMc+AAAAvgAAgD/Xs12+AAAAPgAAgD/Xs10+ZmZmPgAAAABCiMe+ZmZmvgAAAABCiMc+AAAAPgAAgD/Xs12+AAAAvgAAgD/Xs10+AAAAgAAAAAAAAIA/AAAAgAAAAAAAAIA/AAAAgAAAAAAAAIA/AAAAgAAAAAAAAIA/17NdvwAAAAAAAAA/17NdvwAAAAAAAAA/17NdvwAAAAAAAAA/17NdvwAAAAAAAAA/17NdvwAAAAAAAAC/17NdvwAAAAAAAAC/17NdvwAAAAAAAAC/17NdvwAAAAAAAAC/AAAAAAAAgD8AAIA/AACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAgD8AAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AACAPwAAgD8AAAAAAAAAAAAAgD8AAAAAAAABAAIAAQADAAIABAAFAAYABQAHAAYACAAJAAoACQALAAoA",
+      "byteLength": 420
+    }
+  ],
+  "bufferViews": [
+    {
+      "buffer": 0,
+      "byteOffset": 0,
+      "byteLength": 144
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 144,
+      "byteLength": 144
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 288,
+      "byteLength": 96
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 384,
+      "byteLength": 36
+    }
+  ],
+  "accessors": [
+    {
+      "bufferView": 0,
+      "componentType": 5126,
+      "count": 12,
+      "type": "VEC3",
+      "min": [
+        -0.45,
+        0,
+        -0.45
+      ],
+      "max": [
+        0.45,
+        1,
+        0.45
+      ]
+    },
+    {
+      "bufferView": 1,
+      "componentType": 5126,
+      "count": 12,
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 2,
+      "componentType": 5126,
+      "count": 12,
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 3,
+      "componentType": 5123,
+      "count": 18,
+      "type": "SCALAR"
+    }
+  ],
+  "images": [
+    {
+      "uri": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAYAAADDPmHLAAAD90lEQVR4nO3dR24cQQyFYd6F6zq2crKSc47Hog034IENq1MFprf4dpZUbP4LazTTTeWICfJSPwBoB3DMkJj6AUA7gBPOQP5R++/CoHLKEcmC1l/nlvoBBi69RQDhYqByxp7JTqO+n3nqBxi8+F4BuA2Byjl7Io1ofX9z1A8wePGjAnATApULtk46sPCzTFA/wOBlaARgOgQql2yRdGbt56pRP8DgBWgHYC4EKldshQxk+QxDUblmC2Qw6+cYRv0AChfdUgDqEVC5YU2ixMt5usu4fIsBqEVA5RlrEGXeztVNxuVbDmB4BFRueTQxwOPZusi4fOsBDI2Ayh2PIoZ4PmNTGZfvJYAhEVC55xHEGO/nbIbKA/cmBkU4axMZl+8tgK4RUHnknsSoKOetlnH5HgPoFgGV59yLGBbpzFUyLt9rAF0ioPKCexDjop17t4zL9xxA8wiovOTWxIGIZ98l4/K9B9A0AiqvuCVxIur5N6PymlsRRyLPsAkCiDfDxgDecCviSOQZNsm4/CgBNImAyltuQZyJPsdqCCDmHBsCeMe1xKEMs6yCAOLOsjKA91xLHMowyyoIIO4sKwP4wDXEqSzzLKLykWuIU1nmWYQAYs+zIoBPXEOcyjLPIgQQe54VAXzmvcSxTDPNQgDxZ1oI4AvvJY5lmmkWAog/00IAX3kvcSzTTLMQQPyZFgL4xnuJY5lmmkXlO+8ljmWaaRYCiD/TQgA/eC9xLNNMsxBA/JkQAAJAAAjgyQDwn8DoM+G3AAQwFwBeCIo+08ILQXgpOPpM+FsAApgLAH8Ojj4T3g+AAOYCwFvCos+E9wQigLkA8LbwyPPgcwEIYCmAnB8NiwafDUyuIoCcHw+PpuLj4TlvEBEJ7hCSXGUAOW8SFQnuEpZcZQA5bxQZBe4UmlyDAHLeLDoKM3cLRwQOlz8FkPOBERHgiSHJNQog50OjvGv40Kicj43zzuxzAxGBo+VPAeR8dKxn5p8djAicLH8KIOfj473q8Pj4PgEgAgfLnwJ45F4Emuqyp54BIALjy58CeOCeBJrotqPeASACw8ufArjnEQR26b4bKnc8gsAu3XczKgBEYHD5UwC3PJLAKsN2MjoARGBo+VMAz3g0gVlD96ERACIwsvwpgBvWIvAXlT1oBoAIlJc/BXDN2iQ51euvvfzsEWhf918BXLEVkoz29f6NyiVbIkloX+c/1A/wBO0FhV/8IYALtkqC0b6e/6V+gBW0Fxdy8YcAztkDcUr7ui1SP8BG2gsNs/hDAGfskRilfV02Uz9AJe2Fu138IYBTjkIG0563CfUDdIKlrw7ghDOQnbTP3R2VY4bE1A8A2gEcMSSmfgDQ9RPt7MR7bBNcoQAAAABJRU5ErkJggg=="
+    }
+  ],
+  "textures": [
+    {
+      "source": 0
+    }
+  ],
+  "materials": [
+    {
+      "name": "Shrub",
+      "alphaMode": "MASK",
+      "doubleSided": true,
+      "pbrMetallicRoughness": {
+        "baseColorTexture": {
+          "index": 0
+        },
+        "metallicFactor": 0,
+        "roughnessFactor": 0.9
+      }
+    }
+  ],
+  "meshes": [
+    {
+      "name": "Shrub",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 0,
+            "NORMAL": 1,
+            "TEXCOORD_0": 2
+          },
+          "indices": 3,
+          "material": 0
+        }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "name": "Shrub",
+      "mesh": 0
+    }
+  ],
+  "scenes": [
+    {
+      "nodes": [
+        0
+      ]
+    }
+  ],
+  "scene": 0
+}

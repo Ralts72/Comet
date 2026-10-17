@@ -49,7 +49,7 @@ namespace Comet {
         return m_gpu->prepare(frames, camera,
             world.particles ? std::span(world.particles->gpu_emitters)
                             : std::span<const GpuParticleEmitter>{},
-            sorted, depth, world.scene_lifetime);
+            sorted, depth, world.scene_lifetime, world.particle_colliders);
     }
 
     Result<std::unique_ptr<ParticlePass>, GraphicsError> ParticlePass::create(Device& device,

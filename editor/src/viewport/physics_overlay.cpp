@@ -9,14 +9,24 @@ namespace CometEditor {
         constexpr Comet::Math::Vec4 DISABLED_COLOR{0.6f, 0.6f, 0.6f, 1};
         constexpr Comet::Math::Vec4 TARGET_COLOR{0.4f, 1, 0.4f, 1};
 
-        bool supported_collider_transform(const Comet::Entity entity,
+        bool supported_collider_transform(Comet::Scene& scene, const Comet::Entity entity,
             const Comet::ColliderComponent& collider, const Comet::TransformComponent& transform) {
             using namespace Comet;
-            const bool positive_scale = glm::all(glm::greaterThan(transform.scale, Math::Vec3(0)));
-            const bool uniform_scale =
-                transform.scale.x == transform.scale.y && transform.scale.x == transform.scale.z;
-            return entity.get_component<RelationshipComponent>().parent == INVALID_ENTITY_ID
-                   && positive_scale
+            auto scale = transform.scale;
+            bool uniform_scale = scale.x == scale.y && scale.x == scale.z;
+            if(entity.get_component<RelationshipComponent>().parent != INVALID_ENTITY_ID) {
+                if(!entity.has_component<RigidBodyComponent>()
+                    || entity.get_component<RigidBodyComponent>().motion != BodyMotion::Static)
+                    return false;
+                const auto& matrix = scene.get_render_transform(entity).world_matrix;
+                const auto world_scale = Math::positive_trs_scale(matrix);
+                if(!world_scale)
+                    return false;
+                scale = *world_scale;
+                uniform_scale = Math::uniform_scale(matrix).has_value();
+            }
+            const bool positive_scale = glm::all(glm::greaterThan(scale, Math::Vec3(0)));
+            return positive_scale
                    && (collider.shape == ColliderShape::Box
                        || (collider.uses_mesh() && collider.mesh
                            && (collider.shape != ColliderShape::TriangleMesh
@@ -28,12 +38,12 @@ namespace CometEditor {
                            && uniform_scale));
         }
 
-        bool supported_joint_body(const Comet::Entity entity) {
+        bool supported_joint_body(Comet::Scene& scene, const Comet::Entity entity) {
             using namespace Comet;
             return entity && entity.has_component<RigidBodyComponent>()
                    && entity.has_component<ColliderComponent>()
                    && entity.has_component<TransformComponent>()
-                   && supported_collider_transform(entity,
+                   && supported_collider_transform(scene, entity,
                        entity.get_component<ColliderComponent>(),
                        entity.get_component<TransformComponent>());
         }
@@ -44,10 +54,10 @@ namespace CometEditor {
                           == Comet::BodyMotion::Dynamic;
         }
 
-        Comet::Math::Vec4 collider_color(const Comet::Entity entity,
+        Comet::Math::Vec4 collider_color(Comet::Scene& scene, const Comet::Entity entity,
             const Comet::ColliderComponent& collider, const Comet::TransformComponent& transform) {
             using namespace Comet;
-            if(!supported_collider_transform(entity, collider, transform))
+            if(!supported_collider_transform(scene, entity, collider, transform))
                 return INVALID_COLOR;
             if(!entity.has_component<RigidBodyComponent>())
                 return DISABLED_COLOR;
@@ -159,10 +169,11 @@ namespace CometEditor {
                 if(!Math::is_finite(first_anchor))
                     return;
                 const Entity connected = scene.find_entity(joint.connected_body);
-                bool supported = supported_joint_body(entity)
-                                 && (!joint.connected_body || supported_joint_body(connected))
-                                 && joint.connected_body != entity.get_uuid()
-                                 && (dynamic_body(entity) || dynamic_body(connected));
+                bool supported =
+                    supported_joint_body(scene, entity)
+                    && (!joint.connected_body || supported_joint_body(scene, connected))
+                    && joint.connected_body != entity.get_uuid()
+                    && (dynamic_body(entity) || dynamic_body(connected));
                 if constexpr(!std::is_same_v<Joint, PointJointComponent>) {
                     supported &= Math::normalized_direction(joint.axis).has_value()
                                  && Math::normalized_direction(joint.connected_axis).has_value();
@@ -276,7 +287,7 @@ namespace CometEditor {
         scene.each<const Comet::TransformComponent, const Comet::ColliderComponent>(
             [&](const Comet::Entity entity, const Comet::TransformComponent& transform,
                 const Comet::ColliderComponent& collider) {
-                const auto color = collider_color(entity, collider, transform);
+                const auto color = collider_color(scene, entity, collider, transform);
                 const auto& matrix = scene.get_render_transform(entity).world_matrix;
                 switch(collider.shape) {
                     case Comet::ColliderShape::Box:

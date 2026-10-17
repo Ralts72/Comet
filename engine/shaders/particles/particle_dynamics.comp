@@ -4,12 +4,16 @@
 layout(local_size_x=64) in;
 #include "particle_common.glsl"
 struct State { vec4 position_age; vec4 velocity; uvec4 metadata; };
+struct WorldCollider { mat4 world_to_local; vec4 extent_shape; uvec4 layers; };
 layout(std430,set=0,binding=0) readonly buffer Inputs {
     Parameters parameters;
     mat4 view_projection, inverse_view_projection;
     vec4 timing; // runtime time, elapsed since previous snapshot, radius, restitution
     vec4 dynamics; // turbulence acceleration, spatial frequency, friction
     uvec4 history; // previous birth count, collision mode
+    vec4 wind, vortex_center, vortex_axis;
+    uvec4 world;
+    WorldCollider colliders[64];
     Spawn births[];
 };
 layout(std430,set=0,binding=1) readonly buffer Previous {
@@ -32,8 +36,106 @@ vec3 surface_position(ivec2 pixel, ivec2 size) {
     vec4 world=inverse_view_projection*vec4(ndc,depth,1);
     return world.xyz/world.w;
 }
+struct ColliderHit {
+    float fraction;
+    vec3 normal;
+    vec3 position;
+    bool inside;
+};
+bool intersect_sphere(vec3 origin, vec3 direction, float radius, out ColliderHit hit) {
+    float squared_direction = dot(direction, direction);
+    float projection = dot(origin, direction);
+    float distance = dot(origin, origin) - radius * radius;
+    hit.inside = distance < 0;
+    hit.fraction = 0;
+    if(hit.inside) {
+        hit.normal = length(origin) > 1e-6 ? normalize(origin) : vec3(0, 1, 0);
+        hit.position = hit.normal * radius;
+        return true;
+    }
+    float discriminant = projection * projection - squared_direction * distance;
+    if(squared_direction <= 1e-12 || discriminant < 0) return false;
+    hit.fraction = (-projection - sqrt(discriminant)) / squared_direction;
+    if(hit.fraction < 0 || hit.fraction > 1) return false;
+    hit.position = origin + direction * hit.fraction;
+    hit.normal = normalize(hit.position);
+    return true;
+}
+bool intersect_box(vec3 origin, vec3 direction, vec3 extent, out ColliderHit hit) {
+    hit.inside = all(lessThan(abs(origin), extent));
+    hit.fraction = 0;
+    hit.normal = vec3(0);
+    if(hit.inside) {
+        vec3 margin = extent - abs(origin);
+        int axis = 0;
+        if(margin.y <= margin.x) axis = 1;
+        if(margin.z <= margin[axis]) axis = 2;
+        hit.normal[axis] = origin[axis] < 0 ? -1 : 1;
+        hit.position = origin;
+        hit.position[axis] = hit.normal[axis] * extent[axis];
+        return true;
+    }
+    float leave = 1;
+    for(int axis = 0; axis < 3; ++axis) {
+        if(abs(direction[axis]) < 1e-8) {
+            if(abs(origin[axis]) > extent[axis]) return false;
+            continue;
+        }
+        float first = (-extent[axis] - origin[axis]) / direction[axis];
+        float last = (extent[axis] - origin[axis]) / direction[axis];
+        float near = min(first, last);
+        if(near >= hit.fraction) {
+            hit.fraction = near;
+            hit.normal = vec3(0);
+            hit.normal[axis] = direction[axis] > 0 ? -1 : 1;
+        }
+        leave = min(leave, max(first, last));
+    }
+    hit.position = origin + direction * hit.fraction;
+    return hit.fraction <= leave && hit.fraction <= 1 && leave >= 0 && length(hit.normal) > .5;
+}
+void bounce_velocity(vec3 normal, inout vec3 velocity) {
+    float speed = dot(velocity, normal);
+    if(speed < 0)
+        velocity = (velocity - normal * speed) * (1 - dynamics.z) - normal * speed * timing.w;
+}
+bool collide_world(vec3 old_position, inout vec3 position, inout vec3 velocity) {
+    float nearest = 2;
+    vec3 hit_normal = vec3(0), hit_position = position;
+    for(uint i = 0; i < world.x; ++i) {
+        WorldCollider collider = colliders[i];
+        if((collider.layers.x & world.y) == 0) continue;
+        vec3 origin = (collider.world_to_local * vec4(old_position, 1)).xyz;
+        vec3 end = (collider.world_to_local * vec4(position, 1)).xyz;
+        mat3 inverse_basis = mat3(collider.world_to_local);
+        // 世界球形粒子的半径在盒的各局部轴上分别扩张。
+        mat3 inverse_rows = transpose(inverse_basis);
+        vec3 radius = vec3(length(inverse_rows[0]), length(inverse_rows[1]),
+            length(inverse_rows[2])) * timing.z;
+        ColliderHit hit;
+        bool collided;
+        if(collider.extent_shape.w > 0) {
+            float extent = collider.extent_shape.x + max(radius.x, max(radius.y, radius.z));
+            collided = intersect_sphere(origin, end - origin, extent, hit);
+        } else {
+            collided = intersect_box(origin, end - origin, collider.extent_shape.xyz + radius, hit);
+        }
+        if(!collided || hit.fraction >= nearest) continue;
+        nearest = hit.fraction;
+        hit_normal = normalize(transpose(inverse_basis) * hit.normal);
+        hit_position = hit.inside
+            ? (inverse(collider.world_to_local) * vec4(hit.position, 1)).xyz
+            : mix(old_position, position, hit.fraction);
+    }
+    if(nearest > 1) return false;
+    if(history.y == 2) return true;
+    bounce_velocity(hit_normal, velocity);
+    position = hit_position + hit_normal * max(.0001, timing.z * .01);
+    return false;
+}
 bool collide(vec3 old_position, inout vec3 position, inout vec3 velocity) {
     if(history.y==0) return false;
+    if(world.z!=0) return collide_world(old_position,position,velocity);
     vec4 projected=view_projection*vec4(position,1);
     if(projected.w<=0) return false;
     vec3 ndc=projected.xyz/projected.w;
@@ -51,11 +153,23 @@ bool collide(vec3 old_position, inout vec3 position, inout vec3 velocity) {
     vec3 toward_camera=transpose(mat3(parameters.view))*vec3(0,0,1);
     normal=length(normal)>1e-5 ? normalize(normal) : toward_camera;
     if(dot(normal,toward_camera)<0) normal=-normal;
-    float speed=dot(velocity,normal);
-    if(speed<0) velocity=(velocity-normal*speed)*(1-dynamics.z)-normal*speed*timing.w;
+    bounce_velocity(normal, velocity);
     vec4 contact=inverse_view_projection*vec4(ndc.xy,depth,1);
     position=contact.xyz/contact.w+normal*max(timing.z,.001);
     return false;
+}
+vec3 particle_acceleration(vec3 position, float time, float phase) {
+    vec3 field = position * dynamics.y + vec3(time + phase, time * .7 - phase, time * .9 + phase);
+    vec3 turbulence = vec3(sin(field.y) - cos(field.z), sin(field.z) - cos(field.x),
+        sin(field.x) - cos(field.y)) * dynamics.x;
+    vec3 radial = position - vortex_center.xyz;
+    radial -= vortex_axis.xyz * dot(radial, vortex_axis.xyz);
+    float radius = length(radial);
+    vec3 vortex = vec3(0);
+    if(radius > 1e-5)
+        vortex = cross(vortex_axis.xyz, radial / radius) * wind.w
+            * max(0, 1 - radius / vortex_center.w);
+    return parameters.acceleration_lifetime.xyz + wind.xyz + vortex + turbulence;
 }
 void main() {
     uint index=gl_GlobalInvocationID.x;
@@ -97,9 +211,7 @@ void main() {
     float phase=float(random_hash(serial.x^parameters.counts.w)&65535u)*.001;
     for(uint step=0; step<steps && alive; ++step) {
         float time=timing.x-elapsed+float(step)*dt;
-        vec3 field=position*dynamics.y+vec3(time+phase,time*.7-phase,time*.9+phase);
-        vec3 acceleration=parameters.acceleration_lifetime.xyz
-            +vec3(sin(field.y)-cos(field.z),sin(field.z)-cos(field.x),sin(field.x)-cos(field.y))*dynamics.x;
+        vec3 acceleration = particle_acceleration(position, time, phase);
         vec3 next=position+velocity*dt+acceleration*(.5*dt*dt);
         velocity+=acceleration*dt;
         if(collide(position,next,velocity)) alive=false;

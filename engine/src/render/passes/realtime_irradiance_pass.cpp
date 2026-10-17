@@ -37,7 +37,7 @@ namespace Comet {
         bool same_grid(const RenderIrradianceVolume& a, const RenderIrradianceVolume& b) {
             return a.entity_id == b.entity_id && a.center == b.center
                    && a.half_extents == b.half_extents && a.spacing == b.spacing
-                   && a.max_distance == b.max_distance;
+                   && a.max_distance == b.max_distance && a.bounce_strength == b.bounce_strength;
         }
     }
 
@@ -212,7 +212,9 @@ namespace Comet {
             || volume.max_distance > 100000 || !volume.update_budget || volume.update_budget > 4096
             || volume.update_rays < 64 || volume.update_rays > 256
             || !std::isfinite(volume.history_weight) || volume.history_weight < 0
-            || volume.history_weight > .99f)
+            || volume.history_weight > .99f || !std::isfinite(volume.normal_bias)
+            || volume.normal_bias < 0 || !std::isfinite(volume.bounce_strength)
+            || volume.bounce_strength < 0 || volume.bounce_strength > 1)
             return Result<Math::Vec3u>::failure("实时探针 GI 的区域或更新预算无效");
         const auto cells =
             glm::max(glm::ceil(volume.half_extents * 2.0f / volume.spacing), Math::Vec3(2));
@@ -295,7 +297,7 @@ namespace Comet {
                 refresh ? std::min(volume.history_weight, .5f) : volume.history_weight},
             {Math::Vec3(result->dimensions), 0},
             {2.f * std::max({result->spacing.x, result->spacing.y, result->spacing.z}),
-                refresh ? 0.f : volume.history_weight, 0, 0},
+                refresh ? 0.f : volume.history_weight, volume.bounce_strength, volume.normal_bias},
             Math::Vec4(scene->background, 1),
             {history->cursor, grant, volume.update_rays, history->iteration},
             {uint32_t(scene->geometry->nodes.size()), uint32_t(scene->lighting->light_count), 0,

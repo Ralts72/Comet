@@ -18,7 +18,8 @@ namespace Comet {
         Result<AnimationRetarget> read_retarget(Json::Node node, const Json::Context& context) {
             using Read = Result<AnimationRetarget>;
             if(auto keys = context.validate_keys(
-                   node, {"mesh", "nodes", "translations", "translation_scale", "chains"});
+                   node, {"mesh", "nodes", "translations", "translation_scale", "chains",
+                             "source_pose", "target_pose"});
                 !keys)
                 return Read::failure(keys.error());
             AnimationRetarget result;
@@ -56,6 +57,27 @@ namespace Comet {
                     if(!name)
                         return Read::failure(name.error());
                     result.translations.push_back(std::move(name).value());
+                }
+            }
+            for(const auto& [key, target] : {std::pair{"source_pose", &result.source_pose},
+                    {"target_pose", &result.target_pose}}) {
+                auto value = context.find(node, key);
+                if(!value)
+                    return Read::failure(value.error());
+                if(!value.value())
+                    continue;
+                auto object = context.object(*value.value(), key);
+                if(!object)
+                    return Read::failure(object.error());
+                for(const auto field : object.value()) {
+                    auto vector = Json::read_vector<Math::Vec3>(field.value, context, field.key);
+                    if(!vector)
+                        return Read::failure(vector.error());
+                    if(!target
+                            ->emplace(std::string(field.key),
+                                Math::Vec3(vector.value()[0], vector.value()[1], vector.value()[2]))
+                            .second)
+                        return Read::failure("Duplicate reference pose bone");
                 }
             }
             auto chains = context.find(node, "chains");
@@ -267,6 +289,20 @@ namespace Comet {
                 writer.begin_object();
                 writer.field("mesh", std::to_string(source.value()));
                 writer.field("translation_scale", settings.translation_scale);
+                for(const auto& [name, pose] : {std::pair{"source_pose", &settings.source_pose},
+                        {"target_pose", &settings.target_pose}}) {
+                    writer.key(name);
+                    writer.begin_object();
+                    for(const auto& [bone, value] : *pose) {
+                        writer.key(bone);
+                        writer.begin_array();
+                        writer.value(value.x);
+                        writer.value(value.y);
+                        writer.value(value.z);
+                        writer.end_array();
+                    }
+                    writer.end_object();
+                }
                 writer.key("nodes");
                 writer.begin_object();
                 for(const auto& [from, to] : settings.nodes)

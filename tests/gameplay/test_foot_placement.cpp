@@ -1,6 +1,7 @@
 #include "animation/animation_system.h"
 #include "asset/import/mesh_importer.h"
 #include "gameplay/foot_placement.h"
+#include "gameplay/hand_placement.h"
 #include "physics/physics_service.h"
 #include "scene/scene.h"
 #include "scene/component_registry.h"
@@ -21,7 +22,13 @@ namespace Comet::Tests {
                 {"foot_l", 3, {.translation = {0, -.6f, -.3f}}},
                 {"hip_r", 1, {.translation = {.2f, 0, 0}}},
                 {"knee_r", 5, {.translation = {0, -.6f, .3f}}},
-                {"foot_r", 6, {.translation = {0, -.6f, -.3f}}}};
+                {"foot_r", 6, {.translation = {0, -.6f, -.3f}}},
+                {"upperarm_l", 1, {.translation = {-.2f, .1f, 0}}},
+                {"lowerarm_l", 8, {.translation = {-.5f, 0, 0}}},
+                {"hand_l", 9, {.translation = {-.5f, 0, 0}}},
+                {"upperarm_r", 1, {.translation = {.2f, .1f, 0}}},
+                {"lowerarm_r", 11, {.translation = {.5f, 0, 0}}},
+                {"hand_r", 12, {.translation = {.5f, 0, 0}}}};
             for(uint32_t i = 0; i < data->nodes.size(); ++i) {
                 data->evaluation_order.push_back(i);
                 if(i)
@@ -58,6 +65,13 @@ namespace Comet::Tests {
             value.translation = {-.2f, .05f, 0};
             value.scale = {.35f, .1f, .5f};
         });
+        auto left_grip = scene.create_entity("left grip"),
+             right_grip = scene.create_entity("right grip");
+        left_grip.edit_transform([](auto& t) { t.translation = {-.7f, 1.3f, .4f}; });
+        right_grip.edit_transform([](auto& t) { t.translation = {.7f, 1.3f, .4f}; });
+        model.add_component<HandIKComponent>(HandIKComponent{.left_target = left_grip.get_uuid(),
+            .right_target = right_grip.get_uuid(),
+            .match_rotation = false});
         PhysicsService physics;
         SceneRuntime runtime;
         ASSERT_TRUE(runtime.set_services({.physics = &physics}));
@@ -65,16 +79,19 @@ namespace Comet::Tests {
             std::make_unique<AnimationSystem>([data](AssetHandle) { return data; })));
         ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         ASSERT_TRUE(runtime.add_system(std::make_unique<Gameplay::FootPlacementSystem>()));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<Gameplay::HandPlacementSystem>()));
         ASSERT_TRUE(runtime.start(scene));
         const auto initial = scene.get_animation_playback(model);
         ASSERT_TRUE(initial && initial->pose);
+        const auto evaluations = scene.get_animation_statistics().pose_resolutions;
         for(int i = 0; i < 90; ++i) {
             auto advanced = runtime.advance(1.0 / 60);
             ASSERT_TRUE(advanced) << advanced.error().message;
         }
         const auto planted = scene.get_animation_playback(model);
         ASSERT_TRUE(planted && planted->pose);
-        ASSERT_EQ(planted->ik.size(), 2u);
+        ASSERT_EQ(planted->ik.size(), 4u);
+        EXPECT_LE(scene.get_animation_statistics().pose_resolutions - evaluations, 92u);
         EXPECT_GT(scene.get_animation_statistics().ik_pose_reuses, 0u);
         EXPECT_NEAR(planted->pose->bone_matrices[3][3].y, .18, .001);
         EXPECT_NEAR(planted->pose->bone_matrices[6][3].y, .08, .001);
@@ -103,7 +120,9 @@ namespace Comet::Tests {
         scene.destroy_entity(floor);
         for(int i = 0; i < 90; ++i)
             ASSERT_TRUE(runtime.advance(1.0 / 60));
-        EXPECT_TRUE(scene.get_animation_playback(model)->ik.empty());
+        EXPECT_EQ(scene.get_animation_playback(model)->ik.size(), 2u);
+        for(const auto& ik : scene.get_animation_playback(model)->ik)
+            EXPECT_TRUE(ik.tip == 10 || ik.tip == 13);
         EXPECT_NEAR(scene.get_animation_playback(model)->pose->bone_matrices[3][3].y, .2, .0001);
         EXPECT_NEAR(scene.get_animation_playback(model)->pose->bone_matrices[0][3].y, 1.4, .0001);
         EXPECT_NEAR(planted->pose->bone_matrices[3][3].y, .18, .001);
@@ -214,6 +233,84 @@ namespace Comet::Tests {
         });
         EXPECT_EQ(models, 2);
         ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST(HandPlacementTest, RejectsNamedNodesOutsideTheSkin) {
+        const auto data = biped();
+        Scene scene;
+        auto model = scene.create_entity("model");
+        auto target = scene.create_entity("target");
+        model.add_component<MeshRendererComponent>();
+        model.add_component<AnimatorComponent>();
+        model.add_component<HandIKComponent>(
+            HandIKComponent{.left_hand = "mesh", .left_target = target.get_uuid()});
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.add_system(
+            std::make_unique<AnimationSystem>([data](AssetHandle) { return data; })));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<Gameplay::HandPlacementSystem>()));
+        const auto started = runtime.start(scene);
+        ASSERT_FALSE(started);
+        EXPECT_NE(started.error().message.find("not part of the skin"), std::string::npos);
+        EXPECT_FALSE(scene.get_animation_playback(model));
+    }
+
+    TEST(HandPlacementTest, TargetsUseWorldSpaceAndKeepLengthsFrozenPosesAndPause) {
+        const auto data = biped();
+        Scene scene;
+        auto model = scene.create_entity("model");
+        model.edit_transform([](auto& t) {
+            t.translation = {2, 1, 0};
+            t.scale = Math::Vec3(1.5f);
+            t.rotation.y = 25;
+        });
+        model.add_component<MeshRendererComponent>();
+        model.add_component<AnimatorComponent>();
+        auto left = scene.create_entity("left grip"), right = scene.create_entity("right grip");
+        const auto world = scene.get_world_matrix(model);
+        const auto move = [&](Entity target, Math::Vec3 position) {
+            target.edit_transform(
+                [&](auto& t) { t.translation = Math::Vec3(world * Math::Vec4(position, 1)); });
+        };
+        move(left, {-.7f, 1.3f, .4f});
+        move(right, {.7f, 1.3f, .4f});
+        model.add_component<HandIKComponent>(HandIKComponent{.left_target = left.get_uuid(),
+            .right_target = right.get_uuid(),
+            .match_rotation = false});
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.add_system(
+            std::make_unique<AnimationSystem>([data](AssetHandle) { return data; })));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<Gameplay::HandPlacementSystem>()));
+        auto started = runtime.start(scene);
+        ASSERT_TRUE(started) << started.error().message;
+        const auto first = scene.get_animation_playback(model);
+        ASSERT_TRUE(first && first->pose);
+        ASSERT_EQ(first->ik.size(), 2u);
+        EXPECT_LT(
+            glm::length(Math::Vec3(first->pose->bone_matrices[9][3]) - Math::Vec3(-.7f, 1.3f, .4f)),
+            .001f);
+        const auto from = Math::Vec3(first->pose->bone_matrices[7][3]),
+                   middle = Math::Vec3(first->pose->bone_matrices[8][3]),
+                   tip = Math::Vec3(first->pose->bone_matrices[9][3]);
+        EXPECT_NEAR(glm::length(from - middle), .5f, .0001f);
+        EXPECT_NEAR(glm::length(middle - tip), .5f, .0001f);
+        move(left, {-.7f, 1.4f, .3f});
+        ASSERT_TRUE(runtime.advance(1.0 / 30));
+        const auto second = scene.get_animation_playback(model);
+        ASSERT_TRUE(second && second->pose);
+        EXPECT_NE(second, first);
+        EXPECT_NE(first->pose->bone_matrices[9], second->pose->bone_matrices[9]);
+        ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
+        ASSERT_TRUE(runtime.advance(.1));
+        EXPECT_EQ(scene.get_animation_playback(model), second);
+        const auto registry = create_scene_component_registry();
+        auto saved = SceneSerializer(registry).serialize(scene);
+        ASSERT_TRUE(saved);
+        auto restored = SceneSerializer(registry).deserialize(saved.value());
+        ASSERT_TRUE(restored) << restored.error();
+        EXPECT_EQ(restored.value()->find_entity(model.get_uuid()).get_component<HandIKComponent>(),
+            model.get_component<HandIKComponent>());
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_FALSE(scene.get_animation_playback(model));
     }
 
 }

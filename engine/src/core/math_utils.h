@@ -161,9 +161,11 @@ namespace Comet::Math {
         return scale(matrix, scale_vector);
     }
 
-    // 提取平移与旋转；矩阵不可分解时返回空。
-    // 正等比仿射变换的缩放；拒绝剪切、镜像和退化，供角色与骨骼空间转换共用。
+    // 正 TRS 仿射变换的各轴缩放；拒绝剪切、镜像和退化。
+    [[nodiscard]] COMET_API std::optional<Vec3> positive_trs_scale(const Mat4& matrix);
+    // 正等比仿射变换的缩放，供角色与骨骼空间转换共用。
     [[nodiscard]] COMET_API std::optional<float> uniform_scale(const Mat4& matrix);
+    // 提取平移与旋转；矩阵不可分解时返回空。
     [[nodiscard]] COMET_API std::optional<Mat4> without_scale(const Mat4& matrix);
 
     inline Mat4 perspective(float fov_degrees, float aspect, float nearZ, float farZ) {

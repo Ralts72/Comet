@@ -34,11 +34,7 @@ struct ReflectionProbe {
     vec4 maximum_lod;
     vec4 rotation_projection;
 };
-struct IrradianceVolume {
-    vec4 origin_intensity;
-    vec4 spacing_bias;
-    vec4 dimensions_blend;
-};
+#include "irradiance_grid.glsl"
 layout(set = 0, binding = 1, std140) uniform LightingData {
     Light lights[32];
     float light_count;

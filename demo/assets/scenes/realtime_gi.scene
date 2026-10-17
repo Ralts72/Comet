@@ -249,7 +249,8 @@
           "realtime": true,
           "update_budget": 16,
           "update_rays": 128,
-          "history_weight": 0.85
+          "history_weight": 0.85,
+          "bounce_strength": 0.7
         }
       }
     },
@@ -492,6 +493,43 @@
           "is_trigger": false,
           "friction": 0.2,
           "restitution": 0
+        }
+      }
+    },
+    {
+      "uuid": "53d8a13b-4f1a-4227-803a-95bfd490a871",
+      "components": {
+        "name": "蒙皮动态遮挡（切换 GI 贡献作对照）",
+        "transform": {
+          "translation": [
+            0.4,
+            0,
+            -0.2
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 13857136248767905793,
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
+        },
+        "animator": {
+          "enabled": true,
+          "clip": "walk",
+          "speed": 1,
+          "loop": true,
+          "transition": 0,
+          "controller": 0,
+          "parameters": {}
         }
       }
     }

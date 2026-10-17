@@ -27,6 +27,8 @@ namespace Comet {
             std::string name;
             uint32_t parent = NONE;
             JointTransform transform;
+            // XYZ 根部摆角（度），W 频率（Hz）；零摆角关闭。
+            Math::Vec4 wind{0, 0, 0, 1};
             std::vector<uint32_t> meshes;
         };
         struct Scene {

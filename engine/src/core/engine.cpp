@@ -4,6 +4,8 @@
 #include "gameplay/navigation_system.h"
 #include "gameplay/character_animation.h"
 #include "gameplay/foot_placement.h"
+#include "gameplay/hand_placement.h"
+#include "gameplay/wind_sway.h"
 #include "animation/animation_system.h"
 #include "particles/particle_system.h"
 #include "common/scope_exit.h"
@@ -193,6 +195,10 @@ namespace Comet {
         if(auto added = add_system(std::make_unique<PhysicsSystem>(*m_physics_service)); !added)
             return added;
         if(auto added = add_system(std::make_unique<Gameplay::FootPlacementSystem>()); !added)
+            return added;
+        if(auto added = add_system(std::make_unique<Gameplay::HandPlacementSystem>()); !added)
+            return added;
+        if(auto added = add_system(std::make_unique<Gameplay::WindSwaySystem>()); !added)
             return added;
         if(auto added = add_system(std::make_unique<ParticleSystem>()); !added)
             return added;

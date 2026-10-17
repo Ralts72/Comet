@@ -8,8 +8,50 @@
 
 namespace Comet {
     namespace {
+        void extract_particle_colliders(Scene& scene, RenderScene& output, bool interpolating) {
+            output.particle_colliders.clear();
+            if(!output.particles
+                || !std::ranges::any_of(output.particles->gpu_emitters, [](const auto& emitter) {
+                       return emitter.settings.gpu_dynamics && emitter.settings.gpu_world_collision;
+                   }))
+                return;
+            std::vector<std::pair<EntityId, ParticleWorldCollider>> candidates;
+            scene.each<const ColliderComponent, const RigidBodyComponent>([&](Entity entity,
+                                                                              const auto& collider,
+                                                                              const auto&) {
+                if(collider.is_trigger
+                    || (collider.shape != ColliderShape::Box
+                        && collider.shape != ColliderShape::Sphere))
+                    return;
+                const auto matrix = interpolating ? scene.get_render_transform(entity).world_matrix
+                                                  : scene.get_world_matrix(entity);
+                if(!Math::is_finite(matrix) || std::abs(glm::determinant(matrix)) < 1e-8f)
+                    return;
+                ParticleWorldCollider result;
+
+                if(collider.shape == ColliderShape::Sphere) {
+                    const float scale = std::max({glm::length(Math::Vec3(matrix[0])),
+                        glm::length(Math::Vec3(matrix[1])), glm::length(Math::Vec3(matrix[2]))});
+                    result.world_to_local = Math::translate(Math::Mat4(1), -Math::Vec3(matrix[3]));
+                    result.extent_shape = Math::Vec4(Math::Vec3(collider.radius * scale), 1);
+                } else {
+                    result.world_to_local = Math::inverse(matrix);
+                    result.extent_shape = Math::Vec4(collider.half_extents, 0);
+                }
+                if(!Math::is_finite(result.extent_shape)
+                    || glm::any(glm::lessThanEqual(Math::Vec3(result.extent_shape), Math::Vec3(0))))
+                    return;
+                result.layers[0] = collider.collision_layer;
+                candidates.emplace_back(entity.get_id(), result);
+            });
+            std::ranges::sort(candidates, {}, &std::pair<EntityId, ParticleWorldCollider>::first);
+            for(size_t i = 0;
+                i < std::min(candidates.size(), size_t(ParticleWorldCollider::MAX_COLLIDERS)); ++i)
+                output.particle_colliders.push_back(candidates[i].second);
+        }
         void extract_views(Scene& scene, RenderScene& output, bool interpolating) {
             output.particles = scene.get_particles();
+            extract_particle_colliders(scene, output, interpolating);
             output.cameras.clear();
             output.lights.clear();
             output.reflection_probes.clear();
@@ -58,11 +100,12 @@ namespace Comet {
                 [&](Entity entity, const IrradianceVolumeComponent& volume, const IdComponent& id) {
                     if(volume.enabled && (volume.realtime || volume.irradiance)
                         && volume.intensity > 0)
-                        output.irradiance_volumes.push_back({id.id, volume.irradiance,
-                            volume.intensity, volume.normal_bias, volume.realtime,
-                            Math::Vec3(scene.get_world_matrix(entity)[3]), volume.half_extents,
-                            volume.spacing, volume.max_distance, volume.update_budget,
-                            volume.update_rays, volume.history_weight, volume.blend_distance});
+                        output.irradiance_volumes.push_back(
+                            {id.id, volume.irradiance, volume.intensity, volume.normal_bias,
+                                volume.realtime, Math::Vec3(scene.get_world_matrix(entity)[3]),
+                                volume.half_extents, volume.spacing, volume.max_distance,
+                                volume.update_budget, volume.update_rays, volume.history_weight,
+                                volume.bounce_strength, volume.blend_distance});
                 });
             std::ranges::sort(output.irradiance_volumes, {}, &RenderIrradianceVolume::entity_id);
             scene.each<const DecalComponent, WorldTransformComponent, IdComponent>(

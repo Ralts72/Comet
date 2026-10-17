@@ -16,7 +16,10 @@
         0.045
       ],
       "texture": "",
-      "tiling": 16
+      "tiling": 16,
+      "normal_texture": "../textures/surfaces/normal.png",
+      "roughness": 0.95,
+      "normal_scale": 0.6
     },
     {
       "color": [
@@ -25,7 +28,10 @@
         0.23
       ],
       "texture": "",
-      "tiling": 16
+      "tiling": 16,
+      "normal_texture": "../textures/surfaces/normal.png",
+      "roughness": 0.8,
+      "normal_scale": 0.6
     },
     {
       "color": [
@@ -34,7 +40,10 @@
         0.88
       ],
       "texture": "",
-      "tiling": 16
+      "tiling": 16,
+      "normal_texture": "../textures/surfaces/normal.png",
+      "roughness": 0.65,
+      "normal_scale": 0.6
     }
   ],
   "slope_start": 0.06,
@@ -49,6 +58,9 @@
     "max_height": 1.5,
     "max_slope": 35,
     "min_elevation": 0,
-    "max_elevation": 0.65
+    "max_elevation": 0.65,
+    "model": "shrub.gltf",
+    "wind_amplitude": 6,
+    "wind_frequency": 0.7
   }
 }

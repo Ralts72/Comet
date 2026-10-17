@@ -138,6 +138,7 @@ namespace Comet {
         PostProcessSettings post_process;
         RenderItemChanges item_changes;
         std::shared_ptr<const ParticleSnapshot> particles;
+        std::vector<ParticleWorldCollider> particle_colliders;
     };
 
     struct COMET_API PathTraceSettings {

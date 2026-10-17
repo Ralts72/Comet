@@ -85,6 +85,7 @@ namespace Comet {
         std::shared_ptr<Environment> environment_resource;
         RenderItemChanges item_changes;
         std::shared_ptr<const ParticleSnapshot> particles;
+        std::vector<ParticleWorldCollider> particle_colliders;
         // 与快照的 CPU batches、GPU emitters 顺序对应。
         std::vector<std::shared_ptr<Texture>> particle_textures;
         // 随世界快照复制，保证独立消费者的解析批次连续性。
@@ -112,6 +113,7 @@ namespace Comet {
             irradiance_volumes.clear();
             decals.clear();
             particles.reset();
+            particle_colliders.clear();
             particle_textures.clear();
             environment = {};
             post_process = {};

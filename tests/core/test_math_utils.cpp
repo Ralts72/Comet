@@ -93,6 +93,28 @@ namespace Comet::Tests {
         EXPECT_TRUE(TestUtils::Mat4Equal(wrapped, accumulated));
     }
 
+    TEST(MathUtilsTest, PositiveTrsScaleRejectsShearReflectionAndInvalidMatrices) {
+        const auto matrix = Math::compose_trs({1, 2, 3}, {25, -40, 70}, {2, 3, 4});
+        const auto scale = Math::positive_trs_scale(matrix);
+        ASSERT_TRUE(scale);
+        EXPECT_TRUE(TestUtils::Vec3Equal(*scale, {2, 3, 4}));
+        EXPECT_FALSE(Math::uniform_scale(matrix));
+        const auto uniform =
+            Math::uniform_scale(Math::compose_trs({1, 2, 3}, {25, -40, 70}, {2, 2, 2}));
+        ASSERT_TRUE(uniform);
+        EXPECT_NEAR(*uniform, 2, .0001f);
+        auto shear = matrix;
+        shear[1] += shear[0] * .3f;
+        EXPECT_FALSE(Math::positive_trs_scale(shear));
+        EXPECT_FALSE(Math::uniform_scale(shear));
+        for(const auto invalid : {Math::Vec3(-1, 1, 1), Math::Vec3(1, 0, 1)})
+            EXPECT_FALSE(Math::positive_trs_scale(Math::scale(Math::Mat4(1), invalid)));
+        auto invalid = matrix;
+        invalid[0][0] = std::numeric_limits<float>::quiet_NaN();
+        EXPECT_FALSE(Math::positive_trs_scale(invalid));
+        EXPECT_FALSE(Math::positive_trs_scale(Math::perspective(45, 1, .1f, 100)));
+    }
+
     TEST(MathUtilsTest, WithoutScalePreservesTranslationAndRotation) {
         const Math::Vec3 translation{1, -2, 3};
         const Math::Vec3 rotation{25, -40, 70};

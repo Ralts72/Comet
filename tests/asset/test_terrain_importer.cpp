@@ -12,6 +12,10 @@
 #include "scene/components.h"
 #include "scene/component_registry.h"
 #include "scene/scene_serializer.h"
+#include "gameplay/wind_sway.h"
+#include "scene/scene_runtime.h"
+#include "scene/systems/physics_system.h"
+#include "physics/physics_service.h"
 #include "common/file_io.h"
 #include "support/temporary_directory.h"
 #include "asset/asset_manager.h"
@@ -31,6 +35,7 @@ namespace Comet::Tests {
             data.width = data.depth = 8;
             data.height_scale = 2;
             data.vegetation.count = 20;
+            data.vegetation.wind_amplitude = 7;
             data.vegetation.max_slope = 70;
             data.heights.resize(81);
             for(uint32_t z = 0; z < 9; ++z)
@@ -113,6 +118,22 @@ namespace Comet::Tests {
         auto root = scene.instantiate_model(bound.value().model, "terrain");
         ASSERT_TRUE(root) << root.error();
         EXPECT_EQ(scene.component_count<MeshLodComponent>(), 4u);
+        EXPECT_EQ(scene.component_count<WindSwayComponent>(), 20u);
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.add_system(std::make_unique<Gameplay::WindSwaySystem>()));
+        ASSERT_TRUE(runtime.start(scene));
+        const auto nodes = scene.get_entities();
+        auto grass = *std::ranges::find_if(
+            nodes, [](Entity e) { return e.has_component<WindSwayComponent>(); });
+        const auto baseline = grass.get_component<TransformComponent>().rotation;
+        ASSERT_TRUE(runtime.advance(.1));
+        const auto swayed = grass.get_component<TransformComponent>().rotation;
+        EXPECT_NE(swayed, baseline);
+        ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
+        ASSERT_TRUE(runtime.advance(.2));
+        EXPECT_EQ(grass.get_component<TransformComponent>().rotation, swayed);
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_EQ(grass.get_component<TransformComponent>().rotation, baseline);
         EXPECT_EQ(scene.component_count<ColliderComponent>(), 4u);
         EXPECT_EQ(scene.component_count<RigidBodyComponent>(), 4u);
         scene.each<ColliderComponent>([](Entity, const auto& collider) {
@@ -127,12 +148,18 @@ namespace Comet::Tests {
         data.heights.clear();
         data.heightmap = "height.png";
         data.layers[0].texture = "layer.png";
+        data.layers[0].normal_texture = "normal.png";
+        data.layers[0].roughness_texture = "layer.png";
         TextureData pixels{.width = 9, .height = 9};
         pixels.pixels.assign(9 * 9 * 4, 128);
         auto png = encode_png_rgba(pixels);
         ASSERT_TRUE(png);
         ASSERT_TRUE(write_text_file_atomic(paths.assets() / "height.png", png.value()));
         ASSERT_TRUE(write_text_file_atomic(paths.assets() / "layer.png", png.value()));
+        TextureData normal{.width = 1, .height = 1, .pixels = {180, 128, 245, 255}};
+        auto normal_png = encode_png_rgba(normal);
+        ASSERT_TRUE(normal_png);
+        ASSERT_TRUE(write_text_file_atomic(paths.assets() / "normal.png", normal_png.value()));
         const auto source = paths.assets() / "ground.terrain";
         ASSERT_TRUE(data.save(source));
         const AssetMetadata metadata{.handle = AssetHandle{58971}, .type = AssetType::Model};
@@ -151,7 +178,7 @@ namespace Comet::Tests {
         EXPECT_TRUE(part.lod.level1);
         EXPECT_TRUE(part.lod.level2);
         EXPECT_TRUE(part.collision);
-        EXPECT_EQ(artifact->source_inputs.files.size(), 3u);
+        EXPECT_EQ(artifact->source_inputs.files.size(), 4u);
         EXPECT_TRUE(std::filesystem::exists(artifact->product_path(index, part.lod.level2)));
         Scene scene;
         ASSERT_TRUE(scene.instantiate_model(artifact->model, "Terrain"));
@@ -194,4 +221,99 @@ namespace Comet::Tests {
         ASSERT_TRUE(data.save(source));
         EXPECT_FALSE(ModelImporter{}.import(source));
     }
+    TEST(TerrainImporterTest, CustomVegetationPreservesMaterialsAndSharesImportedGeometry) {
+        TemporaryDirectory temp;
+        const auto source = temp.path() / "field.terrain";
+        std::filesystem::copy_file(
+            std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY) / "assets/models/milk_truck.glb",
+            temp.path() / "plant.glb");
+        auto data = terrain();
+        data.vegetation.model = "plant.glb";
+        data.vegetation.count = 3;
+        ASSERT_TRUE(data.save(source));
+        auto info = TerrainImporter::inspect_source(source);
+        ASSERT_TRUE(info) << info.error();
+        EXPECT_NE(std::ranges::find(info.value().dependencies, temp.path() / "plant.glb"),
+            info.value().dependencies.end());
+        auto candidate = ModelImporter{}.import(source);
+        ASSERT_TRUE(candidate) << candidate.error();
+        const auto& model = candidate.value();
+        ASSERT_EQ(model.nodes.size(), 7u);
+        ASSERT_GT(model.meshes.size(), 13u);
+        ASSERT_GT(model.materials.size(), 2u);
+        EXPECT_EQ(model.nodes[4].meshes, model.nodes[5].meshes);
+        EXPECT_EQ(model.nodes[5].meshes, model.nodes[6].meshes);
+        EXPECT_EQ(model.nodes[4].wind.x, 7);
+        for(auto index : model.nodes[4].meshes) {
+            EXPECT_GE(index, 12u);
+            EXPECT_GE(model.meshes[index].material, 1u);
+            EXPECT_LT(model.meshes[index].material, model.materials.size());
+        }
+        const auto parts = model.nodes[4].meshes.size();
+        auto bound = ModelImporter::bind(std::move(candidate).value(),
+            AssetMetadata{.handle = AssetHandle{31841}, .type = AssetType::Model});
+        ASSERT_TRUE(bound) << bound.error();
+        EXPECT_EQ(bound.value().model.nodes[4].parts.size(), parts);
+    }
+
+    TEST(TerrainImporterTest, HierarchicalStaticChunksSupportFallingBodiesAndFollowRootPlacement) {
+        TemporaryDirectory temp;
+        auto data = terrain();
+        data.vegetation.count = 0;
+        std::ranges::fill(data.heights, .25f);
+        const auto path = temp.path() / "floor.terrain";
+        ASSERT_TRUE(data.save(path));
+        auto imported = ModelImporter{}.import(path);
+        ASSERT_TRUE(imported) << imported.error();
+        auto bound = ModelImporter::bind(std::move(imported).value(),
+            AssetMetadata{.handle = AssetHandle{38151}, .type = AssetType::Model});
+        ASSERT_TRUE(bound) << bound.error();
+        Scene scene;
+        auto placed = scene.instantiate_model(bound.value().model, "terrain");
+        ASSERT_TRUE(placed);
+        auto root = placed.value();
+        root.edit_transform([](auto& t) {
+            t.translation = {2, 1, 3};
+            t.rotation.y = 30;
+            t.scale = Math::Vec3(1.5f);
+        });
+        Entity chunk;
+        scene.each<const RigidBodyComponent>([&](Entity e, const auto&) {
+            if(!chunk)
+                chunk = e;
+        });
+        ASSERT_TRUE(chunk);
+        const auto local = chunk.get_component<TransformComponent>();
+        auto box = scene.create_entity("falling box");
+        box.edit_transform([](auto& t) { t.translation = {2, 6, 3}; });
+        box.add_component<RigidBodyComponent>();
+        box.add_component<ColliderComponent>();
+        PhysicsService physics({.read = [&](AssetHandle handle) -> Result<MeshData, Error> {
+            for(const auto& item : bound.value().meshes)
+                if(item.handle == handle)
+                    return Result<MeshData, Error>::success(item.data);
+            return Result<MeshData, Error>::failure({"Missing terrain mesh"});
+        }});
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_services({.physics = &physics}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
+        auto started = runtime.start(scene);
+        ASSERT_TRUE(started) << started.error().message;
+        for(int i = 0; i < 180; ++i) {
+            auto step = runtime.advance(1.0 / 60);
+            ASSERT_TRUE(step) << step.error().message;
+        }
+        EXPECT_NEAR(box.get_component<TransformComponent>().translation.y, 2.25f, .03f);
+        EXPECT_EQ(chunk.get_component<TransformComponent>().translation, local.translation);
+        EXPECT_EQ(chunk.get_component<TransformComponent>().scale, local.scale);
+        root.edit_transform([](auto& t) { t.translation.y += 2; });
+        ASSERT_TRUE(runtime.advance(1.0 / 60));
+        auto hit = physics.raycast({2, 10, 3}, {0, -20, 0}, {.ignored = box.get_uuid()});
+        ASSERT_TRUE(hit) << hit.error();
+        ASSERT_TRUE(hit.value());
+        EXPECT_NEAR(hit.value()->position.y, 3.75f, .001f);
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_EQ(physics.get_statistics().bodies, 0u);
+    }
+
 }

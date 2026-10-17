@@ -27,17 +27,6 @@ namespace Comet::Gameplay {
                    && settings.pelvis_weight <= 1 && std::isfinite(settings.max_pelvis_offset)
                    && settings.max_pelvis_offset >= 0;
         }
-        Result<std::size_t> foot_joint(const AnimationData& data, const std::string& name) {
-            const auto node = std::ranges::find(data.nodes, name, &AnimationNode::name);
-            if(node == data.nodes.end()
-                || std::ranges::count(data.nodes, name, &AnimationNode::name) != 1)
-                return Result<std::size_t>::failure("Missing or ambiguous foot bone: " + name);
-            const auto index = uint32_t(node - data.nodes.begin());
-            const auto joint = std::ranges::find(data.joints, index, &SkinJoint::node);
-            if(joint == data.joints.end())
-                return Result<std::size_t>::failure("Foot bone is not part of the skin: " + name);
-            return Result<std::size_t>::success(std::size_t(joint - data.joints.begin()));
-        }
     }
     Result<void, Error> FootPlacementSystem::on_start(
         Scene&, RuntimeSession&, const RuntimeServices&) {
@@ -91,7 +80,7 @@ namespace Comet::Gameplay {
         for(std::size_t i = 0; i < names.size(); ++i) {
             if(names[i].empty())
                 continue;
-            const auto joint = foot_joint(*state.source, names[i]);
+            const auto joint = state.source->find_joint(names[i]);
             if(!joint)
                 return Result<void, Error>::failure({joint.error()});
             const auto node = state.source->joints[joint.value()].node;
@@ -146,7 +135,7 @@ namespace Comet::Gameplay {
                     || frame->root_motion->node == settings.pelvis))
                 return Result<void, Error>::failure(
                     {"Pelvis compensation with vertical root motion needs a separate root bone"});
-            const auto joint = foot_joint(*state.source, settings.pelvis);
+            const auto joint = state.source->find_joint(settings.pelvis);
             if(!joint)
                 return Result<void, Error>::failure({joint.error()});
             const auto node = state.source->joints[joint.value()].node;

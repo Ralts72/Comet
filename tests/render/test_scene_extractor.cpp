@@ -762,4 +762,39 @@ namespace Comet::Tests {
         EXPECT_TRUE(
             TestUtils::Mat4Equal(*matrix, Math::ortho(-8.0f, 8.0f, -4.0f, 4.0f, 0.2f, 50.0f)));
     }
+    TEST(SceneExtractorTest, WorldParticleCollidersOwnShapesAndRefreshOnPhysicsConfigurationEdits) {
+        Scene scene;
+        auto particles = std::make_shared<ParticleSnapshot>();
+        particles->gpu_emitters.resize(1);
+        particles->gpu_emitters[0].settings.gpu_dynamics = true;
+        particles->gpu_emitters[0].settings.gpu_world_collision = true;
+        scene.set_particles(particles);
+        auto box = scene.create_entity("box");
+        box.add_component<RigidBodyComponent>();
+        box.add_component<ColliderComponent>();
+        auto sphere = scene.create_entity("sphere");
+        sphere.add_component<RigidBodyComponent>();
+        sphere.add_component<ColliderComponent>(
+            ColliderComponent{.shape = ColliderShape::Sphere, .is_trigger = true});
+        SceneExtractor extractor;
+        auto first = extractor.update(scene);
+        ASSERT_EQ(first->particle_colliders.size(), 1u);
+        box.edit_component<ColliderComponent>([](auto& c) {
+            c.half_extents = {2, 3, 4};
+            c.collision_layer = 8;
+        });
+        auto second = extractor.update(scene);
+        EXPECT_EQ(first->particle_colliders[0].extent_shape, Math::Vec4(.5f, .5f, .5f, 0));
+        EXPECT_EQ(second->particle_colliders[0].extent_shape, Math::Vec4(2, 3, 4, 0));
+        EXPECT_EQ(second->particle_colliders[0].layers[0], 8u);
+        sphere.edit_component<ColliderComponent>([](auto& c) { c.is_trigger = false; });
+        sphere.edit_transform([](auto& t) { t.scale = {1, 2, 3}; });
+        auto third = extractor.update(scene);
+        ASSERT_EQ(third->particle_colliders.size(), 2u);
+        EXPECT_EQ(third->particle_colliders[1].extent_shape, Math::Vec4(1.5f, 1.5f, 1.5f, 1));
+        EXPECT_EQ(second->particle_colliders.size(), 1u);
+        sphere.remove_component<RigidBodyComponent>();
+        EXPECT_EQ(extractor.update(scene)->particle_colliders.size(), 1u);
+    }
+
 }

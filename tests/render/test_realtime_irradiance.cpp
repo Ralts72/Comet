@@ -768,4 +768,53 @@ namespace Comet::Tests {
             }
         }
     }
+    TEST_F(
+        RealtimeIrradianceGpuTest, MultiBounceFeedsPreviousVisibleProbesWithinTheExistingBudget) {
+        auto& device = engine->get_renderer().get_render_context().get_device();
+        FrameScheduler frames(device, 2);
+        frames.initialize_swapchain_images(1);
+        FrameWait wait{device, frames};
+        RealtimeIrradiancePass pass(device);
+        ProbeScene scene;
+        scene.world.lights.clear();
+        ASSERT_TRUE(scene.material->set_vector_property("emissive_color", {.15f, 0, 0, 1}));
+        auto wall = scene.world.render_items[0];
+        wall.entity_id = EntityId(2);
+        wall.model_matrix =
+            Math::translate(Math::Mat4(1), {0, 0, 2}) * Math::scale(Math::Mat4(1), {-1, 1, -1});
+        wall.material.resource = std::make_shared<Material>("bounce wall", "pbr");
+        ASSERT_TRUE(std::const_pointer_cast<Material>(wall.material.resource)
+                ->set_vector_property("base_color", {.8f, .8f, .8f, 1}));
+        scene.world.render_items.push_back(wall);
+        ASSERT_NO_FATAL_FAILURE(scene.capture());
+        auto settings = region();
+        settings.half_extents = {4, 4, 1};
+        settings.spacing = 4;
+        settings.history_weight = .8f;
+        auto readback = std::make_shared<Readback>(
+            device, device.get_capability().physical_device, 8 * sizeof(IrradianceProbe));
+        const auto converge = [&] {
+            double energy = 0;
+            for(int frame = 0; frame < 64; ++frame) {
+                auto data = read_probes(frames, pass, scene, settings, readback);
+                EXPECT_TRUE(data.validate());
+                if(frame >= 56)
+                    for(const auto& probe : data.probes)
+                        energy += probe.coefficients[0].r;
+            }
+            return energy;
+        };
+        const auto one_hop = converge();
+        const auto uploaded = pass.statistics().geometry_upload_bytes;
+        settings.bounce_strength = .8f;
+        const auto multiple = converge();
+        EXPECT_GT(one_hop, .01);
+        EXPECT_GT(multiple, one_hop * 1.02);
+        EXPECT_LT(multiple, one_hop * 10);
+        EXPECT_EQ(pass.statistics().geometry_upload_bytes, uploaded);
+        EXPECT_EQ(pass.statistics().updated_probes, 8u);
+        settings.bounce_strength = 2;
+        EXPECT_FALSE(RealtimeIrradiancePass::validate_region(settings));
+    }
+
 }

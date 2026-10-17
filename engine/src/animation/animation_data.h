@@ -51,6 +51,8 @@ namespace Comet {
         std::vector<SkinJoint> joints;
         std::vector<AnimationClip> clips;
 
+        // 返回 joints 中的槽位，拒绝缺失、重名或不属于蒙皮的节点。
+        [[nodiscard]] COMET_API Result<size_t> find_joint(std::string_view name) const;
         [[nodiscard]] COMET_API const AnimationClip* find_clip(std::string_view name) const;
     };
     struct AnimationBlendWeight {

@@ -42,7 +42,7 @@ namespace CometEditor {
         ImGui::DragFloat("裙边深度（米）", &data.skirt_depth, .1f, .01f, 100000);
         ImGui::Checkbox("静态网格碰撞", &data.collision);
         select_power("混合贴图分辨率", data.albedo_resolution, 4, 11, false);
-        ImGui::SliderFloat("粗糙度", &data.roughness, 0, 1);
+        ImGui::SliderFloat("粗糙度", &data.roughness, .045f, 1);
         constexpr const char* names[]{"低地", "陡坡", "高地"};
         for(size_t i = 0; i < data.layers.size(); ++i) {
             ImGui::PushID(int(i));
@@ -50,6 +50,10 @@ namespace CometEditor {
                 auto& layer = data.layers[i];
                 ImGui::ColorEdit3("线性颜色", &layer.color.x);
                 Ui::input_text("底色纹理", layer.texture);
+                Ui::input_text("法线纹理", layer.normal_texture);
+                Ui::input_text("粗糙度纹理（R）", layer.roughness_texture);
+                ImGui::SliderFloat("法线强度", &layer.normal_scale, 0, 4);
+                ImGui::SliderFloat("层粗糙度倍率", &layer.roughness, 0, 1);
                 ImGui::DragFloat("纹理重复次数", &layer.tiling, .1f, .01f, 1024);
                 ImGui::TreePop();
             }
@@ -61,6 +65,11 @@ namespace CometEditor {
         ImGui::SliderFloat("高地混合终点", &data.height_end, 0, 1);
         if(ImGui::TreeNode("植被散布")) {
             auto& grass = data.vegetation;
+            Ui::input_text("植被模型（glTF/GLB）", grass.model);
+            ImGui::TextDisabled(
+                "空路径使用内置草叶；模型以地面为原点，Y 向上。风动绕实例根部摆动。");
+            ImGui::SliderFloat("风动幅度（度）", &grass.wind_amplitude, 0, 30);
+            ImGui::SliderFloat("风动频率（Hz）", &grass.wind_frequency, .1f, 10);
             int count = int(grass.count), seed = int(grass.seed);
             if(ImGui::SliderInt("数量上限", &count, 0, 10000))
                 grass.count = uint32_t(count);

@@ -178,6 +178,9 @@ namespace Comet {
                 value.rotation = glm::degrees(glm::eulerAngles(node.transform.rotation));
                 value.scale = node.transform.scale;
             });
+            if(glm::length(Math::Vec3(node.wind)) > 0)
+                entity.add_component<WindSwayComponent>(
+                    WindSwayComponent{true, Math::Vec3(node.wind), node.wind.w});
             if(node.parent != ModelData::NO_PARENT && !set_parent(entity, entities[node.parent]))
                 return Result<Entity>::failure("Cannot attach model hierarchy");
             for(size_t part = 0; part < node.parts.size(); ++part) {
@@ -295,20 +298,27 @@ namespace Comet {
                 auto frame = std::make_shared<AnimationPlayback>(*playback);
                 frame->pose_source = binding.data;
                 const auto evaluate = [&] {
-                    if(found != m_animation_playbacks.end() && found->second->ik.empty()
-                        && found->second->offsets.empty() && found->second->pose
+                    if(found != m_animation_playbacks.end() && found->second->pose
                         && found->second->pose_error.empty()
                         && found->second->pose_source == binding.data
-                        && playback->pose_source == binding.data
-                        && (!frame->ik.empty() || !frame->offsets.empty())) {
+                        && playback->pose_source == binding.data) {
+                        const auto& previous = *found->second;
+                        const bool unconstrained = previous.ik.empty() && previous.offsets.empty();
+                        const bool prefix = frame->ik.size() >= previous.ik.size()
+                                            && std::equal(previous.ik.begin(), previous.ik.end(),
+                                                frame->ik.begin());
                         auto base = *frame;
-                        base.ik.clear();
-                        base.offsets.clear();
-                        if(base == *found->second) {
-                            auto constrained =
-                                apply_animation_constraints(*binding.data, *found->second->pose,
-                                    frame->ik, frame->root_motion ? &*frame->root_motion : nullptr,
-                                    frame->offsets);
+                        base.ik = previous.ik;
+                        base.offsets = previous.offsets;
+                        if(base == previous && prefix
+                            && (unconstrained || frame->offsets == previous.offsets)) {
+                            // 追加手部约束直接消费已解出的脚部姿态，骨盆偏移只应用一次。
+                            const auto offsets =
+                                unconstrained ? std::span<const AnimationPoseOffset>(frame->offsets)
+                                              : std::span<const AnimationPoseOffset>{};
+                            auto constrained = apply_animation_constraints(*binding.data,
+                                *previous.pose, std::span(frame->ik).subspan(previous.ik.size()),
+                                frame->root_motion ? &*frame->root_motion : nullptr, offsets);
                             if(constrained) {
                                 ++m_animation_statistics.ik_pose_reuses;
                                 frame->pose_error.clear();
@@ -336,11 +346,13 @@ namespace Comet {
         const auto children = m_children_by_parent.find(entity.get_id());
         const auto* root = m_registry.try_get<RootMotionComponent>(entity.m_handle);
         const auto* feet = m_registry.try_get<FootPlacementComponent>(entity.m_handle);
+        const auto* hands = m_registry.try_get<HandIKComponent>(entity.m_handle);
         const bool attachments = children != m_children_by_parent.end()
                                  && std::ranges::any_of(children->second, [&](auto child) {
                                         return m_registry.any_of<BoneAttachmentComponent>(child);
                                     });
-        if(!attachments && !(root && root->enabled) && !(feet && feet->enabled))
+        if(!attachments && !(root && root->enabled) && !(feet && feet->enabled)
+            && !(hands && hands->enabled))
             source.reset();
         const auto found = m_animation_sources.find(entity.m_handle);
         if(found == m_animation_sources.end() && !source)
@@ -845,6 +857,7 @@ namespace Comet {
                 if(m_dirty_transforms.contains(child))
                     continue;
                 m_dirty_transforms.push(child);
+                mark_physics_dirty(child);
                 record_render_change(child);
                 m_transform_work.push_back(child);
             }

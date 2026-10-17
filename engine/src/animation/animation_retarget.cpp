@@ -47,6 +47,30 @@ namespace Comet {
                         "Retargeting needs unique node names");
             return Result<std::map<std::string, uint32_t>>::success(std::move(nodes));
         }
+        Result<std::vector<RestFrame>> calibrated_rest_frames(const AnimationData& data,
+            const std::map<std::string, uint32_t>& names,
+            const std::map<std::string, Math::Vec3>& corrections) {
+            if(corrections.empty())
+                return rest_frames(data);
+            AnimationData calibrated{.mesh_node = data.mesh_node,
+                .nodes = data.nodes,
+                .evaluation_order = data.evaluation_order};
+            for(const auto& [name, degrees] : corrections) {
+                const auto found = names.find(name);
+                if(found == names.end())
+                    return Result<std::vector<RestFrame>>::failure(
+                        "Reference pose bone is missing: " + name);
+                auto ancestor = data.mesh_node;
+                while(ancestor != NO_ANIMATION_NODE && ancestor != found->second)
+                    ancestor = data.nodes[ancestor].parent;
+                if(ancestor == found->second)
+                    return Result<std::vector<RestFrame>>::failure(
+                        "Reference pose cannot rotate the mesh basis");
+                auto& rotation = calibrated.nodes[found->second].rest.rotation;
+                rotation = glm::normalize(rotation * Math::Quat(glm::radians(degrees)));
+            }
+            return rest_frames(calibrated);
+        }
         struct RetargetChain {
             std::vector<uint32_t> source, target;
             std::vector<float> source_distance, target_distance;
@@ -236,6 +260,14 @@ namespace Comet {
                 || chain.target_root == chain.target_tip || !std::isfinite(chain.weight)
                 || chain.weight < 0 || chain.weight > 1)
                 return Result<void>::failure("Invalid retarget chain endpoints or weight");
+        for(const auto* pose : {&source_pose, &target_pose}) {
+            if(pose->size() > 256)
+                return Result<void>::failure("Too many retarget pose corrections");
+            for(const auto& [name, degrees] : *pose)
+                if(name.empty() || !Math::is_finite(degrees)
+                    || glm::any(glm::greaterThan(glm::abs(degrees), Math::Vec3(180))))
+                    return Result<void>::failure("Invalid reference pose correction: " + name);
+        }
         std::unordered_set<std::string> targets;
         for(const auto& [source, target] : nodes)
             if(source.empty() || target.empty() || !targets.insert(target).second)
@@ -261,7 +293,10 @@ namespace Comet {
         for(const auto& [from, to] : settings.nodes)
             if(!source_names.value().contains(from) || !target_names.value().contains(to))
                 return Bound::failure("Retarget mapping node is missing: " + from + " -> " + to);
-        auto source_rest = rest_frames(source), target_rest = rest_frames(target);
+        auto source_rest =
+            calibrated_rest_frames(source, source_names.value(), settings.source_pose);
+        auto target_rest =
+            calibrated_rest_frames(target, target_names.value(), settings.target_pose);
         if(!source_rest)
             return Bound::failure(source_rest.error());
         if(!target_rest)
@@ -463,6 +498,31 @@ namespace Comet {
                     }
                 }
                 converted.channels.push_back(std::move(copy));
+            }
+            if(!settings.source_pose.empty() || !settings.target_pose.empty()) {
+                for(uint32_t from = 0; from < mapping.size(); ++from) {
+                    const auto to = mapping[from];
+                    if(to == NO_ANIMATION_NODE
+                        || std::ranges::any_of(converted.channels, [to](const auto& channel) {
+                               return channel.node == to
+                                      && channel.path == AnimationChannel::Path::Rotation;
+                           }))
+                        continue;
+                    const auto parent_from = source.nodes[from].parent,
+                               parent_to = target.nodes[to].parent;
+                    const auto& first =
+                        source_rest.value()[parent_from == NO_ANIMATION_NODE ? source.nodes.size()
+                                                                             : parent_from];
+                    const auto& second =
+                        target_rest.value()[parent_to == NO_ANIMATION_NODE ? target.nodes.size()
+                                                                           : parent_to];
+                    const auto q = glm::normalize(glm::inverse(second.rotation) * first.rotation
+                                                  * source.nodes[from].rest.rotation
+                                                  * glm::inverse(source_rest.value()[from].rotation)
+                                                  * target_rest.value()[to].rotation);
+                    converted.channels.push_back({to, AnimationChannel::Path::Rotation,
+                        AnimationChannel::Interpolation::Linear, {0}, {{q.x, q.y, q.z, q.w}}});
+                }
             }
             output.clips.push_back(std::move(converted));
         }

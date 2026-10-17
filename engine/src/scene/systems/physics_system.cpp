@@ -84,9 +84,26 @@ namespace Comet {
         if(!transform)
             return Result<PhysicsService::ObjectChange, Error>::failure(
                 {"Physics object requires Transform: " + uuid.uuid.to_string()});
-        if(relationship.parent != INVALID_ENTITY_ID)
-            return Result<PhysicsService::ObjectChange, Error>::failure(
-                {"Parented physics object is unsupported: " + uuid.uuid.to_string()});
+        auto world_transform = *transform;
+        if(relationship.parent != INVALID_ENTITY_ID) {
+            const auto* rigid = scene.m_registry.try_get<RigidBodyComponent>(handle);
+            if(character || !rigid || rigid->motion != BodyMotion::Static)
+                return Result<PhysicsService::ObjectChange, Error>::failure(
+                    {"Parented dynamic physics object is unsupported: " + uuid.uuid.to_string()});
+            const auto& matrix = scene.get_world_matrix(Entity(handle, &scene));
+            const auto scale = Math::positive_trs_scale(matrix);
+            if(!scale)
+                return Result<PhysicsService::ObjectChange, Error>::failure(
+                    {"Static collider hierarchy requires a positive world TRS without shear: "
+                        + uuid.uuid.to_string()});
+            auto rotation = Math::Mat3(matrix);
+            for(int i = 0; i < 3; ++i)
+                rotation[i] /= (*scale)[i];
+            world_transform.translation = Math::Vec3(matrix[3]);
+            world_transform.scale = *scale;
+            world_transform.rotation =
+                glm::degrees(glm::eulerAngles(glm::normalize(glm::quat_cast(rotation))));
+        }
         if(character && scene.m_registry.all_of<RigidBodyComponent>(handle))
             return Result<PhysicsService::ObjectChange, Error>::failure(
                 {"Character and rigid body cannot own the same Transform: "
@@ -94,7 +111,7 @@ namespace Comet {
         const auto synchronized = [&] {
             if(character)
                 return m_physics.synchronize_character({uuid.uuid, id.id, *transform, *character});
-            return m_physics.synchronize_body({uuid.uuid, id.id, *transform, *collider,
+            return m_physics.synchronize_body({uuid.uuid, id.id, world_transform, *collider,
                 scene.m_registry.get<RigidBodyComponent>(handle)});
         }();
         if(!synchronized)

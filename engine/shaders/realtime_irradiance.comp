@@ -18,12 +18,27 @@ layout(push_constant) uniform Parameters {
 // 双面求交用于识别实心几何内的探针；背面不向外发射间接光。
 #define RAY_CULL_BACKFACES 0
 #include "raytracing/scene.glsl"
-#include "lighting/irradiance_basis.glsl"
+#define COMET_IRRADIANCE_GRID int
+#define COMET_IRRADIANCE_FETCH(grid, coordinate) imageLoad(previous_probes, coordinate)
+#include "lighting/irradiance_sampling.glsl"
 
 shared vec3 radiances[256];
 shared vec3 directions[256];
 shared uint backfaces[256];
 shared float probe_active;
+
+vec3 feedback_radiance(Surface surface, vec3 point, vec3 normal, float bias) {
+    if(parameters.visibility.z <= 0) return vec3(0);
+    IrradianceVolume grid;
+    grid.origin_intensity = vec4(parameters.origin_distance.xyz, 1);
+    grid.spacing_bias = vec4(parameters.spacing_history.xyz, max(bias, parameters.visibility.w));
+    grid.dimensions_blend = vec4(parameters.grid_dimensions.xyz, 0);
+    vec3 indirect;
+    float spatial_weight;
+    if(!sample_irradiance_grid(0, grid, point, normal, indirect, spatial_weight)) return vec3(0);
+    vec3 diffuse = surface.albedo_metallic.rgb * (1 - surface.albedo_metallic.a);
+    return diffuse * indirect * parameters.visibility.z;
+}
 
 vec3 probe_radiance(vec3 origin, vec3 direction, out uint backface) {
     float distance = parameters.origin_distance.w;
@@ -52,6 +67,7 @@ vec3 probe_radiance(vec3 origin, vec3 direction, out uint backface) {
     result += direct_light(surface, point, normal, geometric, -direction, bias);
     result += direct_emitter(surface, point, normal, geometric, -direction, bias, false);
     result += direct_environment(surface, point, normal, geometric, -direction, bias, false);
+    result += feedback_radiance(surface, point, normal, bias);
     return result;
 }
 

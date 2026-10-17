@@ -1,0 +1,601 @@
+{
+  "version": 2,
+  "environment": {
+    "asset": 0,
+    "background": false,
+    "intensity": 1,
+    "rotation": 0,
+    "lighting": false,
+    "lighting_intensity": 1,
+    "background_color": [
+      0.08,
+      0.1,
+      0.14
+    ]
+  },
+  "entities": [
+    {
+      "uuid": "ac08262c-6965-419b-8cff-a9300193c427",
+      "components": {
+        "name": "主相机",
+        "transform": {
+          "translation": [
+            3.5,
+            2.9,
+            7
+          ],
+          "rotation": [
+            -15,
+            25,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "camera": {
+          "primary": true,
+          "fov": 45,
+          "near_clip": 0.1,
+          "far_clip": 100
+        },
+        "camera_controller": {
+          "enabled": true,
+          "move_speed": 5,
+          "look_sensitivity": 0.2,
+          "look_speed": 120
+        }
+      }
+    },
+    {
+      "uuid": "c0bbd043-7dff-4295-bf61-d1710fff3afd",
+      "components": {
+        "name": "主光源",
+        "transform": {
+          "translation": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            -45,
+            -35,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "light": {
+          "type": "directional",
+          "enabled": true,
+          "color": [
+            1,
+            1,
+            1
+          ],
+          "intensity": 2,
+          "range": 10,
+          "inner_angle": 20,
+          "outer_angle": 30
+        }
+      }
+    },
+    {
+      "uuid": "09a406ca-a30d-42b8-9d9e-e94cf81fc939",
+      "components": {
+        "name": "地面",
+        "transform": {
+          "translation": [
+            0,
+            -0.5,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            12,
+            1,
+            8
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 9429603817048603172
+        },
+        "rigid_body": {
+          "motion": "static"
+        },
+        "collider": {
+          "shape": "box",
+          "half_extents": [
+            0.5,
+            0.5,
+            0.5
+          ],
+          "radius": 0.5,
+          "is_trigger": false
+        }
+      }
+    },
+    {
+      "uuid": "fa565b2f-a48f-4df9-98ce-8b6c15017a0c",
+      "components": {
+        "name": "关闭 IK：对比台阶穿插",
+        "transform": {
+          "translation": [
+            -2,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      },
+      "children": [
+        {
+          "uuid": "31ca3285-4ed6-45cb-8f80-c4bb919e7802",
+          "components": {
+            "name": "内置角色",
+            "transform": {
+              "translation": [
+                0,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "mesh_renderer": {
+              "mesh": 13857136248767905793,
+              "material": 13857136248767905794
+            },
+            "animator": {
+              "enabled": true,
+              "clip": "idle",
+              "speed": 1,
+              "loop": true,
+              "transition": 0,
+              "controller": 0,
+              "parameters": {}
+            }
+          }
+        }
+      ]
+    },
+    {
+      "uuid": "6be1ce7f-df18-47a8-b718-cad91a859f0d",
+      "components": {
+        "name": "单脚台阶",
+        "transform": {
+          "translation": [
+            -1.89,
+            0.06,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.2,
+            0.12,
+            0.8
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 6482638524486200214
+        },
+        "rigid_body": {
+          "motion": "static"
+        },
+        "collider": {
+          "shape": "box",
+          "half_extents": [
+            0.5,
+            0.5,
+            0.5
+          ],
+          "radius": 0.5,
+          "is_trigger": false
+        }
+      }
+    },
+    {
+      "uuid": "7e457d19-04df-4934-9c64-2ebfa38fc623",
+      "components": {
+        "name": "脚部 IK + 双手持握",
+        "transform": {
+          "translation": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      },
+      "children": [
+        {
+          "uuid": "563aa8be-01aa-43d8-afa6-95935878b80b",
+          "components": {
+            "name": "内置角色",
+            "transform": {
+              "translation": [
+                0,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "mesh_renderer": {
+              "mesh": 13857136248767905793,
+              "material": 13857136248767905794
+            },
+            "animator": {
+              "enabled": true,
+              "clip": "idle",
+              "speed": 1,
+              "loop": true,
+              "transition": 0,
+              "controller": 0,
+              "parameters": {}
+            },
+            "foot_placement": {
+              "enabled": true,
+              "character": {
+                "entity": "7e457d19-04df-4934-9c64-2ebfa38fc623"
+              },
+              "left_foot": "foot_l",
+              "right_foot": "foot_r",
+              "weight": 1,
+              "foot_height": 0.105,
+              "max_offset": 0.35,
+              "plant_height": 0.15,
+              "probe_up": 0.5,
+              "probe_down": 0.8,
+              "max_slope": 55,
+              "response": 18,
+              "knee_forward": [
+                0,
+                0,
+                1
+              ],
+              "pelvis": "pelvis",
+              "pelvis_weight": 1,
+              "max_pelvis_offset": 0.2
+            },
+            "hand_ik": {
+              "enabled": true,
+              "left_hand": "hand_l",
+              "right_hand": "hand_r",
+              "left_target": {
+                "entity": "f7ed5a6a-acda-4df3-879d-e6a1fa3e6c18"
+              },
+              "right_target": {
+                "entity": "e839c859-6cd5-42ab-a63e-175060176c2c"
+              },
+              "left_pole": [
+                -1,
+                1,
+                -1
+              ],
+              "right_pole": [
+                1,
+                1,
+                -1
+              ],
+              "weight": 1,
+              "match_rotation": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "uuid": "438e2de1-721f-4745-8ce2-4e184ad2c3a0",
+      "components": {
+        "name": "单脚台阶",
+        "transform": {
+          "translation": [
+            0.11,
+            0.06,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.2,
+            0.12,
+            0.8
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 6482638524486200214
+        },
+        "rigid_body": {
+          "motion": "static"
+        },
+        "collider": {
+          "shape": "box",
+          "half_extents": [
+            0.5,
+            0.5,
+            0.5
+          ],
+          "radius": 0.5,
+          "is_trigger": false
+        }
+      }
+    },
+    {
+      "uuid": "94958565-77b1-4d0e-8416-fefbaf5517a2",
+      "components": {
+        "name": "开启 IK：斜面",
+        "transform": {
+          "translation": [
+            2,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      },
+      "children": [
+        {
+          "uuid": "478e9067-eae7-4923-86b2-484095a8cc05",
+          "components": {
+            "name": "内置角色",
+            "transform": {
+              "translation": [
+                0,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "mesh_renderer": {
+              "mesh": 13857136248767905793,
+              "material": 13857136248767905794
+            },
+            "animator": {
+              "enabled": true,
+              "clip": "idle",
+              "speed": 1,
+              "loop": true,
+              "transition": 0,
+              "controller": 0,
+              "parameters": {}
+            },
+            "foot_placement": {
+              "enabled": true,
+              "character": {
+                "entity": "94958565-77b1-4d0e-8416-fefbaf5517a2"
+              },
+              "left_foot": "foot_l",
+              "right_foot": "foot_r",
+              "weight": 1,
+              "foot_height": 0.105,
+              "max_offset": 0.35,
+              "plant_height": 0.15,
+              "probe_up": 0.5,
+              "probe_down": 0.8,
+              "max_slope": 55,
+              "response": 18,
+              "knee_forward": [
+                0,
+                0,
+                1
+              ],
+              "pelvis": "pelvis",
+              "pelvis_weight": 1,
+              "max_pelvis_offset": 0.2
+            }
+          }
+        }
+      ]
+    },
+    {
+      "uuid": "4f558fd5-c886-4ab9-b525-43ef23a52c12",
+      "components": {
+        "name": "斜面",
+        "transform": {
+          "translation": [
+            2,
+            0.03,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            10
+          ],
+          "scale": [
+            0.6,
+            0.12,
+            0.8
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 6482638524486200214
+        },
+        "rigid_body": {
+          "motion": "static"
+        },
+        "collider": {
+          "shape": "box",
+          "half_extents": [
+            0.5,
+            0.5,
+            0.5
+          ],
+          "radius": 0.5,
+          "is_trigger": false
+        }
+      }
+    },
+    {
+      "uuid": "32efabde-7783-41e4-8329-35a8606fe5b4",
+      "components": {
+        "name": "持握目标（移动此物体观察双手）",
+        "transform": {
+          "translation": [
+            0,
+            1.25,
+            0.45
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      },
+      "children": [
+        {
+          "uuid": "f9bc61d6-27d6-49b7-bf8a-e5e48bb8be98",
+          "components": {
+            "name": "持握横杆",
+            "transform": {
+              "translation": [
+                0,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                0.7,
+                0.06,
+                0.08
+              ]
+            },
+            "mesh_renderer": {
+              "mesh": 7535385251553858160,
+              "material": 9429603817048603172
+            }
+          }
+        },
+        {
+          "uuid": "f7ed5a6a-acda-4df3-879d-e6a1fa3e6c18",
+          "components": {
+            "name": "左手目标",
+            "transform": {
+              "translation": [
+                -0.25,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            }
+          }
+        },
+        {
+          "uuid": "e839c859-6cd5-42ab-a63e-175060176c2c",
+          "components": {
+            "name": "右手目标",
+            "transform": {
+              "translation": [
+                0.25,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

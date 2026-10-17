@@ -24,13 +24,17 @@ namespace Comet {
             if(!std::isfinite(value) || value <= 0 || value > 100000)
                 return Result<void>::failure(
                     "地形尺寸、抬升与裙边深度须为有限正数，最大 100000 米");
-        if(!std::isfinite(roughness) || roughness < 0 || roughness > 1)
-            return Result<void>::failure("地形粗糙度须为 0～1");
+        if(!std::isfinite(roughness) || roughness < .045f || roughness > 1)
+            return Result<void>::failure("地形粗糙度须为 0.045～1");
         for(const auto& layer : layers)
             if(!Math::is_finite(layer.color) || glm::any(glm::lessThan(layer.color, Math::Vec3(0)))
                 || glm::any(glm::greaterThan(layer.color, Math::Vec3(1)))
-                || !std::isfinite(layer.tiling) || layer.tiling <= 0 || layer.tiling > 1024)
-                return Result<void>::failure("地形层需要 0～1 线性颜色与 (0,1024] 的重复次数");
+                || !std::isfinite(layer.normal_scale) || layer.normal_scale < 0
+                || layer.normal_scale > 4 || !std::isfinite(layer.roughness) || layer.roughness < 0
+                || layer.roughness > 1 || !std::isfinite(layer.tiling) || layer.tiling <= 0
+                || layer.tiling > 1024)
+                return Result<void>::failure(
+                    "地形层需要 0～1 线性颜色／粗糙度、0～4 法线强度与 (0,1024] 的重复次数");
         const auto range = [](float first, float second) {
             return std::isfinite(first) && std::isfinite(second) && first >= 0 && second <= 1
                    && first < second;
@@ -38,6 +42,13 @@ namespace Comet {
         if(!range(slope_start, slope_end) || !range(height_start, height_end))
             return Result<void>::failure("地形坡度与高度混合范围须为递增的 0～1 区间");
         const auto& grass = vegetation;
+        if(!std::isfinite(grass.wind_amplitude) || grass.wind_amplitude < 0
+            || grass.wind_amplitude > 30 || !std::isfinite(grass.wind_frequency)
+            || grass.wind_frequency <= 0 || grass.wind_frequency > 10)
+            return Result<void>::failure("植被风动摆角须为 0～30 度，频率须为 (0,10] Hz");
+        const auto extension = std::filesystem::path(grass.model).extension();
+        if(!grass.model.empty() && extension != ".glb" && extension != ".gltf")
+            return Result<void>::failure("自定义植被模型须为静态 .gltf／.glb");
         if(grass.count > 10000 || !std::isfinite(grass.min_height)
             || !std::isfinite(grass.max_height) || grass.min_height <= 0
             || grass.max_height < grass.min_height || grass.max_height > 100
@@ -111,8 +122,9 @@ namespace Comet {
                         return Read::failure("Terrain needs exactly three layers");
                     size_t index = 0;
                     for(auto layer : values.value()) {
-                        if(auto valid =
-                                context.validate_keys(layer, {"color", "texture", "tiling"});
+                        if(auto valid = context.validate_keys(
+                               layer, {"color", "texture", "tiling", "normal_texture",
+                                          "roughness_texture", "normal_scale", "roughness"});
                             !valid)
                             return Read::failure(valid.error());
                         auto& output = result.layers[index++];
@@ -120,6 +132,16 @@ namespace Comet {
                             return Read::failure(read.error());
                         if(auto read = field(layer, "tiling", output.tiling); !read)
                             return Read::failure(read.error());
+                        for(const auto& [key, target] :
+                            {std::pair{"normal_texture", &output.normal_texture},
+                                {"roughness_texture", &output.roughness_texture}})
+                            if(auto read = field(layer, key, *target); !read)
+                                return Read::failure(read.error());
+                        for(const auto& [key, target] :
+                            {std::pair{"normal_scale", &output.normal_scale},
+                                {"roughness", &output.roughness}})
+                            if(auto read = field(layer, key, *target); !read)
+                                return Read::failure(read.error());
                         auto color = context.find(layer, "color");
                         if(!color)
                             return Read::failure(color.error());
@@ -139,10 +161,17 @@ namespace Comet {
                     auto node = *grass.value();
                     if(auto valid = context.validate_keys(
                            node, {"count", "seed", "min_height", "max_height", "max_slope",
-                                     "min_elevation", "max_elevation"});
+                                     "min_elevation", "max_elevation", "model", "wind_amplitude",
+                                     "wind_frequency"});
                         !valid)
                         return Read::failure(valid.error());
                     auto& value = result.vegetation;
+                    if(auto read = field(node, "model", value.model); !read)
+                        return Read::failure(read.error());
+                    if(auto read = field(node, "wind_amplitude", value.wind_amplitude); !read)
+                        return Read::failure(read.error());
+                    if(auto read = field(node, "wind_frequency", value.wind_frequency); !read)
+                        return Read::failure(read.error());
                     for(const auto& [key, target] :
                         {std::pair{"count", &value.count}, {"seed", &value.seed}})
                         if(auto read = field(node, key, *target); !read)
@@ -200,6 +229,10 @@ namespace Comet {
             out.end_array();
             out.field("texture", layer.texture);
             out.field("tiling", layer.tiling);
+            out.field("normal_texture", layer.normal_texture);
+            out.field("roughness_texture", layer.roughness_texture);
+            out.field("normal_scale", layer.normal_scale);
+            out.field("roughness", layer.roughness);
             out.end_object();
         }
         out.end_array();
@@ -207,6 +240,9 @@ namespace Comet {
         out.begin_object();
         out.field("count", uint64_t(vegetation.count));
         out.field("seed", uint64_t(vegetation.seed));
+        out.field("model", vegetation.model);
+        out.field("wind_amplitude", vegetation.wind_amplitude);
+        out.field("wind_frequency", vegetation.wind_frequency);
         out.field("min_height", vegetation.min_height);
         out.field("max_height", vegetation.max_height);
         out.field("max_slope", vegetation.max_slope);

@@ -17,6 +17,8 @@ namespace Comet {
         float translation_scale = 0;
         // 链覆盖节点映射；绑定时按骨段累计长度重采样旋转，保持目标局部平移。
         std::vector<Chain> chains;
+        // 绑定参考姿态的局部欧拉角修正（度），不修改共享模型或动作源。
+        std::map<std::string, Math::Vec3> source_pose, target_pose;
         [[nodiscard]] Result<void> validate() const;
         bool operator==(const AnimationRetarget&) const = default;
     };

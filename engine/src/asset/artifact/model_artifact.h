@@ -9,7 +9,7 @@
 namespace Comet {
     class COMET_API ModelArtifact final {
     public:
-        static constexpr uint32_t IMPORTER_VERSION = 2;
+        static constexpr uint32_t IMPORTER_VERSION = 3;
 
         [[nodiscard]] static Result<ModelArtifact> stage(const std::filesystem::path& index_path,
             ModelImportProduct product, ImportInputSnapshot inputs,

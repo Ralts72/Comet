@@ -491,6 +491,27 @@ namespace Comet {
                     "horizontal", "水平位移", &RootMotionComponent::horizontal),
                 make_property_descriptor("vertical", "垂直位移", &RootMotionComponent::vertical),
                 make_property_descriptor("rotation", "根旋转", &RootMotionComponent::rotation)}));
+        register_component(make_component_descriptor<HandIKComponent>("hand_ik", "手部 IK",
+            {make_property_descriptor("enabled", "启用", &HandIKComponent::enabled),
+                make_property_descriptor("left_hand", "左手骨骼", &HandIKComponent::left_hand),
+                make_property_descriptor("right_hand", "右手骨骼", &HandIKComponent::right_hand),
+                make_property_descriptor("left_target", "左手目标", &HandIKComponent::left_target),
+                make_property_descriptor(
+                    "right_target", "右手目标", &HandIKComponent::right_target),
+                make_property_descriptor(
+                    "left_pole", "左肘提示点（模型空间）", &HandIKComponent::left_pole),
+                make_property_descriptor(
+                    "right_pole", "右肘提示点（模型空间）", &HandIKComponent::right_pole),
+                make_property_descriptor("weight", "权重", &HandIKComponent::weight,
+                    {.numeric = {.minimum = 0, .maximum = 1, .enforce_bounds = true}}),
+                make_property_descriptor(
+                    "match_rotation", "匹配目标朝向", &HandIKComponent::match_rotation)}));
+        register_component(make_component_descriptor<WindSwayComponent>("wind_sway", "风动摆动",
+            {make_property_descriptor("enabled", "启用", &WindSwayComponent::enabled),
+                make_property_descriptor(
+                    "amplitude", "根部摆角（度）", &WindSwayComponent::amplitude),
+                make_property_descriptor("frequency", "频率（Hz）", &WindSwayComponent::frequency,
+                    {.numeric = {.minimum = .01f, .maximum = 10, .enforce_bounds = true}})}));
         register_component(make_component_descriptor<MotionWarpComponent>("motion_warp", "动作对位",
             {make_property_descriptor("enabled", "启用", &MotionWarpComponent::enabled),
                 make_property_descriptor("target", "对位目标", &MotionWarpComponent::target),
@@ -636,6 +657,22 @@ namespace Comet {
                  {.required = false}),
                 make_property_descriptor("gpu_dynamics", "GPU 有状态模拟／深度碰撞",
                     &ParticleEmitterComponent::gpu_dynamics, {.required = false}),
+                make_property_descriptor("gpu_world_collision", "GPU 世界碰撞（盒／球）",
+                    &ParticleEmitterComponent::gpu_world_collision, {.required = false}),
+                make_property_descriptor("wind", "GPU 风加速度（世界空间）",
+                    &ParticleEmitterComponent::wind, {.required = false}),
+                make_property_descriptor("vortex_center", "GPU 涡旋中心（世界空间）",
+                    &ParticleEmitterComponent::vortex_center, {.required = false}),
+                make_property_descriptor("vortex_axis", "GPU 涡旋轴",
+                    &ParticleEmitterComponent::vortex_axis, {.required = false}),
+                make_property_descriptor("vortex_strength", "GPU 涡旋加速度",
+                    &ParticleEmitterComponent::vortex_strength,
+                    {.required = false,
+                        .numeric = {.minimum = -1000, .maximum = 1000, .enforce_bounds = true}}),
+                make_property_descriptor("vortex_radius", "GPU 涡旋半径（米）",
+                    &ParticleEmitterComponent::vortex_radius,
+                    {.required = false,
+                        .numeric = {.minimum = .01f, .maximum = 100000, .enforce_bounds = true}}),
                 make_property_descriptor("turbulence", "GPU 扰动加速度",
                     &ParticleEmitterComponent::turbulence,
                     {.required = false,
@@ -1139,6 +1176,10 @@ namespace Comet {
                     {.required = false,
                         .numeric =
                             {.speed = 16, .minimum = 64, .maximum = 256, .enforce_bounds = true}}),
+                make_property_descriptor("bounce_strength", "实时多跳反馈（0 关闭）",
+                    &IrradianceVolumeComponent::bounce_strength,
+                    {.required = false,
+                        .numeric = {.minimum = 0, .maximum = 1, .enforce_bounds = true}}),
                 make_property_descriptor("history_weight", "历史权重",
                     &IrradianceVolumeComponent::history_weight,
                     {.required = false,

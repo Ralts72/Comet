@@ -254,6 +254,7 @@ namespace Comet {
 
     void SceneResolver::resolve_particles(const RenderScene& scene, RenderWorld& world) {
         world.particles = scene.particles;
+        world.particle_colliders = scene.particle_colliders;
         world.particle_textures.clear();
         for(auto& [handle, used] : m_missing_particle_textures)
             used = false;

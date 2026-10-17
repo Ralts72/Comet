@@ -14,11 +14,15 @@ namespace Comet {
             Math::Vec3 color{1};
             std::string texture;
             float tiling = 8;
+            std::string normal_texture, roughness_texture;
+            float normal_scale = 1, roughness = 1;
             bool operator==(const Layer&) const = default;
         };
         struct Vegetation {
             uint32_t count = 512;
             uint32_t seed = 37;
+            std::string model;
+            float wind_amplitude = 0, wind_frequency = 1;
             float min_height = .6f, max_height = 1.4f;
             float max_slope = 35;
             float min_elevation = 0, max_elevation = .8f;

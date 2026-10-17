@@ -11,6 +11,7 @@
 #include "particle_dynamics_comp.h"
 #include "particle_initialize_comp.h"
 #include "graphics/resource/image_view.h"
+#include <algorithm>
 #include <unordered_map>
 #include <array>
 #include <bit>
@@ -34,9 +35,13 @@ namespace Comet {
             Math::Mat4 view_projection, inverse_view_projection;
             Math::Vec4 timing, dynamics;
             std::array<uint32_t, 4> history;
+            Math::Vec4 wind, vortex_center, vortex_axis;
+            std::array<uint32_t, 4> world;
+            std::array<ParticleWorldCollider, ParticleWorldCollider::MAX_COLLIDERS> colliders;
         };
         static_assert(sizeof(Spawn) == 96 && sizeof(Parameters) == 176);
-        static_assert(sizeof(DynamicParameters) == 352);
+        static_assert(sizeof(ParticleWorldCollider) == 96);
+        static_assert(sizeof(DynamicParameters) == 352 + 64 + 64 * 96);
     }
     struct GpuParticleSimulation::Program {
         std::shared_ptr<DescriptorSetLayout> descriptors;
@@ -200,8 +205,11 @@ namespace Comet {
     }
     Result<void, GraphicsError> GpuParticleSimulation::prepare(FrameScheduler& frames,
         const ViewProjectMatrix& camera, std::span<const GpuParticleEmitter> emitters, bool sorted,
-        const std::shared_ptr<ImageView>& depth, uint64_t scene_lifetime) {
+        const std::shared_ptr<ImageView>& depth, uint64_t scene_lifetime,
+        std::span<const ParticleWorldCollider> colliders) {
         using Prepared = Result<void, GraphicsError>;
+        if(colliders.size() > ParticleWorldCollider::MAX_COLLIDERS)
+            return Prepared::failure({"Too many GPU world colliders"});
         if(!frames.is_recording_frame() || &frames.get_device() != &m_device
             || frames.get_current_frame_slot_index() >= m_frames.size())
             return Prepared::failure({"Invalid GPU particle frame"});
@@ -308,11 +316,17 @@ namespace Comet {
                 resources->previous = previous;
                 resources->depth = depth;
                 const auto vp = camera.projection * camera.view;
-                const DynamicParameters extra{parameters, vp, Math::inverse(vp),
+                DynamicParameters extra{parameters, vp, Math::inverse(vp),
                     {float(emitter.time), float(elapsed), settings.collision_radius,
                         settings.restitution},
                     {settings.turbulence, settings.turbulence_frequency, settings.friction, 0},
                     {previous_count, static_cast<uint32_t>(settings.collision), 0, 0}};
+                extra.wind = Math::Vec4(settings.wind, settings.vortex_strength);
+                extra.vortex_center = Math::Vec4(settings.vortex_center, settings.vortex_radius);
+                extra.vortex_axis = Math::Vec4(glm::normalize(settings.vortex_axis), 0);
+                extra.world = {uint32_t(colliders.size()), settings.collision_layers,
+                    settings.gpu_world_collision ? 1u : 0u, 0};
+                std::ranges::copy(colliders, extra.colliders.begin());
                 resources->spawns->write(&extra, sizeof(extra));
                 resources->spawns->write(
                     births.data(), births.size() * sizeof(Spawn), sizeof(extra));

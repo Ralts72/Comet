@@ -18,6 +18,8 @@ namespace Comet {
             std::string name;
             uint32_t parent = NO_PARENT;
             JointTransform transform;
+            // XYZ 根部摆角（度），W 频率（Hz）；零摆角关闭。
+            Math::Vec4 wind{0, 0, 0, 1};
             std::vector<Part> parts;
         };
         struct Scene {

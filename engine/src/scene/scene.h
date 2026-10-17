@@ -261,6 +261,9 @@ namespace Comet {
                          || is_scene_physics_component_v<Component>)
                 mark_physics_dirty(handle);
 
+            if constexpr(is_scene_physics_component_v<Component>)
+                mark_render_dirty(); // GPU 粒子还消费碰撞形状与过滤层。
+
             if constexpr(is_scene_joint_component_v<Component>)
                 m_physics_joints_changed = true;
 

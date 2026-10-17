@@ -48,6 +48,7 @@ namespace Comet {
         uint32_t update_budget = 8;
         uint32_t update_rays = 64;
         float history_weight = .9f;
+        float bounce_strength = 0;
         float blend_distance = 1;
     };
 

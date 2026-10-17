@@ -356,7 +356,7 @@ namespace Comet {
         input.lights = frame.world->lights;
         input.render_items.clear();
         for(const auto& item : frame.world->render_items)
-            if(item.contributes_to_gi && item.mesh && !item.mesh->is_skinned())
+            if(item.contributes_to_gi && item.mesh)
                 input.render_items.push_back(item);
         auto scene = m_irradiance_builder->update(input, m_ray_read, m_ray_revision, m_ray_images);
         report(scene ? std::string{} : scene.error());
@@ -375,10 +375,12 @@ namespace Comet {
             }
             input.parameters.path_trace.reset();
             if(frame.world->environment.fog_enabled
+                || std::ranges::any_of(frame.world->render_items,
+                    [](const auto& item) { return item.mesh && item.mesh->is_skinned(); })
                 || (frame.world->particles
                     && (!frame.world->particles->instances.empty()
                         || !frame.world->particles->gpu_emitters.empty()))) {
-                view.path_trace_error = "路径追踪暂不支持雾／粒子";
+                view.path_trace_error = "路径追踪暂不支持蒙皮／雾／粒子";
                 continue;
             }
             if(!m_path_trace_support_error.empty()) {
