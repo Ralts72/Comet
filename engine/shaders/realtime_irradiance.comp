@@ -115,7 +115,8 @@ void main() {
     barrier();
     if(lane < 32) {
         vec4 value = vec4(directions[lane * 2].xy, directions[lane * 2 + 1].xy);
-        value = mix(value, imageLoad(previous_probes, ivec2(9 + lane, probe)), history);
+        // 变换改变后立即接纳新遮挡距离；辐照度仍渐进累积，避免移动门留下旧遮挡。
+        value = mix(value, imageLoad(previous_probes, ivec2(9 + lane, probe)), min(history, parameters.visibility.y));
         imageStore(updated_probes, ivec2(9 + lane, probe), value);
     }
 }

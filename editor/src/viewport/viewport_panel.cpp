@@ -366,6 +366,21 @@ namespace CometEditor {
         ImGui::SetItemTooltip("橙色十字：本地锚点；青色方框：连接锚点；黄线：两端位置差\n"
                               "灰：已禁用；红：缺失或不支持的连接\n"
                               "显示组件配置与呈现姿态，受场景遮挡。");
+        if(ImGui::BeginMenu("GI 探针###Irradiance probes")) {
+            using Mode = Comet::IrradianceDebugMode;
+            if(ImGui::MenuItem("关闭###Probes off", nullptr, m_irradiance_debug == Mode::Off))
+                m_irradiance_debug = Mode::Off;
+            if(ImGui::MenuItem("状态###Probe status", nullptr, m_irradiance_debug == Mode::Status))
+                m_irradiance_debug = Mode::Status;
+            if(ImGui::MenuItem(
+                   "照明###Probe lighting", nullptr, m_irradiance_debug == Mode::Lighting))
+                m_irradiance_debug = Mode::Lighting;
+            ImGui::Separator();
+            ImGui::TextDisabled("绿：有效；红：停用；灰：尚未更新");
+            ImGui::TextDisabled("黄色外圈：本帧更新；照明：平均间接光");
+            ImGui::TextDisabled("标记穿透遮挡，显示当前视图选中的区域");
+            ImGui::EndMenu();
+        }
         ImGui::PopItemFlag();
         if(m_state.mode == EditorMode::Play) {
             if(ImGui::MenuItem("输入###Input", nullptr, false, m_runtime.is_active()))

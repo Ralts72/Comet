@@ -32,7 +32,7 @@ namespace Comet {
                 || resolved.transform_revision != item.transform_revision)
                 resolved.model_matrix = item.model_matrix;
             resolved.animation = item.animation;
-            resolved.gi_static = item.gi_static;
+            resolved.contributes_to_gi = item.contributes_to_gi;
             resolved.entity_id = item.entity_id;
             resolved.transform_revision = item.transform_revision;
             if(resolved.material.overrides != item.material_overrides)

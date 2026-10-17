@@ -446,8 +446,8 @@ namespace Comet {
                      "mesh", "Mesh", &MeshRendererComponent::mesh, {.asset_type = AssetType::Mesh}),
                     make_property_descriptor("material", "Material",
                         &MeshRendererComponent::material, {.asset_type = AssetType::Material}),
-                    make_property_descriptor("gi_static", "参与静态 GI 几何",
-                        &MeshRendererComponent::gi_static, {.required = false})}));
+                    make_property_descriptor("contributes_to_gi", "参与 GI 几何",
+                        &MeshRendererComponent::contributes_to_gi, {.required = false})}));
 
         register_component(make_component_descriptor<AnimatorComponent>("animator", "Animator",
             {make_property_descriptor(

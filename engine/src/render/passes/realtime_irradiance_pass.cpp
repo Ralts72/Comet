@@ -53,6 +53,8 @@ namespace Comet {
         uint32_t output = 0;
         uint32_t cursor = 0;
         uint32_t iteration = 0;
+        uint32_t evaluated_probes = 0;
+        uint32_t visibility_refresh_remaining = 0;
         bool initialized = false;
     };
     struct RealtimeIrradiancePass::Resources {
@@ -267,7 +269,7 @@ namespace Comet {
     Result<void, GraphicsError> RealtimeIrradiancePass::prepare(uint64_t scene_lifetime,
         const std::shared_ptr<const RayScene>& scene, const RenderIrradianceVolume& volume) {
         using Prepared = Result<void, GraphicsError>;
-        if(!scene)
+        if(!scene || !scene->geometry)
             return Prepared::failure({"Invalid realtime GI scene"});
         const auto grid = validate_region(volume);
         if(!grid)
@@ -277,7 +279,10 @@ namespace Comet {
         const auto* prior = m_resources ? m_resources->buffers->source.get() : nullptr;
         const bool reuse_history =
             prior && m_resources->history->scene_lifetime == scene_lifetime
-            && same_grid(m_resources->history->region, volume) && prior->geometry == scene->geometry
+            && same_grid(m_resources->history->region, volume)
+            && (prior->geometry == scene->geometry
+                || (prior->geometry->topology
+                    && prior->geometry->topology == scene->geometry->topology))
             && prior->materials == scene->materials
             && prior->environment_map == scene->environment_map
             && prior->environment == scene->environment && prior->background == scene->background;
@@ -315,6 +320,8 @@ namespace Comet {
             return Updated::failure({"Invalid realtime GI frame"});
         if(m_recorded_serial == frames.get_current_frame_serial())
             reset();
+        const bool geometry_moved =
+            scene && m_resources && m_resources->buffers->source->geometry != scene->geometry;
         if(auto ready = prepare(scene_lifetime, scene, volume); !ready)
             return Updated::failure(ready.error());
         auto& history = *m_resources->history;
@@ -322,6 +329,9 @@ namespace Comet {
         const auto& result = history.volumes[output];
         const uint32_t count = result->dimensions.x * result->dimensions.y * result->dimensions.z;
         const uint32_t budget = std::min(count, volume.update_budget);
+        if(geometry_moved)
+            history.visibility_refresh_remaining = count;
+        const bool refresh_visibility = history.visibility_refresh_remaining > 0;
         const auto stages =
             Flags<PipelineStage>(PipelineStage::FragmentShader) | PipelineStage::ComputeShader;
         const auto compute = Flags<PipelineStage>(PipelineStage::ComputeShader);
@@ -370,9 +380,11 @@ namespace Comet {
                     vk::ImageLayout::eTransferDstOptimal, region);
             } else if(pass == trace) {
                 const Parameters parameters{{result->origin, volume.max_distance},
-                    {result->spacing, volume.history_weight}, {Math::Vec3(result->dimensions), 0},
-                    {2.0f * std::max({result->spacing.x, result->spacing.y, result->spacing.z}), 0,
-                        0, 0},
+                    {result->spacing, refresh_visibility ? std::min(volume.history_weight, .5f)
+                                                         : volume.history_weight},
+                    {Math::Vec3(result->dimensions), 0},
+                    {2.0f * std::max({result->spacing.x, result->spacing.y, result->spacing.z}),
+                        refresh_visibility ? 0.f : volume.history_weight, 0, 0},
                     Math::Vec4(scene->background, 1),
                     {history.cursor, budget, volume.update_rays, history.iteration},
                     {uint32_t(scene->geometry->nodes.size()),
@@ -413,11 +425,17 @@ namespace Comet {
             timing->serial = frames.get_current_frame_serial();
         }
         history.initialized = true;
+        // 首圈按连续索引更新；之后所有探针都已有求值，无须另存逐探针 CPU 状态。
+        history.evaluated_probes = std::min(count, history.evaluated_probes + budget);
+        history.visibility_refresh_remaining -=
+            std::min(history.visibility_refresh_remaining, budget);
         history.output = output;
+        m_statistics.first_updated_probe = history.cursor;
         history.cursor = (history.cursor + budget) % count;
         ++history.iteration;
         m_recorded_serial = frames.get_current_frame_serial();
         m_statistics.probes = count;
+        m_statistics.evaluated_probes = history.evaluated_probes;
         m_statistics.updated_probes = budget;
         m_statistics.rays = budget * (volume.update_rays + 64);
         m_statistics.updates += budget;

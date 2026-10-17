@@ -394,8 +394,87 @@ namespace Comet::Tests {
         auto transformed = builder.update(world, read).value();
         EXPECT_NE(transformed->geometry, first->geometry);
         EXPECT_EQ(transformed->materials, double_sided->materials);
-        EXPECT_EQ(builder.statistics().geometry_builds, 2u);
-        EXPECT_EQ(reads, 2u);
+        EXPECT_EQ(builder.statistics().geometry_builds, 1u);
+        EXPECT_EQ(builder.statistics().geometry_refits, 1u);
+        EXPECT_EQ(reads, 1u);
+    }
+
+    TEST(RaySceneTest, TransformRefitMatchesRebuildAndPreservesOldGeometryAndBvhLayout) {
+        auto material = std::make_shared<Material>("surface", "pbr");
+        auto world = trace_world(material);
+        world.render_items.resize(17, world.render_items.front());
+        auto mesh = triangle_mesh();
+        for(auto& vertex : mesh.vertices) {
+            vertex.tangent = {1, 0, 0, 1};
+            vertex.texcoord = {.2f, .8f};
+        }
+        unsigned reads = 0;
+        const auto read = [&](AssetHandle) {
+            ++reads;
+            return Result<MeshData, Error>::success(mesh);
+        };
+        RaySceneBuilder builder;
+        const auto original = builder.update(world, read).value();
+        for(size_t i = 0; i < world.render_items.size(); ++i)
+            world.render_items[i].model_matrix =
+                Math::translate(Math::Mat4(1), {float(i * 3), float(i % 3), -float(i)})
+                * Math::rotate(Math::Mat4(1), .3f * i, {0, 1, 0})
+                * Math::scale(Math::Mat4(1), {i % 2 ? -2.f : 1.f, 3, .5f});
+        auto result = builder.update(world, read);
+        ASSERT_TRUE(result) << result.error();
+        const auto moved = result.value();
+        EXPECT_EQ(reads, 1u);
+        EXPECT_EQ(moved->geometry->topology, original->geometry->topology);
+        EXPECT_EQ(moved->emitters, original->emitters);
+        EXPECT_EQ(builder.statistics().geometry_refits, 1u);
+        RaySceneBuilder reference_builder;
+        const auto reference = reference_builder.update(world, read).value();
+        ASSERT_EQ(moved->geometry->triangles.size(), reference->geometry->triangles.size());
+        for(const auto& triangle : moved->geometry->triangles) {
+            const auto geometric =
+                glm::normalize(glm::cross(Math::Vec3(triangle.positions[1] - triangle.positions[0]),
+                    Math::Vec3(triangle.positions[2] - triangle.positions[0])));
+            EXPECT_GT(glm::dot(geometric, Math::Vec3(triangle.normals[0])), .99f);
+            const auto found = std::ranges::find(
+                reference->geometry->triangles, triangle.surface, &RayScene::Triangle::surface);
+            ASSERT_NE(found, reference->geometry->triangles.end());
+            for(int i = 0; i < 3; ++i) {
+                EXPECT_EQ(triangle.positions[i], found->positions[i]);
+                EXPECT_EQ(triangle.normals[i], found->normals[i]);
+                EXPECT_EQ(triangle.tangents[i], found->tangents[i]);
+                EXPECT_EQ(triangle.bitangents[i], found->bitangents[i]);
+            }
+        }
+        ASSERT_EQ(moved->geometry->nodes.size(), original->geometry->nodes.size());
+        for(size_t i = 0; i < moved->geometry->nodes.size(); ++i) {
+            const auto& node = moved->geometry->nodes[i];
+            EXPECT_EQ(node.links, original->geometry->nodes[i].links);
+            const auto contained = [&](Math::Vec4 minimum, Math::Vec4 maximum) {
+                for(int axis = 0; axis < 3; ++axis) {
+                    EXPECT_LE(node.minimum[axis], minimum[axis]);
+                    EXPECT_GE(node.maximum[axis], maximum[axis]);
+                }
+            };
+            if(node.links[1]) {
+                for(uint32_t j = 0; j < node.links[1]; ++j)
+                    for(const auto position :
+                        moved->geometry->triangles[node.links[0] + j].positions)
+                        contained(position, position);
+            } else {
+                const auto& left = moved->geometry->nodes[i + 1];
+                const auto& right = moved->geometry->nodes[left.links[3]];
+                contained(left.minimum, left.maximum);
+                contained(right.minimum, right.maximum);
+            }
+        }
+        EXPECT_EQ(original->geometry->triangles.front().positions[0], Math::Vec4(-1, -1, 0, 1));
+        for(auto& item : world.render_items)
+            item.model_matrix = Math::Mat4(1);
+        const auto restored = builder.update(world, read).value();
+        EXPECT_EQ(restored->geometry->triangles.front().positions[0], Math::Vec4(-1, -1, 0, 1));
+        ++world.render_items.front().mesh_revision;
+        EXPECT_NE(
+            builder.update(world, read).value()->geometry->topology, restored->geometry->topology);
     }
 
     TEST(RaySceneTest, SceneIdentitySeparatesSameRevisionMaterials) {

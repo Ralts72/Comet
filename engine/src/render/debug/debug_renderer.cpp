@@ -7,29 +7,37 @@
 #include "graphics/pipeline/vertex_description.h"
 #include "graphics/resource/buffer.h"
 #include "render/frame_scheduler.h"
+#include "render/resource/irradiance.h"
+#include "render/scene/render_scene.h"
 
 #include "line_frag.h"
 #include "line_vert.h"
+#include "irradiance_debug_vert.h"
+#include "irradiance_debug_frag.h"
 
 #include <limits>
 #include <utility>
 
 namespace Comet {
-    DebugRenderer::DebugRenderer(
-        Device& device, std::shared_ptr<Pipeline> pipeline, const uint32_t frame_slot_count)
-        : m_device(device), m_pipeline(std::move(pipeline)), m_frame_resources(frame_slot_count) {}
+    DebugRenderer::DebugRenderer(Device& device, PipelineManager& pipelines,
+        std::shared_ptr<Pipeline> pipeline, const uint32_t frame_slot_count, SampleCount samples,
+        std::shared_ptr<DescriptorSetLayout> view_layout)
+        : m_device(device), m_pipelines(pipelines), m_samples(samples),
+          m_pipeline(std::move(pipeline)), m_view_layout(std::move(view_layout)),
+          m_frame_resources(frame_slot_count) {}
 
     Result<std::unique_ptr<DebugRenderer>, GraphicsError> DebugRenderer::create(Device& device,
         PipelineManager& pipeline_manager, const uint32_t frame_slot_count,
-        const SampleCount sample_count) {
+        const SampleCount sample_count, const std::shared_ptr<DescriptorSetLayout>& view_layout) {
         using Creation = Result<std::unique_ptr<DebugRenderer>, GraphicsError>;
         if(frame_slot_count == 0)
             return Creation::failure({"Debug renderer requires frame slots"});
         auto pipeline = create_pipeline(device, pipeline_manager, sample_count);
         if(!pipeline)
             return Creation::failure(pipeline.error());
-        return Creation::success(std::unique_ptr<DebugRenderer>(
-            new DebugRenderer(device, std::move(pipeline).value(), frame_slot_count)));
+        return Creation::success(
+            std::unique_ptr<DebugRenderer>(new DebugRenderer(device, pipeline_manager,
+                std::move(pipeline).value(), frame_slot_count, sample_count, view_layout)));
     }
 
     Result<std::shared_ptr<Pipeline>, GraphicsError> DebugRenderer::create_pipeline(
@@ -95,6 +103,67 @@ namespace Comet {
         command_buffer.push_constants(*m_pipeline->get_layout(),
             Flags<ShaderStage>(ShaderStage::Vertex), 0, &view_projection, sizeof(view_projection));
         command_buffer.draw(static_cast<uint32_t>(vertices.size()));
+        return Result<void, GraphicsError>::success();
+    }
+
+    Result<void, GraphicsError> DebugRenderer::prepare_irradiance_pipeline() {
+        if(m_irradiance_pipeline)
+            return Result<void, GraphicsError>::success();
+        if(!m_view_layout)
+            return Result<void, GraphicsError>::failure({"Probe debug requires view bindings"});
+        auto vertex = Shader::create(m_device, "probe markers", IRRADIANCE_DEBUG_VERT);
+        auto fragment = Shader::create(m_device, "probe status", IRRADIANCE_DEBUG_FRAG);
+        if(!vertex)
+            return Result<void, GraphicsError>::failure(vertex.error());
+        if(!fragment)
+            return Result<void, GraphicsError>::failure(fragment.error());
+        ShaderLayout layout;
+        layout.descriptor_set_layouts = {m_view_layout};
+        layout.push_constants = {std::make_shared<PushConstantRange>(ShaderStage::Vertex, 0, 48),
+            std::make_shared<PushConstantRange>(ShaderStage::Fragment, 48, 16)};
+        PipelineConfig config;
+        config.set_multisample_state(m_samples, false);
+        config.set_dynamic_state({DynamicState::Viewport, DynamicState::Scissor});
+        // 标记穿透遮挡，便于看到实心几何内部被停用的探针；不写入场景深度。
+        config.set_depth_stencil_state({.depth_test_enable = false, .depth_write_enable = false});
+        auto pipeline = m_pipelines.create_pipeline(
+            "irradiance debug", layout, config, vertex.value(), fragment.value());
+        if(!pipeline)
+            return Result<void, GraphicsError>::failure(pipeline.error());
+        m_irradiance_pipeline = std::move(pipeline).value();
+        return Result<void, GraphicsError>::success();
+    }
+
+    Result<void, GraphicsError> DebugRenderer::render_irradiance(FrameScheduler& frames,
+        const DescriptorSet& view, const Irradiance& irradiance, Math::Vec2u target_size,
+        IrradianceDebugMode mode, uint32_t evaluated_probes, Math::Vec2u updated_range) {
+        if(mode == IrradianceDebugMode::Off)
+            return Result<void, GraphicsError>::success();
+        if(auto prepared = prepare_irradiance_pipeline(); !prepared)
+            return prepared;
+        struct Parameters {
+            Math::Vec4 origin_radius;
+            Math::Vec4 spacing;
+            Math::Vec4 dimensions_pixel;
+            std::array<uint32_t, 4> flags;
+        };
+        static_assert(sizeof(Parameters) == 64);
+        const auto count =
+            irradiance.dimensions.x * irradiance.dimensions.y * irradiance.dimensions.z;
+        const Parameters parameters{Math::Vec4(irradiance.origin, 4),
+            Math::Vec4(irradiance.spacing, 0),
+            {float(irradiance.dimensions.x), float(irradiance.dimensions.y), 1.f / target_size.x,
+                1.f / target_size.y},
+            {updated_range.x, updated_range.y, count, uint32_t(mode) | (evaluated_probes << 2)}};
+        const auto& command = frames.get_current_command_buffer();
+        frames.retain_current_frame_resource(m_irradiance_pipeline);
+        command.bind_pipeline(*m_irradiance_pipeline);
+        command.bind_descriptor_sets(*m_irradiance_pipeline->get_layout(), std::span(&view, 1));
+        command.push_constants(*m_irradiance_pipeline->get_layout(),
+            Flags<ShaderStage>(ShaderStage::Vertex), 0, &parameters, 48);
+        command.push_constants(*m_irradiance_pipeline->get_layout(),
+            Flags<ShaderStage>(ShaderStage::Fragment), 48, parameters.flags.data(), 16);
+        command.draw(6, count);
         return Result<void, GraphicsError>::success();
     }
 

@@ -27,13 +27,18 @@ vec3 world_position(vec2 uv, float depth) {
     return world.xyz / world.w;
 }
 
-bool project_point(vec3 point, out vec2 uv, out float depth) {
-    vec4 clip = frame.projection * frame.view * vec4(point, 1);
+bool project_ray(vec4 start, vec4 direction, float distance, out vec2 uv, out float depth) {
+    vec4 clip = start + direction * distance;
     if(clip.w <= 0) return false;
     vec3 ndc = clip.xyz / clip.w;
     uv = ndc.xy * vec2(.5, -.5) + .5;
     depth = ndc.z;
     return all(greaterThan(uv, vec2(0))) && all(lessThan(uv, vec2(1))) && depth > 0 && depth < 1;
+}
+
+float depth_at(vec2 uv) {
+    ivec2 size = textureSize(scene_depth, 0);
+    return texelFetch(scene_depth, clamp(ivec2(uv * vec2(size)), ivec2(0), size - 1), 0).r;
 }
 
 // 只接受可见 G-buffer 表面；Forward 遮挡者、透明层和天空不能冒充命中。
@@ -46,35 +51,40 @@ bool surface_at(vec2 uv, out float depth) {
 }
 
 bool trace(vec3 origin, vec3 direction, out vec2 hit_uv, out float confidence) {
+    // 线性变换只做一次；步进在齐次裁剪空间中插值，透视除法仍逐点进行。
+    vec4 view_start = frame.view * vec4(origin, 1);
+    vec4 view_direction = frame.view * vec4(direction, 0);
+    vec4 clip_start = frame.projection * view_start;
+    vec4 clip_direction = frame.projection * view_direction;
     float previous = 0;
     bool in_front = false;
     float distance_limit = parameters.values.y;
     float thickness = parameters.values.z;
     for(int step = 1; step <= 64; ++step) {
         float distance = distance_limit * float(step * step) / (64.0 * 64.0);
-        vec3 point = origin + direction * distance;
         vec2 uv; float projected_depth;
-        if(!project_point(point, uv, projected_depth)) break;
-        float surface_depth;
-        if(!surface_at(uv, surface_depth)) { previous = distance; in_front = true; continue; }
-        float delta = abs((frame.view * vec4(point, 1)).z) - view_distance_at_depth(surface_depth);
-        if(delta < 0) { previous = distance; in_front = true; continue; }
+        if(!project_ray(clip_start, clip_direction, distance, uv, projected_depth)) break;
+        // 粗步进和二分只读深度，确认交点后才验证 G-buffer 身份和 Forward／透明遮挡。
+        float surface_depth = depth_at(uv);
+        float delta = abs(view_start.z + view_direction.z * distance) - view_distance_at_depth(surface_depth);
+        if(surface_depth >= 1 || delta < 0) { previous = distance; in_front = true; continue; }
         if(!in_front) continue;
         float low = previous, high = distance;
         for(int refine = 0; refine < 6; ++refine) {
             float middle = (low + high) * .5;
-            vec3 sample_point = origin + direction * middle;
             vec2 sample_uv; float sample_depth;
-            if(!project_point(sample_point, sample_uv, sample_depth)) break;
-            float depth;
-            bool visible = surface_at(sample_uv, depth);
-            float difference = abs((frame.view * vec4(sample_point, 1)).z) - view_distance_at_depth(depth);
-            if(!visible || difference < 0) low = middle;
+            if(!project_ray(clip_start, clip_direction, middle, sample_uv, sample_depth)) break;
+            float depth = depth_at(sample_uv);
+            float difference = abs(view_start.z + view_direction.z * middle) - view_distance_at_depth(depth);
+            if(depth >= 1 || difference < 0) low = middle;
             else high = middle;
         }
-        point = origin + direction * high;
-        if(!project_point(point, hit_uv, projected_depth) || !surface_at(hit_uv, surface_depth)) continue;
-        delta = abs((frame.view * vec4(point, 1)).z) - view_distance_at_depth(surface_depth);
+        if(!project_ray(clip_start, clip_direction, high, hit_uv, projected_depth)
+            || !surface_at(hit_uv, surface_depth)) {
+            previous = distance;
+            continue;
+        }
+        delta = abs(view_start.z + view_direction.z * high) - view_distance_at_depth(surface_depth);
         if(delta < 0 || delta > thickness) continue;
         ivec2 hit_pixel = ivec2(hit_uv * vec2(textureSize(geometry, 0)));
         vec3 hit_normal = texelFetch(geometry, hit_pixel, 0).xyz;

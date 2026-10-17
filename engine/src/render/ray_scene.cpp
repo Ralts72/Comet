@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include <optional>
 #include <utility>
 
 namespace Comet {
@@ -87,21 +88,25 @@ namespace Comet {
             return true;
         }
 
-        std::vector<std::byte> geometry_key(
+        struct GeometryKeys {
+            std::vector<std::byte> topology;
+            std::vector<std::byte> transforms;
+        };
+        GeometryKeys geometry_keys(
             const RenderWorld& world, const RaySceneBuilder::MeshRevision& revision) {
-            Binary::Writer key;
-            key.write_u64(world.scene_lifetime);
-            key.write_u64(world.render_items.size());
+            Binary::Writer topology, transforms;
+            topology.write_u64(world.scene_lifetime);
+            topology.write_u64(world.render_items.size());
             for(const auto& item : world.render_items) {
-                key.write_u64(item.mesh_handle.value());
-                key.write_u64(item.mesh_revision);
-                key.write_u64(revision ? revision(item.mesh_handle) : 0);
+                topology.write_u64(item.mesh_handle.value());
+                topology.write_u64(item.mesh_revision);
+                topology.write_u64(revision ? revision(item.mesh_handle) : 0);
+                topology.write_u32(bool(item.mesh));
                 for(int column = 0; column < 4; ++column)
                     for(int row = 0; row < 4; ++row)
-                        key.write_float(item.model_matrix[column][row]);
-                key.write_u32(bool(item.mesh));
+                        transforms.write_float(item.model_matrix[column][row]);
             }
-            return key.data();
+            return {topology.data(), transforms.data()};
         }
 
         std::vector<std::byte> material_key(
@@ -314,81 +319,148 @@ namespace Comet {
             scene.nodes[index].links[3] = static_cast<uint32_t>(scene.nodes.size());
         }
 
+        struct MeshTransform {
+            Math::Mat4 model;
+            Math::Mat3 normal;
+            float orientation;
+            explicit MeshTransform(const Math::Mat4& matrix)
+                : model(matrix), normal(glm::transpose(glm::inverse(Math::Mat3(matrix)))),
+                  orientation(glm::determinant(Math::Mat3(matrix)) < 0 ? -1.f : 1.f) {}
+        };
+        bool valid_transform(const Math::Mat4& matrix) {
+            return Math::is_finite(matrix)
+                   && std::abs(glm::determinant(Math::Mat3(matrix))) >= 1e-10f;
+        }
+        Result<void> transform_triangle(
+            RayScene::Triangle& triangle, const MeshData& mesh, const MeshTransform& transform) {
+            for(size_t i = 0; i < 3; ++i) {
+                // 对应光栅的镜像 front-face 切换，保持几何正面与变换后的法线同向。
+                const auto source = transform.orientation < 0 && i > 0 ? 3 - i : i;
+                const auto& vertex = mesh.vertices[triangle.surface[source + 1]];
+                triangle.positions[i] = transform.model * Math::Vec4(vertex.position, 1);
+                auto normal = Math::normalized_direction(transform.normal * vertex.normal);
+                triangle.normals[i] = Math::Vec4(normal.value_or(Math::Vec3(0)), vertex.texcoord.x);
+                Math::Vec3 tangent{}, bitangent{};
+                if(normal && vertex.tangent.w != 0) {
+                    const auto transformed =
+                        Math::Vec3(transform.model * Math::Vec4(Math::Vec3(vertex.tangent), 0));
+                    if(const auto direction = Math::normalized_direction(
+                           transformed - *normal * glm::dot(*normal, transformed))) {
+                        tangent = *direction;
+                        bitangent =
+                            glm::cross(*normal, tangent) * vertex.tangent.w * transform.orientation;
+                    }
+                }
+                triangle.tangents[i] = Math::Vec4(tangent, vertex.texcoord.y);
+                triangle.bitangents[i] = Math::Vec4(bitangent, 0);
+                if(!Math::is_finite(vertex.normal) || !Math::is_finite(vertex.tangent)
+                    || !Math::is_finite(triangle.positions[i])
+                    || !Math::is_finite(triangle.normals[i])
+                    || !Math::is_finite(triangle.tangents[i])
+                    || !Math::is_finite(triangle.bitangents[i]))
+                    return Result<void>::failure("射线场景网格包含非有限顶点");
+            }
+            return Result<void>::success();
+        }
+
         Result<std::shared_ptr<const RayScene::Geometry>> build_geometry(
             const RenderWorld& world, const RaySceneBuilder::MeshReader& read) {
             using Built = Result<std::shared_ptr<const RayScene::Geometry>>;
             if(!read)
                 return Built::failure("射线场景没有 CPU 网格读取服务");
             auto result = std::make_shared<RayScene::Geometry>();
-            std::map<AssetHandle, MeshData> meshes;
-            uint32_t surface_index = 0;
+            auto topology = std::make_shared<RayScene::Geometry::Topology>();
+            std::map<AssetHandle, std::shared_ptr<const MeshData>> meshes;
             for(const auto& item : world.render_items) {
-                if(!Math::is_finite(item.model_matrix)
-                    || std::abs(glm::determinant(Math::Mat3(item.model_matrix))) < 1e-10f)
+                if(!valid_transform(item.model_matrix))
                     return Built::failure("射线场景物体变换无效或不可逆");
                 if(!meshes.contains(item.mesh_handle)) {
                     auto data = read(item.mesh_handle);
                     if(!data)
                         return Built::failure(data.error().message);
-                    meshes.emplace(item.mesh_handle, std::move(data).value());
+                    meshes.emplace(
+                        item.mesh_handle, std::make_shared<MeshData>(std::move(data).value()));
                 }
-                const auto& mesh = meshes.at(item.mesh_handle);
+                const auto source = meshes.at(item.mesh_handle);
+                const auto& mesh = *source;
                 if(!mesh.skin.empty())
-                    return Built::failure("射线场景首版仅接受静态网格，暂不支持蒙皮");
+                    return Built::failure("射线场景首版仅接受非蒙皮网格");
                 const auto vertices =
                     mesh.indices.empty() ? mesh.vertices.size() : mesh.indices.size();
                 if(vertices % 3 != 0
                     || vertices / 3 > RayScene::MAX_TRIANGLES - result->triangles.size())
                     return Built::failure("射线场景三角形不完整或超过 262144 个预算");
-                const auto normal_matrix =
-                    glm::transpose(glm::inverse(Math::Mat3(item.model_matrix)));
+                const MeshTransform transform(item.model_matrix);
                 for(size_t first = 0; first < vertices; first += 3) {
                     RayScene::Triangle triangle;
+                    triangle.surface[0] = static_cast<uint32_t>(topology->meshes.size());
                     for(size_t i = 0; i < 3; ++i) {
                         const auto index =
                             mesh.indices.empty() ? first + i : mesh.indices[first + i];
                         if(index >= mesh.vertices.size())
                             return Built::failure("射线场景网格索引越界");
-                        const auto& vertex = mesh.vertices[index];
-                        triangle.positions[i] = item.model_matrix * Math::Vec4(vertex.position, 1);
-                        auto normal = Math::normalized_direction(normal_matrix * vertex.normal);
-                        triangle.normals[i] =
-                            Math::Vec4(normal.value_or(Math::Vec3(0)), vertex.texcoord.x);
-                        Math::Vec3 tangent{}, bitangent{};
-                        if(normal && vertex.tangent.w != 0) {
-                            auto transformed = Math::Vec3(
-                                item.model_matrix * Math::Vec4(Math::Vec3(vertex.tangent), 0));
-                            const auto direction = Math::normalized_direction(
-                                transformed - *normal * glm::dot(*normal, transformed));
-                            if(direction) {
-                                tangent = *direction;
-                                const float orientation =
-                                    glm::determinant(Math::Mat3(item.model_matrix));
-                                bitangent = glm::cross(*normal, tangent) * vertex.tangent.w
-                                            * (orientation < 0 ? -1.f : 1.f);
-                            }
-                        }
-                        triangle.tangents[i] = Math::Vec4(tangent, vertex.texcoord.y);
-                        triangle.bitangents[i] = Math::Vec4(bitangent, 0);
-                        if(!Math::is_finite(vertex.normal) || !Math::is_finite(vertex.tangent)
-                            || !Math::is_finite(triangle.positions[i])
-                            || !Math::is_finite(triangle.normals[i])
-                            || !Math::is_finite(triangle.tangents[i])
-                            || !Math::is_finite(triangle.bitangents[i]))
-                            return Built::failure("射线场景网格包含非有限顶点");
+                        triangle.surface[i + 1] = static_cast<uint32_t>(index);
                     }
-                    const auto geometric =
-                        glm::cross(Math::Vec3(triangle.positions[1] - triangle.positions[0]),
-                            Math::Vec3(triangle.positions[2] - triangle.positions[0]));
-                    if(glm::dot(geometric, geometric) < 1e-16f)
-                        continue;
-                    triangle.surface[0] = surface_index;
-                    result->triangles.push_back(triangle);
+                    if(auto transformed = transform_triangle(triangle, mesh, transform);
+                        !transformed)
+                        return Built::failure(transformed.error());
+                    // 退化判定留在源空间，避免改变缩放时改变拓扑与发光面索引。
+                    const auto& a = mesh.vertices[triangle.surface[1]].position;
+                    const auto& b = mesh.vertices[triangle.surface[2]].position;
+                    const auto& c = mesh.vertices[triangle.surface[3]].position;
+                    const auto geometric = glm::cross(b - a, c - a);
+                    if(glm::dot(geometric, geometric) >= 1e-16f)
+                        result->triangles.push_back(triangle);
                 }
-                ++surface_index;
+                topology->meshes.push_back(source);
+                result->transforms.push_back(item.model_matrix);
             }
+            result->topology = std::move(topology);
             if(!result->triangles.empty())
                 build_node(*result, 0, static_cast<uint32_t>(result->triangles.size()));
+            return Built::success(std::move(result));
+        }
+
+        Result<std::shared_ptr<const RayScene::Geometry>> refit_geometry(
+            const RenderWorld& world, const RayScene::Geometry& previous) {
+            using Built = Result<std::shared_ptr<const RayScene::Geometry>>;
+            auto result = std::make_shared<RayScene::Geometry>(previous);
+            std::vector<std::optional<MeshTransform>> transforms(world.render_items.size());
+            for(size_t i = 0; i < world.render_items.size(); ++i) {
+                const auto& matrix = world.render_items[i].model_matrix;
+                if(matrix == previous.transforms[i])
+                    continue;
+                if(!valid_transform(matrix))
+                    return Built::failure("射线场景物体变换无效或不可逆");
+                result->transforms[i] = matrix;
+                transforms[i].emplace(matrix);
+            }
+            for(auto& triangle : result->triangles) {
+                const auto object = triangle.surface[0];
+                if(!transforms[object])
+                    continue;
+                if(auto transformed = transform_triangle(
+                       triangle, *previous.topology->meshes[object], *transforms[object]);
+                    !transformed)
+                    return Built::failure(transformed.error());
+            }
+            // 节点按前序存储；逆序时两个子树的界限都已更新，不改变叶与三角形顺序。
+            for(size_t i = result->nodes.size(); i-- > 0;) {
+                auto& node = result->nodes[i];
+                auto box = node.links[1] ? bounds(result->triangles[node.links[0]])
+                                         : BoundingBox{Math::Vec3(result->nodes[i + 1].minimum),
+                                               Math::Vec3(result->nodes[i + 1].maximum)};
+                if(node.links[1]) {
+                    for(uint32_t j = 1; j < node.links[1]; ++j)
+                        box.include(bounds(result->triangles[node.links[0] + j]));
+                } else {
+                    const auto& right = result->nodes[result->nodes[i + 1].links[3]];
+                    box.include(Math::Vec3(right.minimum));
+                    box.include(Math::Vec3(right.maximum));
+                }
+                node.minimum = Math::Vec4(box.minimum, 0);
+                node.maximum = Math::Vec4(box.maximum, 0);
+            }
             return Built::success(std::move(result));
         }
         Result<std::shared_ptr<const RayScene::Materials>> build_materials(const RenderWorld& world,
@@ -411,7 +483,10 @@ namespace Comet {
 
     Result<std::shared_ptr<const RayScene>> RaySceneBuilder::update(const RenderWorld& world,
         const MeshReader& read, const MeshRevision& revision, const Images& images) {
-        const bool geometry_changed = update_key(m_geometry_key, geometry_key(world, revision));
+        auto keys = geometry_keys(world, revision);
+        const bool topology_changed = update_key(m_topology_key, std::move(keys.topology));
+        const bool transforms_changed = update_key(m_geometry_key, std::move(keys.transforms));
+        const bool geometry_changed = topology_changed || transforms_changed;
         const bool materials_changed = update_key(m_material_key, material_key(world, images));
         const bool environment_changed =
             update_key(m_environment_key, environment_key(world, images));
@@ -425,8 +500,8 @@ namespace Comet {
         }
         const auto previous = std::exchange(m_scene, nullptr);
         // 键记录本次输入；失败的领域保留空缓存，避免之后改灯时复用过期内容。
-        if(geometry_changed)
-            m_geometry.reset();
+        const auto previous_geometry =
+            geometry_changed ? std::exchange(m_geometry, nullptr) : nullptr;
         if(materials_changed)
             m_materials.reset();
         if(environment_changed)
@@ -438,11 +513,17 @@ namespace Comet {
             if(auto valid = world.environment.validate(); !valid)
                 return Built::failure(valid.error());
             if(!m_geometry) {
-                auto candidate = build_geometry(world, read);
+                const bool refit =
+                    !topology_changed && previous_geometry && previous_geometry->topology;
+                auto candidate =
+                    refit ? refit_geometry(world, *previous_geometry) : build_geometry(world, read);
                 if(!candidate)
                     return Built::failure(candidate.error());
                 m_geometry = candidate.value();
-                ++m_statistics.geometry_builds;
+                if(refit)
+                    ++m_statistics.geometry_refits;
+                else
+                    ++m_statistics.geometry_builds;
             }
             if(!m_materials) {
                 auto candidate = build_materials(world, images, m_texture_dimension);
@@ -478,7 +559,8 @@ namespace Comet {
             scene->environment = {world.environment.background ? world.environment.intensity : -1.f,
                 world.environment.lighting ? world.environment.lighting_intensity : 0.f,
                 std::sin(rotation), std::cos(rotation)};
-            if(previous && previous->geometry == m_geometry && previous->materials == m_materials) {
+            if(previous && previous->geometry->topology == m_geometry->topology
+                && previous->materials == m_materials) {
                 scene->emitters = previous->emitters;
             } else {
                 auto emitters = std::make_shared<std::vector<uint32_t>>();
@@ -502,6 +584,7 @@ namespace Comet {
     void RaySceneBuilder::reset() {
         m_settings_key.clear();
         m_geometry_key.clear();
+        m_topology_key.clear();
         m_material_key.clear();
         m_environment_key.clear();
         m_lighting_key.clear();

@@ -64,7 +64,7 @@ namespace Comet {
     struct COMET_API MeshRendererComponent {
         AssetHandle mesh;
         AssetHandle material;
-        bool gi_static = true;
+        bool contributes_to_gi = true;
         bool operator==(const MeshRendererComponent&) const = default;
     };
 

@@ -2,6 +2,8 @@
 #include "render/material/material_programs.h"
 #include "asset/artifact/shader_program_artifact.h"
 
+#include <cmath>
+
 namespace Comet::Tests {
     namespace {
         RenderWorld reflection_world(const std::shared_ptr<Mesh>& mesh,
@@ -26,10 +28,10 @@ namespace Comet::Tests {
             return {
                 Math::look_at({0, 2, 4}, {0, 0, 0}, {0, 1, 0}), Math::perspective(55, 1, .1f, 20)};
         }
-        Math::Vec3 receiver_pixel(
-            std::span<const std::byte> pixels, Math::Vec2u size, Format format) {
-            const auto camera = reflection_camera();
-            const auto clip = camera.projection * camera.view * Math::Vec4(0, 0, 1, 1);
+        Math::Vec3 receiver_pixel(std::span<const std::byte> pixels, Math::Vec2u size,
+            Format format, const ViewProjectMatrix& camera = reflection_camera(),
+            Math::Vec3 point = {0, 0, 1}) {
+            const auto clip = camera.projection * camera.view * Math::Vec4(point, 1);
             const auto x = unsigned((clip.x / clip.w * .5f + .5f) * float(size.x));
             const auto y = unsigned((.5f - clip.y / clip.w * .5f) * float(size.y));
             const auto offset = (y * size.x + x) * 4;
@@ -43,7 +45,9 @@ namespace Comet::Tests {
     TEST_F(RenderGraphGpuTest, ScreenSpaceReflectionsFollowVisibleObjectsAndPreserveMisses) {
         auto& context = engine->get_renderer().get_render_context();
         auto& device = context.get_device();
-        for(const bool temporal : {false, true}) {
+        for(const auto& [orthographic, temporal] : {std::pair{false, false}, std::pair{false, true},
+                std::pair{true, false}, std::pair{true, true}}) {
+            SCOPED_TRACE(orthographic);
             SCOPED_TRACE(temporal);
             Math::Vec2u size{81, 81};
             MaterialPrograms programs;
@@ -60,8 +64,13 @@ namespace Comet::Tests {
             ASSERT_TRUE(emitter->set_scalar_property("intensity", 2));
             const auto mesh = lit_quad();
             auto world = reflection_world(mesh, mirror, emitter);
+            if(orthographic)
+                world.render_items[0].model_matrix =
+                    Math::scale(Math::Mat4(1), {1, 1, 2}) * world.render_items[0].model_matrix;
             const auto target = world.render_items[1].model_matrix;
-            const auto camera = reflection_camera();
+            auto camera = reflection_camera();
+            if(orthographic)
+                camera.projection = Math::ortho(-2, 2, -2, 2, .1f, 20);
             FrameScheduler frames(device, 2);
             frames.initialize_swapchain_images(2);
             FrameWait wait{device, frames};
@@ -147,7 +156,8 @@ namespace Comet::Tests {
                     size = {93, 67};
                     ASSERT_TRUE(scene.resize_offscreen_target(size));
                 }
-                ASSERT_TRUE(scene.prepare_post_process(settings));
+                const auto post_process = scene.prepare_post_process(settings);
+                ASSERT_TRUE(post_process) << post_process.error();
                 ASSERT_TRUE(scene.prepare_material_programs(world));
                 RenderGeometry geometry;
                 geometry.prepare(world);
@@ -165,7 +175,8 @@ namespace Comet::Tests {
                         .format;
                 finish_readback(scene, frames, output, size, drawn.value());
                 ASSERT_FALSE(HasFatalFailure());
-                const auto rgb = receiver_pixel(output->read(), size, format);
+                const auto point = orthographic ? Math::Vec3(0, 0, 1.2f) : Math::Vec3(0, 0, 1);
+                const auto rgb = receiver_pixel(output->read(), size, format, camera, point);
                 const auto red = int(rgb.r), green = int(rgb.g), blue = int(rgb.b);
                 switch(sample.expected) {
                     case Expected::Black:
@@ -217,7 +228,8 @@ namespace Comet::Tests {
             create_scene(programs, size, SampleCount::Count1, false, RenderPath::Deferred);
         ASSERT_TRUE(created);
         auto& scene = *created.value();
-        ASSERT_TRUE(scene.prepare_post_process({.reflections = {.enabled = true}}));
+        const auto post_process = scene.prepare_post_process({.reflections = {.enabled = true}});
+        ASSERT_TRUE(post_process) << post_process.error();
         auto mirror = std::make_shared<Material>("mirror", "pbr");
         ASSERT_TRUE(mirror->set_vector_property("base_color", {1, 1, 1, 1}));
         ASSERT_TRUE(mirror->set_scalar_property("metallic", 1));
@@ -293,6 +305,109 @@ namespace Comet::Tests {
                 EXPECT_GT(rgb.b, 100);
             else
                 EXPECT_LT(rgb.b, 5);
+        }
+    }
+
+    TEST_F(RenderGraphGpuTest, ScreenSpaceReflectionsStayStableAndDoNotRetainOldColors) {
+        auto& context = engine->get_renderer().get_render_context();
+        auto& device = context.get_device();
+        constexpr Math::Vec2u size{129, 129};
+        const auto mesh = lit_quad();
+        for(const bool temporal : {false, true}) {
+            SCOPED_TRACE(temporal);
+            MaterialPrograms programs;
+            auto created =
+                create_scene(programs, size, SampleCount::Count1, temporal, RenderPath::Deferred);
+            ASSERT_TRUE(created);
+            auto& scene = *created.value();
+            const auto post_process =
+                scene.prepare_post_process({.reflections = {.enabled = true}});
+            ASSERT_TRUE(post_process) << post_process.error();
+            auto mirror = std::make_shared<Material>("temporal receiver", "pbr");
+            ASSERT_TRUE(mirror->set_scalar_property("metallic", 1));
+            ASSERT_TRUE(mirror->set_scalar_property("roughness", .15f));
+            auto emitter = std::make_shared<Material>("moving reflected surface", "unlit_color");
+            ASSERT_TRUE(emitter->set_vector_property("color", {1, 0, 0, 1}));
+            ASSERT_TRUE(emitter->set_scalar_property("intensity", 2));
+            auto world = reflection_world(mesh, mirror, emitter);
+            auto camera = reflection_camera();
+            const auto target = world.render_items[1].model_matrix;
+            FrameScheduler frames(device, 2);
+            frames.initialize_swapchain_images(2);
+            FrameWait wait{device, frames};
+            auto readback = std::make_shared<Readback>(
+                device, device.get_capability().physical_device, size.x * size.y * 4);
+            Format format = Format::R8G8B8A8_UNORM;
+            const auto capture = [&]() -> std::vector<std::byte> {
+                const auto ready = scene.prepare_material_programs(world);
+                EXPECT_TRUE(ready);
+                if(!ready)
+                    return {};
+                RenderGeometry geometry;
+                geometry.prepare(world);
+                begin_frame(frames);
+                const auto drawn = scene.render(frames, {world, camera}, geometry);
+                EXPECT_TRUE(drawn);
+                if(!drawn)
+                    return {};
+                format = scene.get_offscreen_color_view(frames.get_current_frame_slot_index())
+                             ->get_image()
+                             ->get_info()
+                             .format;
+                finish_readback(scene, frames, readback, size, drawn.value());
+                const auto bytes = readback->read();
+                return {bytes.begin(), bytes.end()};
+            };
+            std::vector<std::byte> previous;
+            double max_rms = 0;
+            // 下半图只有镜面反射；排除全黑像素，避免大块背景掩盖反射边缘的变化。
+            for(int frame = 0; frame < 32; ++frame) {
+                const auto pixels = capture();
+                ASSERT_EQ(pixels.size(), size.x * size.y * 4);
+                if(frame >= 8) {
+                    double square = 0;
+                    size_t samples = 0;
+                    for(unsigned y = size.y / 2 + 3; y < size.y; ++y)
+                        for(unsigned x = 0; x < size.x; ++x) {
+                            const auto offset = (y * size.x + x) * 4;
+                            bool visible = false;
+                            for(int channel = 0; channel < 3; ++channel)
+                                visible |= std::to_integer<int>(pixels[offset + channel]) > 5
+                                           || std::to_integer<int>(previous[offset + channel]) > 5;
+                            if(!visible)
+                                continue;
+                            for(int channel = 0; channel < 3; ++channel) {
+                                const auto delta =
+                                    std::to_integer<int>(pixels[offset + channel])
+                                    - std::to_integer<int>(previous[offset + channel]);
+                                square += delta * delta;
+                                ++samples;
+                            }
+                        }
+                    ASSERT_GT(samples, 0u);
+                    max_rms = std::max(max_rms, std::sqrt(square / samples));
+                }
+                previous = pixels;
+            }
+            RecordProperty(
+                temporal ? "static_reflection_rms_taa" : "static_reflection_rms_unfiltered",
+                std::to_string(max_rms));
+            EXPECT_LT(max_rms, temporal ? 20 : .01);
+            ASSERT_TRUE(emitter->set_vector_property("color", {0, 1, 0, 1}));
+            for(int frame = 0; frame < 8; ++frame) {
+                const bool hidden = frame % 2 != 0;
+                world.render_items[1].model_matrix =
+                    Math::translate(Math::Mat4(1), {hidden ? 1.2f : 0.f, 0, 0}) * target;
+                camera.view = Math::look_at({.02f * frame, 2, 4}, {0, 0, 0}, {0, 1, 0});
+                const auto pixels = capture();
+                ASSERT_EQ(pixels.size(), size.x * size.y * 4);
+                const auto color = receiver_pixel(pixels, size, format, camera);
+                EXPECT_LT(color.r, 5); // 换色和运动不保留上一次红色反射。
+                if(hidden)
+                    EXPECT_LT(color.g, 5);
+                else
+                    EXPECT_GT(color.g, 20);
+            }
         }
     }
 

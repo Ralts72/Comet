@@ -62,7 +62,7 @@ def main():
                 if "mesh_renderer" in components and (
                         "script" in components or moving_body
                         or components["mesh_renderer"]["material"] == stripes):
-                    components["mesh_renderer"]["gi_static"] = False
+                    components["mesh_renderer"]["contributes_to_gi"] = False
             second["entities"].append({"uuid": str(uuid.uuid4()), "components": {
                 "name": "打包实时 GI", "transform": {
                     "translation": [0, 2, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1]},

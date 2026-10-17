@@ -46,7 +46,7 @@ namespace Comet {
         std::shared_ptr<Mesh> mesh;
         MaterialBinding material;
         std::shared_ptr<const ResolvedMeshLod> lod;
-        bool gi_static = true;
+        bool contributes_to_gi = true;
     };
 
     struct ResolvedReflectionProbe {
@@ -59,6 +59,9 @@ namespace Comet {
         RenderIrradianceVolume volume;
         std::shared_ptr<Irradiance> resource;
         uint64_t revision = 0;
+        uint32_t updated_first = 0;
+        uint32_t updated_count = 0;
+        uint32_t evaluated_probes = 0;
     };
 
     struct ResolvedDecal {
@@ -129,5 +132,6 @@ namespace Comet {
         std::shared_ptr<const RayScene> path_trace;
         PathTraceSettings path_trace_settings;
         const ResolvedIrradianceVolume* realtime_irradiance = nullptr;
+        IrradianceDebugMode irradiance_debug = IrradianceDebugMode::Off;
     };
 }

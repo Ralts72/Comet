@@ -284,7 +284,7 @@
         "mesh_renderer": {
           "mesh": 7535385251553858160,
           "material": 6729301842000000100,
-          "gi_static": false
+          "contributes_to_gi": false
         },
         "rigid_body": {
           "motion": "kinematic",
@@ -434,6 +434,64 @@
             "amplitude": 1.2,
             "speed": 0.7
           }
+        }
+      }
+    },
+    {
+      "uuid": "941b89a1-323f-5f9e-8133-2030654f07a7",
+      "components": {
+        "name": "移动遮挡门（参与 GI）",
+        "script": {
+          "asset": 14309634625000312006,
+          "parameters": {
+            "amplitude": 1.25,
+            "speed": 0.45
+          }
+        },
+        "transform": {
+          "translation": [
+            0,
+            1.2,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1.1,
+            2.4,
+            0.18
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 6729301842000000100,
+          "contributes_to_gi": true
+        },
+        "rigid_body": {
+          "motion": "kinematic",
+          "mass_mode": "mass",
+          "mass": 1,
+          "density": 1000,
+          "continuous_collision": false
+        },
+        "collider": {
+          "shape": "box",
+          "mesh": 0,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
+          "half_extents": [
+            0.5,
+            0.5,
+            0.5
+          ],
+          "radius": 0.5,
+          "height": 2,
+          "is_trigger": false,
+          "friction": 0.2,
+          "restitution": 0
         }
       }
     }

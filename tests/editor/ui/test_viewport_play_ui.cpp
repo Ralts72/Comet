@@ -12,6 +12,41 @@
 namespace CometEditor::Tests {
     using ViewportPlayUiTest = ViewportUiTest;
 
+    TEST_F(ViewportPlayUiTest, IrradianceDebugUsesViewMenuWithoutChangingSceneOrPlayState) {
+        const auto choose = [&](const char* label) {
+            auto* window = ImGui::FindWindowByName("Viewport");
+            ASSERT_NE(window, nullptr);
+            ImGui::ActivateItemByID(window->GetID("###View"));
+            frame();
+            frame();
+            ASSERT_FALSE(GImGui->OpenPopupStack.empty());
+            auto* popup = GImGui->OpenPopupStack.back().Window;
+            ASSERT_NE(popup, nullptr);
+            ImGui::ActivateItemByID(popup->GetID("GI 探针###Irradiance probes"));
+            frame();
+            frame();
+            ASSERT_GE(GImGui->OpenPopupStack.size(), 2u);
+            popup = GImGui->OpenPopupStack.back().Window;
+            ASSERT_NE(popup, nullptr);
+            ImGui::ActivateItemByID(popup->GetID(label));
+            frame();
+            ImGui::ClosePopupToLevel(0, true);
+            frame();
+        };
+        EXPECT_EQ(viewport.irradiance_debug(), Comet::IrradianceDebugMode::Off);
+        choose("状态###Probe status");
+        EXPECT_EQ(viewport.irradiance_debug(), Comet::IrradianceDebugMode::Status);
+        activate_play_camera();
+        ASSERT_TRUE(runtime.set_state(Comet::SceneRuntime::State::Paused));
+        choose("照明###Probe lighting");
+        EXPECT_EQ(viewport.irradiance_debug(), Comet::IrradianceDebugMode::Lighting);
+        choose("关闭###Probes off");
+        EXPECT_EQ(viewport.irradiance_debug(), Comet::IrradianceDebugMode::Off);
+        EXPECT_EQ(runtime.get_state(), Comet::SceneRuntime::State::Paused);
+        EXPECT_FALSE(viewport.take_play_command());
+        EXPECT_EQ(history.undo_size(), 0u);
+    }
+
     TEST_F(ViewportPlayUiTest, PathTraceUsesTheExistingViewMenuAndKeepsPlayControlsIndependent) {
         const auto choose = [&](const char* label) {
             auto* window = ImGui::FindWindowByName("Viewport");

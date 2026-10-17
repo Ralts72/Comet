@@ -53,7 +53,7 @@ namespace Comet {
         AssetHandle mesh_handle = INVALID_ASSET_HANDLE;
         AssetHandle material_handle = INVALID_ASSET_HANDLE;
         std::shared_ptr<const MaterialOverrides> material_overrides;
-        bool gi_static = true;
+        bool contributes_to_gi = true;
     };
 
     // revision 为 0 时逐项核对；局部批次只能接在 base_revision 对应的输出后。
@@ -150,6 +150,8 @@ namespace Comet {
         bool operator==(const PathTraceSettings&) const = default;
     };
 
+    enum class IrradianceDebugMode : uint32_t { Off, Status, Lighting };
+
     struct RenderView {
         enum class CameraSelection { ScenePrimary, Override };
 
@@ -160,5 +162,6 @@ namespace Comet {
         bool path_trace_enabled = false;
         std::shared_ptr<const RayScene> path_trace;
         PathTraceSettings path_trace_settings;
+        IrradianceDebugMode irradiance_debug = IrradianceDebugMode::Off;
     };
 }

@@ -31,7 +31,7 @@ namespace CometEditor::LightingBakeInput {
         using Described = Result<Snapshot>;
         Snapshot input{.scene = SceneExtractor::extract(scene)};
         std::erase_if(input.scene.render_items, [&](const auto& item) {
-            return (purpose == Purpose::Irradiance && !item.gi_static)
+            return (purpose == Purpose::Irradiance && !item.contributes_to_gi)
                    || !static_geometry(scene, scene.find_entity(item.entity_id));
         });
         std::erase_if(input.scene.lights, [&](const auto& light) {

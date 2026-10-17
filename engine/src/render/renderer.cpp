@@ -352,7 +352,7 @@ namespace Comet {
         input.lights = frame.world->lights;
         input.render_items.clear();
         for(const auto& item : frame.world->render_items)
-            if(item.gi_static && item.mesh && !item.mesh->is_skinned())
+            if(item.contributes_to_gi && item.mesh && !item.mesh->is_skinned())
                 input.render_items.push_back(item);
         auto scene = m_irradiance_builder->update(input, m_ray_read, m_ray_revision, m_ray_images);
         report(scene ? std::string{} : scene.error());
@@ -476,6 +476,10 @@ namespace Comet {
                 if(!updated)
                     return Result<void, GraphicsError>::failure(updated.error());
                 irradiance = ResolvedIrradianceVolume{selected->volume, std::move(updated).value()};
+                const auto statistics = m_realtime_irradiance->statistics();
+                irradiance->updated_first = statistics.first_updated_probe;
+                irradiance->updated_count = statistics.updated_probes;
+                irradiance->evaluated_probes = statistics.evaluated_probes;
             }
         } else if(m_realtime_irradiance) {
             m_realtime_irradiance->reset();
@@ -509,7 +513,8 @@ namespace Comet {
         const auto& frame_view = input.parameters;
         const RenderSubmission submission{world,
             has_scene ? view.camera.resolve(world, frame_view) : std::nullopt,
-            frame_view.path_trace, frame_view.path_trace_settings, irradiance};
+            frame_view.path_trace, frame_view.path_trace_settings, irradiance,
+            frame_view.irradiance_debug};
         if(auto prepared = view.scene->prepare_post_process(world.post_process); !prepared)
             return prepared;
         const auto& pick_request = input.pick;

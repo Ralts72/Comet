@@ -227,14 +227,27 @@ namespace Comet::Tests {
         };
         const auto first = draw();
         EXPECT_EQ(active(first), 1);
+        EXPECT_EQ(pass.statistics().evaluated_probes, 1u);
+        EXPECT_EQ(pass.statistics().first_updated_probe, 0u);
         const auto second = draw();
         EXPECT_EQ(active(second), 2);
+        EXPECT_EQ(pass.statistics().evaluated_probes, 2u);
+        EXPECT_EQ(pass.statistics().first_updated_probe, 1u);
         EXPECT_EQ(std::memcmp(&first.probes[0], &second.probes[0], sizeof(IrradianceProbe)), 0);
         for(int i = 0; i < 6; ++i)
             EXPECT_EQ(active(draw()), i + 3);
+        scene.world.render_items[0].model_matrix[0].x = -1;
+        ASSERT_NO_FATAL_FAILURE(scene.capture());
+        for(int i = 0; i < 8; ++i)
+            EXPECT_EQ(active(draw()), 8); // 镜像缩放仍是朝上的地面，不能误判为实心内部。
+        scene.world.render_items[0].model_matrix = Math::Mat4(1);
+        ASSERT_NO_FATAL_FAILURE(scene.capture());
         ++lifetime;
         EXPECT_EQ(active(draw()), 1);
         scene.world.render_items[0].model_matrix[3].x = .1f;
+        ASSERT_NO_FATAL_FAILURE(scene.capture());
+        EXPECT_EQ(active(draw()), 2); // 变换保留未更新探针，继续轮流接纳遮挡变化。
+        ++scene.world.render_items[0].mesh_revision;
         ASSERT_NO_FATAL_FAILURE(scene.capture());
         EXPECT_EQ(active(draw()), 1);
         settings.center.x = .1f;
@@ -260,6 +273,7 @@ namespace Comet::Tests {
         settings.spacing = .1f;
         settings.half_extents = {100, 100, 100};
         EXPECT_FALSE(pass.update(frames, lifetime, scene.snapshot, settings));
+        EXPECT_FALSE(pass.update(frames, lifetime, std::make_shared<RayScene>(), region()));
     }
     TEST_F(RealtimeIrradianceGpuTest, RealtimeIrradianceVisibilityKeepsLightBehindTheWall) {
         auto& device = engine->get_renderer().get_render_context().get_device();
@@ -303,6 +317,32 @@ namespace Comet::Tests {
             for(const auto value : probe.coefficients)
                 EXPECT_TRUE(Math::is_finite(value));
         }
+        const auto closed = scene.snapshot;
+        const auto upload = pass.statistics().geometry_upload_bytes;
+        scene.world.render_items.back().model_matrix[3].x = 100;
+        ASSERT_NO_FATAL_FAILURE(scene.capture());
+        EXPECT_EQ(scene.snapshot->geometry->topology, closed->geometry->topology);
+        EXPECT_EQ(scene.builder.statistics().geometry_builds, 1u);
+        EXPECT_EQ(scene.builder.statistics().geometry_refits, 1u);
+        for(int i = 0; i < 16; ++i)
+            data = read_probes(frames, pass, scene, settings, readback);
+        const auto open = data.sample({.25f, 0, 1}, {0, 0, -1});
+        ASSERT_TRUE(open);
+        EXPECT_GT(open->r, .08f);
+        EXPECT_GT(open->r, hidden->r * 8);
+        EXPECT_GT(pass.statistics().geometry_upload_bytes, upload);
+        const auto stable_upload = pass.statistics().geometry_upload_bytes;
+        scene.world.render_items.back().model_matrix[3].x = 0;
+        ASSERT_NO_FATAL_FAILURE(scene.capture());
+        for(int i = 0; i < 16; ++i)
+            data = read_probes(frames, pass, scene, settings, readback);
+        const auto closed_again = data.sample({.25f, 0, 1}, {0, 0, -1});
+        ASSERT_TRUE(closed_again);
+        EXPECT_LT(closed_again->r, open->r * .12f);
+        const auto stopped_upload = pass.statistics().geometry_upload_bytes;
+        EXPECT_GT(stopped_upload, stable_upload);
+        read_probes(frames, pass, scene, settings, readback);
+        EXPECT_EQ(pass.statistics().geometry_upload_bytes, stopped_upload);
     }
 
     TEST_F(RealtimeIrradianceGpuTest, RealtimeIrradianceIsSampledByForwardAndDeferredSurfaces) {
@@ -367,6 +407,109 @@ namespace Comet::Tests {
                     EXPECT_LT(red, 3);
                 }
                 EXPECT_EQ(renderer.value()->get_material_statistics().irradiance_probes, 8u);
+            }
+        }
+    }
+
+    TEST_F(RealtimeIrradianceGpuTest, ProbeDebugShowsValidityUpdatesLightingAndCanBeDisabled) {
+        auto& device = engine->get_renderer().get_render_context().get_device();
+        IrradianceData data;
+        data.origin = {-.5f, -.5f, -.5f};
+        data.spacing = {1, 1, 1};
+        data.dimensions = {2, 2, 2};
+        data.max_distance = 100;
+        data.probes.resize(8);
+        data.probes[0].coefficients[0] = {1, 0, 0, 1};
+        auto created = Irradiance::try_create(engine->get_render_resources(), data);
+        ASSERT_TRUE(created);
+        const auto resource = created.value();
+        auto volume = region();
+        volume.center = {};
+        volume.half_extents = {1, 1, 1};
+        const ResolvedIrradianceVolume live{.volume = volume,
+            .resource = resource,
+            .updated_first = 0,
+            .updated_count = 1,
+            .evaluated_probes = 2};
+        RenderWorld world;
+        world.irradiance_volumes.push_back({.volume = volume});
+        const ViewProjectMatrix camera{Math::look_at({3, 4, 5}, {0, 0, 0}, {0, 1, 0}),
+            Math::ortho(-1.6f, 1.6f, -1.6f, 1.6f, .1f, 20)};
+        constexpr Math::Vec2u size{129, 129};
+        const auto pixel = [&](size_t index) {
+            auto position =
+                camera.projection * camera.view * Math::Vec4(data.probe_position(index), 1);
+            return Math::Vec2u(
+                Math::Vec2(position.x, -position.y) / position.w * Math::Vec2(size) * .5f
+                + Math::Vec2(size) * .5f);
+        };
+        for(const auto& [path, realtime] :
+            {std::pair{RenderPath::Forward, true}, std::pair{RenderPath::Deferred, true},
+                std::pair{RenderPath::Forward, false}, std::pair{RenderPath::Deferred, false}}) {
+            SCOPED_TRACE(int(path));
+            SCOPED_TRACE(realtime);
+            world.irradiance_volumes.front().volume.realtime = realtime;
+            world.irradiance_volumes.front().resource = realtime ? nullptr : resource;
+            MaterialPrograms programs;
+            const auto samples =
+                path == RenderPath::Forward ? SampleCount::Count4 : SampleCount::Count1;
+            auto renderer =
+                create_scene(programs, size, samples, path == RenderPath::Deferred, path);
+            ASSERT_TRUE(renderer);
+            FrameScheduler frames(device, 2);
+            frames.initialize_swapchain_images(1);
+            FrameWait wait{device, frames};
+            auto readback = std::make_shared<Readback>(
+                device, device.get_capability().physical_device, size.x * size.y * 4);
+            for(const auto mode : {IrradianceDebugMode::Off, IrradianceDebugMode::Status,
+                    IrradianceDebugMode::Lighting, IrradianceDebugMode::Off}) {
+                SCOPED_TRACE(int(mode));
+                begin_frame(frames);
+                const RenderSubmission submission{
+                    world, camera, {}, {}, realtime ? &live : nullptr, mode};
+                RenderGeometry geometry;
+                geometry.prepare(world);
+                const auto drawn = renderer.value()->render(frames, submission, geometry);
+                ASSERT_TRUE(drawn) << drawn.error().message;
+                const auto output = renderer.value()->get_offscreen_color_view(
+                    frames.get_current_frame_slot_index());
+                ASSERT_NO_FATAL_FAILURE(
+                    finish_readback(*renderer.value(), frames, readback, size, drawn.value()));
+                const auto bytes = readback->read();
+                const auto format = output->get_image()->get_info().format;
+                const bool bgra =
+                    format == Format::B8G8R8A8_SRGB || format == Format::B8G8R8A8_UNORM;
+                const auto rgb = [&](Math::Vec2u p) {
+                    const auto offset = (p.y * size.x + p.x) * 4;
+                    return Math::Vec3(std::to_integer<int>(bytes[offset + (bgra ? 2 : 0)]),
+                        std::to_integer<int>(bytes[offset + 1]),
+                        std::to_integer<int>(bytes[offset + (bgra ? 0 : 2)]));
+                };
+                const auto first = rgb(pixel(0));
+                if(mode == IrradianceDebugMode::Off) {
+                    EXPECT_LT(glm::length(first), 3);
+                } else if(mode == IrradianceDebugMode::Lighting) {
+                    EXPECT_GT(first.r, 60);
+                    EXPECT_LT(first.g, 10);
+                } else {
+                    const auto invalid = rgb(pixel(1));
+                    const auto pending = rgb(pixel(2));
+                    EXPECT_GT(first.g, first.r * 2);
+                    EXPECT_GT(invalid.r, invalid.g * 2);
+                    if(realtime)
+                        EXPECT_NEAR(pending.r, pending.g, 2);
+                    else
+                        EXPECT_GT(pending.r, pending.g * 2);
+                    EXPECT_GT(pending.r, 20);
+                    bool highlighted = false;
+                    const auto center = pixel(0);
+                    for(int y = -5; y <= 5; ++y)
+                        for(int x = -5; x <= 5; ++x) {
+                            const auto color = rgb({center.x + x, center.y + y});
+                            highlighted |= color.r > 150 && color.g > 140 && color.b < 110;
+                        }
+                    EXPECT_EQ(highlighted, realtime);
+                }
             }
         }
     }

@@ -64,7 +64,7 @@ namespace {
     constexpr unsigned MAX_PHYSICS_OBJECTS = 512;
     constexpr std::string_view USAGE =
         "Usage: render_benchmark OUTPUT.csv OBJECTS WIDTH HEIGHT FRAMES BLOOM(0/1) "
-        "[MATERIALS [static|moving|script-moving|skeletal|light-moving|culling|project-shader|physics-active|physics-sleeping|reflections-off|reflections|gi-off|gi "
+        "[MATERIALS [static|moving|script-moving|skeletal|light-moving|culling|project-shader|physics-active|physics-sleeping|reflections-off|reflections|gi-off|gi|gi-moving "
         "[MSAA ANISOTROPY RENDER_SCALE [forward|deferred]]]]";
 
     enum class Workload {
@@ -80,7 +80,8 @@ namespace {
         ReflectionSurface,
         Reflections,
         IrradianceOff,
-        Irradiance
+        Irradiance,
+        IrradianceMoving
     };
 
     std::string_view workload_name(Workload workload) {
@@ -105,6 +106,8 @@ namespace {
                 return "reflections-off";
             case Workload::Reflections:
                 return "reflections";
+            case Workload::IrradianceMoving:
+                return "gi-moving";
             case Workload::IrradianceOff:
                 return "gi-off";
             case Workload::Irradiance:
@@ -114,8 +117,11 @@ namespace {
         }
     }
 
+    bool irradiance_enabled(Workload workload) {
+        return workload == Workload::Irradiance || workload == Workload::IrradianceMoving;
+    }
     bool uses_irradiance(Workload workload) {
-        return workload == Workload::Irradiance || workload == Workload::IrradianceOff;
+        return irradiance_enabled(workload) || workload == Workload::IrradianceOff;
     }
 
     bool uses_physics(Workload workload) {
@@ -176,6 +182,8 @@ namespace {
                 workload = Workload::Reflections;
             else if(name == "gi-off")
                 workload = Workload::IrradianceOff;
+            else if(name == "gi-moving")
+                workload = Workload::IrradianceMoving;
             else if(name == "gi")
                 workload = Workload::Irradiance;
             else if(name != "static")
@@ -446,7 +454,8 @@ namespace {
                     initial_poses.push_back({entity, pose});
                 }
             }
-            if(options.workload == Workload::Moving)
+            if(options.workload == Workload::Moving
+                || (options.workload == Workload::IrradianceMoving && index < 3))
                 initial_poses.push_back(
                     {entity, entity.get_component<Comet::TransformComponent>()});
             if(options.workload == Workload::ScriptMoving)
@@ -484,13 +493,13 @@ namespace {
         if(uses_irradiance(options.workload)) {
             auto region = create_entity("Realtime GI region");
             region.set_transform({.translation = {0, 1, 0}});
-            region.add_component<Comet::IrradianceVolumeComponent>(Comet::IrradianceVolumeComponent{
-                .enabled = options.workload == Workload::Irradiance,
-                .half_extents = {5.5f, 2, 5.5f},
-                .spacing = 1,
-                .realtime = true,
-                .update_budget = 8,
-                .update_rays = 64});
+            region.add_component<Comet::IrradianceVolumeComponent>(
+                Comet::IrradianceVolumeComponent{.enabled = irradiance_enabled(options.workload),
+                    .half_extents = {5.5f, 2, 5.5f},
+                    .spacing = 1,
+                    .realtime = true,
+                    .update_budget = 8,
+                    .update_rays = 64});
         }
         engine.set_scene(std::move(scene));
         return Result<void>::success();
@@ -536,7 +545,7 @@ namespace {
                     "cpu_geometry", "cpu_lighting", "cpu_submission_prep", "cpu_queue_submit",
                     "cpu_present", "cpu_render_prepare_record", "cpu_graph", "gpu_graph"})
                 m_samples[name].reserve(options.frames);
-            if(options.workload == Workload::Irradiance)
+            if(irradiance_enabled(options.workload))
                 m_samples["gpu_realtime_gi"].reserve(options.frames);
             for(const auto& pass : m_passes)
                 for(const auto* prefix : {"cpu_", "gpu_"})
@@ -651,7 +660,8 @@ namespace {
             uint64_t allocated = 0;
             for(const auto& heap : device.query_memory_budget().heaps)
                 allocated += heap.allocation_bytes;
-            const bool moving = m_options.workload == Workload::Moving
+            const bool moving = m_options.workload == Workload::IrradianceMoving
+                                || m_options.workload == Workload::Moving
                                 || m_options.workload == Workload::ScriptMoving;
             std::ostringstream report;
             report.imbue(std::locale::classic());
@@ -699,6 +709,11 @@ namespace {
                    << (m_options.workload == Workload::Culling ? "culling-v1" : "grid-v1")
                    << " stable_ids=on\n"
                    << "# moving_rotation_degrees_per_frame=" << (moving ? 0.5 : 0.0) << '\n'
+                   << "# gi_moving_objects="
+                   << (m_options.workload == Workload::IrradianceMoving
+                              ? std::min(3u, m_options.objects)
+                              : 0u)
+                   << '\n'
                    << "# scripts="
                    << (m_options.workload == Workload::ScriptMoving ? m_options.objects : 0) << '\n'
                    << "# skeletal_instances="
@@ -757,7 +772,7 @@ namespace {
                    << "# warmup=" << m_warmup << " requested_samples=" << m_options.frames
                    << " gpu_samples=" << gpu_samples << " gpu_status=" << gpu_status << '\n'
                    << "# gpu_error=" << snapshot.gpu_error << '\n'
-                   << "# realtime_gi=" << (m_options.workload == Workload::Irradiance)
+                   << "# realtime_gi=" << irradiance_enabled(m_options.workload)
                    << " probes=" << irradiance.probes
                    << " updated_probes=" << irradiance.updated_probes << " rays=" << irradiance.rays
                    << " image_bytes=" << irradiance.image_bytes
@@ -827,13 +842,16 @@ namespace {
             return Result<void>::success();
         }
         Result<void> validate_workload(const Comet::PhysicsService::Statistics& physics) {
-            if(m_options.workload == Workload::Irradiance) {
+            if(irradiance_enabled(m_options.workload)) {
                 const auto gi = m_engine.get_renderer().get_irradiance_statistics();
                 if(gi.probes != 484 || gi.updated_probes != 8 || gi.rays != 1024
-                    || !gi.geometry_upload_bytes
-                    || (m_gi_geometry_bytes && m_gi_geometry_bytes != gi.geometry_upload_bytes))
+                    || !gi.geometry_upload_bytes)
+                    return Result<void>::failure("GI benchmark did not update the expected probes");
+                const bool geometry_changed = gi.geometry_upload_bytes != m_gi_geometry_bytes;
+                const bool expected_motion = m_options.workload == Workload::IrradianceMoving;
+                if(m_gi_geometry_bytes && geometry_changed != expected_motion)
                     return Result<void>::failure(
-                        "GI benchmark did not update probes or rebuilt unchanged geometry");
+                        "GI benchmark geometry uploads do not match the motion workload");
                 m_gi_geometry_bytes = gi.geometry_upload_bytes;
             }
             if(!uses_physics(m_options.workload)) {

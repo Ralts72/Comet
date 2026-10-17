@@ -505,7 +505,8 @@ namespace CometEditor {
                 if(component_descriptor.id == "irradiance_volume") {
                     if(entity.get_component<Comet::IrradianceVolumeComponent>().realtime)
                         ImGui::TextWrapped(
-                            "实时模式更新静态几何的间接光。移动物体可采样；移动网格应关闭“参与静态 GI 几何”。蒙皮角色自动排除。预算越小、历史权重越大，灯光响应越慢。");
+                            "实时模式按预算更新灯光与非蒙皮几何的间接光。移动网格可改变遮挡；"
+                            "关闭“参与 GI 几何”后仅采样。蒙皮角色只采样。预算越小、历史权重越大，响应越慢。");
                     else
                         render_irradiance_bake(entity, edit_structure);
                 }

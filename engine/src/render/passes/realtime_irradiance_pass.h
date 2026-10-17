@@ -22,6 +22,8 @@ namespace Comet {
         struct Statistics {
             uint32_t probes = 0;
             uint32_t updated_probes = 0;
+            uint32_t first_updated_probe = 0;
+            uint32_t evaluated_probes = 0;
             uint32_t rays = 0;
             uint64_t updates = 0;
             uint64_t image_bytes = 0;

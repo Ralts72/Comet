@@ -53,6 +53,9 @@ namespace CometEditor {
         [[nodiscard]] bool is_visible() const { return m_actually_visible; }
         [[nodiscard]] bool shows_colliders() const { return m_show_colliders; }
         [[nodiscard]] bool shows_joints() const { return m_show_joints; }
+        [[nodiscard]] Comet::IrradianceDebugMode irradiance_debug() const {
+            return m_irradiance_debug;
+        }
         [[nodiscard]] bool path_trace_enabled() const { return m_path_trace; }
         [[nodiscard]] const Comet::PathTraceSettings& path_trace_settings() const {
             return m_path_trace_settings;
@@ -132,6 +135,7 @@ namespace CometEditor {
         bool m_show_game_ui = true;
         bool m_show_colliders = false;
         bool m_show_joints = false;
+        Comet::IrradianceDebugMode m_irradiance_debug = Comet::IrradianceDebugMode::Off;
         bool m_game_ui_reload_requested = false;
         bool m_path_trace = false;
         bool m_path_trace_restart = false;

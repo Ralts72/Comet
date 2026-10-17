@@ -29,15 +29,26 @@ namespace CometEditor {
                 pending.push_back(scene.find_entity(uuid));
             for(std::size_t i = 0; i < pending.size(); ++i) {
                 const auto entity = pending[i];
+                const auto visit_local = [&](const Comet::BoundingBox& local) {
+                    if(const auto world =
+                            Comet::transform_box(local, scene.get_world_matrix(entity)))
+                        visit(*world);
+                };
                 if(entity.has_component<Comet::MeshRendererComponent>()) {
                     const auto mesh = assets.resolve<Comet::Mesh>(
                         entity.get_component<Comet::MeshRendererComponent>().mesh);
                     if(mesh)
-                        visit(entity, mesh->get_local_bounds());
+                        visit_local(mesh->get_local_bounds());
                 }
                 if(entity.has_component<Comet::DecalComponent>()) {
                     const auto extent = entity.get_component<Comet::DecalComponent>().half_extents;
-                    visit(entity, Comet::BoundingBox{-extent, extent});
+                    visit_local(Comet::BoundingBox{-extent, extent});
+                }
+                if(entity.has_component<Comet::IrradianceVolumeComponent>()) {
+                    const auto center = Comet::Math::Vec3(scene.get_world_matrix(entity)[3]);
+                    const auto extent =
+                        entity.get_component<Comet::IrradianceVolumeComponent>().half_extents;
+                    visit(Comet::BoundingBox{center - extent, center + extent});
                 }
                 const auto children = scene.get_children(entity);
                 pending.insert(pending.end(), children.begin(), children.end());
@@ -85,6 +96,7 @@ namespace CometEditor {
                                         && m_panel.path_trace_enabled()
                                         && m_state.mode == EditorMode::Edit;
         parameters.path_trace_settings = m_panel.path_trace_settings();
+        parameters.irradiance_debug = m_panel.irradiance_debug();
         if(m_panel.take_path_trace_restart())
             ++m_path_trace_generation;
         parameters.path_trace_settings.reset_generation = m_path_trace_generation;
@@ -124,16 +136,12 @@ namespace CometEditor {
         if(!scene)
             return;
         std::optional<Comet::BoundingBox> bounds;
-        for_selected_bounds(*scene, m_selection, m_assets,
-            [&](Comet::Entity entity, const Comet::BoundingBox& local) {
-                const auto world = Comet::transform_box(local, scene->get_world_matrix(entity));
-                if(!world)
-                    return;
-                if(bounds)
-                    bounds->include(*world);
-                else
-                    bounds = world;
-            });
+        for_selected_bounds(*scene, m_selection, m_assets, [&](const Comet::BoundingBox& world) {
+            if(bounds)
+                bounds->include(world);
+            else
+                bounds = world;
+        });
         const auto resolution = m_panel.get_layout().image_resolution;
         if(bounds && resolution.x > 0 && resolution.y > 0)
             focus_editor_camera(
@@ -143,11 +151,10 @@ namespace CometEditor {
     void Viewport::append_selection_bounds(Comet::Scene& scene) {
         if(&m_selection.get_scene() != &scene)
             return;
-        for_selected_bounds(scene, m_selection, m_assets,
-            [&](Comet::Entity entity, const Comet::BoundingBox& local) {
-                static_cast<void>(m_feedback_lines.add_box(local, scene.get_world_matrix(entity),
-                    Comet::Math::Vec4(1.0f, 0.65f, 0.1f, 1.0f)));
-            });
+        for_selected_bounds(scene, m_selection, m_assets, [&](const Comet::BoundingBox& world) {
+            static_cast<void>(m_feedback_lines.add_box(
+                world, Comet::Math::Mat4(1), Comet::Math::Vec4(1.0f, 0.65f, 0.1f, 1.0f)));
+        });
         for(const auto uuid : m_selection.get_selected_entities()) {
             const auto entity = scene.find_entity(uuid);
             if(!entity)
@@ -179,6 +186,16 @@ namespace CometEditor {
             m_renderer.cancel_viewport_pick();
             return;
         }
+        if(m_panel.irradiance_debug() != Comet::IrradianceDebugMode::Off)
+            scene->each<const Comet::IrradianceVolumeComponent>(
+                [&](Comet::Entity entity, const Comet::IrradianceVolumeComponent& volume) {
+                    const auto center = Comet::Math::Vec3(scene->get_world_matrix(entity)[3]);
+                    const auto color = volume.enabled ? Comet::Math::Vec4(.1f, .8f, 1, 1)
+                                                      : Comet::Math::Vec4(.4f, .4f, .4f, 1);
+                    static_cast<void>(m_feedback_lines.add_box(
+                        {center - volume.half_extents, center + volume.half_extents},
+                        Comet::Math::Mat4(1), color));
+                });
         if(m_state.mode == EditorMode::Edit) {
             if(const auto pixel = m_panel.take_pick_request())
                 m_renderer.request_viewport_pick(

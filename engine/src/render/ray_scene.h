@@ -23,6 +23,7 @@ namespace Comet {
             Math::Vec4 normals[3];
             Math::Vec4 tangents[3];
             Math::Vec4 bitangents[3];
+            // 材质／物体槽、三个源顶点索引；GPU 只读取 x。
             std::array<uint32_t, 4> surface{};
         };
         struct Surface {
@@ -44,6 +45,12 @@ namespace Comet {
             std::array<uint32_t, 4> links{};
         };
         struct Geometry {
+            struct Topology {
+                std::vector<std::shared_ptr<const MeshData>> meshes;
+            };
+            // 变换更新复用源顶点和三角形顺序；旧快照仍拥有独立的世界坐标与 BVH。
+            std::shared_ptr<const Topology> topology;
+            std::vector<Math::Mat4> transforms;
             std::vector<Triangle> triangles;
             std::vector<Node> nodes;
         };
@@ -83,6 +90,7 @@ namespace Comet {
             const MeshReader& read, const MeshRevision& revision = {}, const Images& images = {});
         struct Statistics {
             uint64_t geometry_builds = 0;
+            uint64_t geometry_refits = 0;
             uint64_t material_builds = 0;
             uint64_t environment_builds = 0;
         };
@@ -93,6 +101,7 @@ namespace Comet {
         uint32_t m_texture_dimension;
         std::vector<std::byte> m_settings_key;
         std::vector<std::byte> m_geometry_key;
+        std::vector<std::byte> m_topology_key;
         std::vector<std::byte> m_material_key;
         std::vector<std::byte> m_environment_key;
         std::vector<std::byte> m_lighting_key;

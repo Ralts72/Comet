@@ -53,6 +53,7 @@ namespace Comet {
             return m_layout;
         }
         [[nodiscard]] DescriptorSet descriptor(uint32_t slot) const;
+        [[nodiscard]] const std::shared_ptr<Irradiance>& irradiance(uint32_t slot) const;
         [[nodiscard]] const std::shared_ptr<Texture>& fallback_texture() const {
             return m_fallback;
         }

@@ -199,6 +199,10 @@ namespace Comet {
         return *m_frames.at(slot)->descriptor;
     }
 
+    const std::shared_ptr<Irradiance>& ViewBindings::irradiance(uint32_t slot) const {
+        return m_frames.at(slot)->irradiance;
+    }
+
     ViewBindings::Statistics ViewBindings::statistics() const {
         auto result = m_statistics;
         result.frame_set_count = static_cast<uint32_t>(m_frames.size());

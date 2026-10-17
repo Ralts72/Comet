@@ -1706,7 +1706,7 @@ namespace Comet::Tests {
         EXPECT_FALSE(copy.value()
                 ->find_entity(moving.get_uuid())
                 .get_component<MeshRendererComponent>()
-                .gi_static);
+                .contributes_to_gi);
         const auto snapshot = SceneExtractor::extract(*copy.value());
         ASSERT_EQ(snapshot.irradiance_volumes.size(), 1u);
         const auto& extracted = snapshot.irradiance_volumes[0];
@@ -1716,7 +1716,7 @@ namespace Comet::Tests {
         EXPECT_EQ(extracted.update_rays, 128u);
         EXPECT_FLOAT_EQ(extracted.history_weight, .85f);
         ASSERT_EQ(snapshot.render_items.size(), 1u);
-        EXPECT_FALSE(snapshot.render_items[0].gi_static);
+        EXPECT_FALSE(snapshot.render_items[0].contributes_to_gi);
         const auto runtime = registry.collect_asset_references(
             *copy.value(), ComponentRegistry::ReferenceScope::Runtime);
         EXPECT_FALSE(std::ranges::any_of(

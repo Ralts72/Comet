@@ -9,6 +9,7 @@
 #include "render/passes/shadow_pass.h"
 #include "render/passes/skybox_pass.h"
 #include "render/resource/texture.h"
+#include "render/resource/irradiance.h"
 #include "graphics/frame_buffer.h"
 #include "graphics/resource/image_view.h"
 #include "graphics/device.h"
@@ -83,6 +84,7 @@ namespace Comet {
         std::optional<RenderGraph::PassId> temporal_pass;
         bool offscreen = false;
         QualitySettings quality;
+        IrradianceDebugMode irradiance_debug = IrradianceDebugMode::Off;
     };
 
     Result<std::unique_ptr<SceneRenderer>, GraphicsError> SceneRenderer::create(Device& device,
@@ -227,7 +229,8 @@ namespace Comet {
                 return Creation::failure(reflections.error());
             next->reflections = std::move(reflections).value();
         }
-        auto debug = DebugRenderer::create(m_device, *next->pipelines, m_frame_slot_count, samples);
+        auto debug = DebugRenderer::create(m_device, *next->pipelines, m_frame_slot_count, samples,
+            next->materials->view_bindings().layout());
         if(!debug)
             return Creation::failure(debug.error());
         next->debug = std::move(debug).value();
@@ -803,6 +806,12 @@ namespace Comet {
         }
         if(m_state->path_trace)
             m_state->path_trace->reset();
+        // 探针状态只显示本帧，关闭调试时也清除上一帧的标记历史。
+        if(m_state->temporal
+            && (submission.irradiance_debug != IrradianceDebugMode::Off
+                || m_state->irradiance_debug != IrradianceDebugMode::Off))
+            m_state->temporal->reset();
+        m_state->irradiance_debug = submission.irradiance_debug;
         if(m_state->temporal) {
             if(!submission.view_project_matrix)
                 m_state->temporal->reset();
@@ -1029,6 +1038,27 @@ namespace Comet {
                     merge_semaphore_wait(waits.value(), wait);
             }
             record_transparent(frames, waits.value());
+            if(submission.irradiance_debug != IrradianceDebugMode::Off) {
+                const auto slot = frames.get_current_frame_slot_index();
+                const auto& bindings = m_state->materials->view_bindings();
+                if(const auto& irradiance = bindings.irradiance(slot)) {
+                    const auto* live = submission.realtime_irradiance;
+                    const bool realtime = live && live->resource == irradiance;
+                    Math::Vec2u updated{};
+                    auto evaluated = irradiance->dimensions.x * irradiance->dimensions.y
+                                     * irradiance->dimensions.z;
+                    if(realtime) {
+                        updated = {live->updated_first, live->updated_count};
+                        evaluated = live->evaluated_probes;
+                    }
+                    if(auto probes =
+                            m_state->debug->render_irradiance(frames, bindings.descriptor(slot),
+                                *irradiance, size, submission.irradiance_debug, evaluated, updated);
+                        !probes)
+                        return Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>::failure(
+                            probes.error());
+                }
+            }
             if(auto debug = m_state->debug->render(frames, *submission.view_project_matrix, lines);
                 !debug)
                 return Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>::failure(
