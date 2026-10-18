@@ -6,6 +6,8 @@
 #include "graphics/pipeline/shader.h"
 #include "render/resource/ray_scene_buffers.h"
 #include "graphics/resource/image.h"
+#include "graphics/resource/buffer.h"
+#include "render/passes/radiance_filter.h"
 #include "graphics/resource/image_view.h"
 #include "render/frame_scheduler.h"
 #include "render/render_diagnostics.h"
@@ -21,9 +23,15 @@ namespace Comet {
             Math::Vec4 environment;
         };
         static_assert(sizeof(Parameters) == 128);
+        struct CameraParameters {
+            Math::Mat4 current, previous;
+            Math::Vec4 medium, medium_color;
+            std::array<uint32_t, 4> flags{};
+        };
+        static_assert(sizeof(CameraParameters) == 176);
         static_assert(sizeof(RayScene::Triangle) == 208);
         static_assert(sizeof(RayScene::Node) == 48);
-        static_assert(sizeof(RayScene::Surface) == 80);
+        static_assert(sizeof(RayScene::Surface) == 112);
         static_assert(sizeof(RayScene::Texture) == 32);
     }
 
@@ -36,7 +44,11 @@ namespace Comet {
         std::shared_ptr<Program> program;
         std::shared_ptr<const RayScene> source;
         Math::Vec2u size;
-        std::shared_ptr<ImageView> image;
+        std::shared_ptr<ImageView> image, guide, motion;
+        bool guides = false;
+        bool guides_initialized = false;
+        std::vector<std::shared_ptr<CPUBuffer>> cameras;
+        std::vector<std::shared_ptr<RaySceneBuffers>> previous;
         std::shared_ptr<RaySceneBuffers> buffers;
         std::unique_ptr<DescriptorPool> pool;
         std::vector<DescriptorSet> descriptors;
@@ -49,11 +61,11 @@ namespace Comet {
     Result<void, GraphicsError> PathTracePass::check_support(const Device& device) {
         const auto& capability = device.get_capability();
         const auto limits = capability.physical_device.getProperties().limits;
-        if(limits.maxPerStageDescriptorStorageBuffers < 8
-            || limits.maxDescriptorSetStorageBuffers < 8
+        if(limits.maxPerStageDescriptorStorageBuffers < 9
+            || limits.maxDescriptorSetStorageBuffers < 9
             || limits.maxPushConstantsSize < sizeof(Parameters))
             return Result<void, GraphicsError>::failure(
-                {"设备不支持路径追踪的 8 个 storage buffer／128 字节 push constants"});
+                {"设备不支持路径追踪的 9 个 storage buffer／128 字节 push constants"});
         const auto features =
             capability.physical_device.getFormatProperties(vk::Format::eR32G32B32A32Sfloat)
                 .optimalTilingFeatures;
@@ -83,6 +95,14 @@ namespace Comet {
         for(uint32_t i = 4; i < 9; ++i)
             bindings.add_binding(
                 i, DescriptorType::StorageBuffer, Flags<ShaderStage>(ShaderStage::Compute));
+        bindings.add_binding(
+            9, DescriptorType::StorageImage, Flags<ShaderStage>(ShaderStage::Compute));
+        bindings.add_binding(
+            10, DescriptorType::StorageImage, Flags<ShaderStage>(ShaderStage::Compute));
+        bindings.add_binding(
+            11, DescriptorType::StorageBuffer, Flags<ShaderStage>(ShaderStage::Compute));
+        bindings.add_binding(
+            12, DescriptorType::UniformBuffer, Flags<ShaderStage>(ShaderStage::Compute));
         auto descriptors = DescriptorSetLayout::create(m_device, bindings);
         if(!descriptors)
             return Result<void, GraphicsError>::failure(descriptors.error());
@@ -115,9 +135,10 @@ namespace Comet {
         return Result<void, GraphicsError>::success();
     }
 
-    Result<void, GraphicsError> PathTracePass::prepare(
-        const std::shared_ptr<const RayScene>& scene, Math::Vec2u size) {
-        if(m_resources && m_resources->source == scene && m_resources->size == size)
+    Result<void, GraphicsError> PathTracePass::prepare(const std::shared_ptr<const RayScene>& scene,
+        Math::Vec2u size, uint32_t frame_slots, bool guides) {
+        if(m_resources && m_resources->source == scene && m_resources->size == size
+            && m_resources->guides == guides && m_resources->descriptors.size() == frame_slots)
             return Result<void, GraphicsError>::success();
         if(auto initialized = initialize(); !initialized)
             return initialized;
@@ -125,6 +146,7 @@ namespace Comet {
         next->program = m_program;
         next->source = scene;
         next->size = size;
+        next->guides = guides;
         const auto limits = m_device.get_capability().physical_device.getProperties().limits;
         if(size.x > limits.maxImageDimension2D || size.y > limits.maxImageDimension2D)
             return Result<void, GraphicsError>::failure({"路径追踪输入超过设备资源限制"});
@@ -147,27 +169,67 @@ namespace Comet {
                     {"Cannot create path trace image view", view.result()});
             next->image = std::move(view).value();
         }
+        next->guide = next->motion = next->image;
+        if(guides) {
+            if(m_resources && m_resources->size == size && m_resources->guides) {
+                next->guide = m_resources->guide;
+                next->motion = m_resources->motion;
+                next->guides_initialized = m_resources->guides_initialized;
+            } else {
+                for(auto* target : {&next->guide, &next->motion}) {
+                    auto image = Image::try_create(m_device,
+                        {Format::R32G32B32A32_SFLOAT, {size.x, size.y, 1},
+                            Flags<ImageUsage>(ImageUsage::StorageBinding) | ImageUsage::Sampled},
+                        false, SampleCount::Count1, "path trace guide");
+                    if(!image)
+                        return Result<void, GraphicsError>::failure(
+                            {"Cannot allocate ray guide", image.result()});
+                    auto view = ImageView::try_create(
+                        m_device, std::move(image).value(), Flags<ImageAspect>(ImageAspect::Color));
+                    if(!view)
+                        return Result<void, GraphicsError>::failure(
+                            {"Cannot create ray guide", view.result()});
+                    *target = std::move(view).value();
+                }
+            }
+        }
         auto buffers =
             RaySceneBuffers::prepare(m_device, scene, m_resources ? m_resources->buffers : nullptr);
         if(!buffers)
             return Result<void, GraphicsError>::failure(buffers.error());
         next->buffers = std::move(buffers).value();
         DescriptorPoolSizes pool_sizes;
-        pool_sizes.add_pool_size(DescriptorType::StorageBuffer, 8);
-        pool_sizes.add_pool_size(DescriptorType::StorageImage, 1);
-        auto pool = DescriptorPool::create(m_device, 1, pool_sizes);
+        pool_sizes.add_pool_size(DescriptorType::StorageBuffer, 9 * frame_slots);
+        pool_sizes.add_pool_size(DescriptorType::StorageImage, 3 * frame_slots);
+        pool_sizes.add_pool_size(DescriptorType::UniformBuffer, frame_slots);
+        auto pool = DescriptorPool::create(m_device, frame_slots, pool_sizes);
         if(!pool)
             return Result<void, GraphicsError>::failure(pool.error());
         next->pool = std::move(pool).value();
-        auto sets = next->pool->allocate_descriptor_set(*m_program->descriptors, 1);
+        auto sets = next->pool->allocate_descriptor_set(*m_program->descriptors, frame_slots);
         if(!sets)
             return Result<void, GraphicsError>::failure(sets.error());
         next->descriptors = std::move(sets).value();
-        next->buffers->write(m_device, next->descriptors[0]);
-        const vk::DescriptorImageInfo image_info({}, next->image->get(), vk::ImageLayout::eGeneral);
-        const vk::WriteDescriptorSet write{
-            next->descriptors[0].get(), 3, 0, 1, vk::DescriptorType::eStorageImage, &image_info};
-        m_device.get().updateDescriptorSets(write, {});
+        for(auto& descriptor : next->descriptors) {
+            next->buffers->write(m_device, descriptor);
+            auto buffer =
+                Buffer::try_create_cpu_buffer(m_device, Flags<BufferUsage>(BufferUsage::Uniform),
+                    sizeof(CameraParameters), true, nullptr, "path trace camera");
+            if(!buffer)
+                return Result<void, GraphicsError>::failure(buffer.error());
+            next->cameras.push_back(std::move(buffer).value());
+            const std::array infos{
+                vk::DescriptorImageInfo({}, next->image->get(), vk::ImageLayout::eGeneral),
+                vk::DescriptorImageInfo({}, next->guide->get(), vk::ImageLayout::eGeneral),
+                vk::DescriptorImageInfo({}, next->motion->get(), vk::ImageLayout::eGeneral)};
+            std::array<vk::WriteDescriptorSet, 3> writes;
+            constexpr std::array<uint32_t, 3> indices{3, 9, 10};
+            for(size_t i = 0; i < writes.size(); ++i)
+                writes[i] = {descriptor.get(), indices[i], 0, 1, vk::DescriptorType::eStorageImage,
+                    &infos[i]};
+            m_device.get().updateDescriptorSets(writes, {});
+        }
+        next->previous.resize(frame_slots);
         m_upload_bytes += next->buffers->upload_bytes;
         m_geometry_upload_bytes += next->buffers->geometry_upload_bytes;
         m_resources = std::move(next);
@@ -190,14 +252,62 @@ namespace Comet {
         const auto inverse = Math::inverse(view_projection);
         if(!Math::is_finite(view_projection) || !Math::is_finite(inverse))
             return Result<void, GraphicsError>::failure({"Invalid path trace camera"});
-        if(auto ready = prepare(scene, settings.image_size(output_size)); !ready)
+        if(auto ready = prepare(scene, settings.image_size(output_size),
+               frames.get_frame_slot_count(), settings.denoise);
+            !ready)
             return ready;
         if(view_projection != m_view_projection || settings.bounces != m_settings.bounces
             || settings.seed != m_settings.seed
-            || settings.reset_generation != m_settings.reset_generation)
+            || settings.reset_generation != m_settings.reset_generation
+            || settings.dynamic != m_settings.dynamic
+            || settings.medium_density != m_settings.medium_density
+            || settings.medium_color != m_settings.medium_color
+            || settings.medium_anisotropy != m_settings.medium_anisotropy)
             m_samples = 0;
+        const auto slot = frames.get_current_frame_slot_index();
+        const bool history_valid =
+            m_previous_buffers && m_recorded_serial + 1 == frames.get_current_frame_serial()
+            && m_previous_buffers->source->geometry->triangles.size()
+                   == scene->geometry->triangles.size()
+            && (m_previous_buffers->source->geometry == scene->geometry
+                || (scene->geometry->topology
+                    && m_previous_buffers->source->geometry->topology == scene->geometry->topology))
+            && m_previous_buffers->source->materials->images == scene->materials->images
+            && !camera.is_cut_from(m_previous_camera)
+            && settings.reset_generation == m_settings.reset_generation
+            && settings.bounces == m_settings.bounces && settings.seed == m_settings.seed
+            && settings.medium_density == m_settings.medium_density
+            && settings.medium_color == m_settings.medium_color
+            && settings.medium_anisotropy == m_settings.medium_anisotropy;
+        auto previous = history_valid ? m_previous_buffers : m_resources->buffers;
+        m_resources->previous[slot] = previous;
+        const CameraParameters camera_parameters{view_projection,
+            m_previous_camera.projection * m_previous_camera.view,
+            {settings.medium_density, settings.medium_anisotropy, 100, 0},
+            Math::Vec4(settings.medium_color, 0),
+            {history_valid ? 1u : 0u, settings.denoise ? 1u : 0u, 0, 0}};
+        m_resources->cameras[slot]->write(&camera_parameters);
+        const vk::DescriptorBufferInfo old_triangles(
+            previous->buffers[1]->get(), 0, previous->sizes[1]);
+        const vk::DescriptorBufferInfo camera_buffer(
+            m_resources->cameras[slot]->get(), 0, sizeof(CameraParameters));
+        const std::array buffer_writes{
+            vk::WriteDescriptorSet(m_resources->descriptors[slot].get(), 11, 0, 1,
+                vk::DescriptorType::eStorageBuffer, nullptr, &old_triangles),
+            vk::WriteDescriptorSet(m_resources->descriptors[slot].get(), 12, 0, 1,
+                vk::DescriptorType::eUniformBuffer, nullptr, &camera_buffer)};
+        m_device.get().updateDescriptorSets(buffer_writes, {});
+        if(settings.dynamic)
+            m_samples = 0;
+        if(settings.denoise && !m_filter) {
+            auto filter = RadianceFilter::create(m_device);
+            if(!filter)
+                return Result<void, GraphicsError>::failure(filter.error());
+            m_filter = std::move(filter).value();
+        }
+        if(!settings.denoise && m_filter)
+            m_filter->reset();
         m_view_projection = view_projection;
-        m_settings = settings;
         frames.retain_current_frame_resource(m_resources);
         RenderGraph graph;
         const auto range = ImageSubresourceRange{.aspects = Flags<ImageAspect>(ImageAspect::Color)};
@@ -210,18 +320,43 @@ namespace Comet {
         if(!m_resources->initialized)
             clear = graph.add_pass(
                 {"initialize accumulation", {{image, ResourceUsage::TransferDestination, {}}}});
+        std::array<RenderGraph::ResourceId, 2> guides{};
+        if(settings.denoise) {
+            const auto state = m_resources->guides_initialized
+                                   ? *resolve_image_state(ResourceUsage::SampledRead, range,
+                                         Flags<PipelineStage>(PipelineStage::FragmentShader))
+                                   : ImageState{.subresources = range};
+            guides[0] = graph.import_image("ray normal depth", state);
+            guides[1] = graph.import_image("ray reprojection", state);
+        }
         const bool dispatch = m_samples < settings.samples;
         std::optional<RenderGraph::PassId> compute;
-        if(dispatch)
-            compute = graph.add_pass(
-                {"path trace", {{image, ResourceUsage::StorageReadWrite,
-                                   Flags<PipelineStage>(PipelineStage::ComputeShader)}}});
-        graph.add_pass({"display", {{image, ResourceUsage::SampledRead,
-                                       Flags<PipelineStage>(PipelineStage::FragmentShader)}}});
+        if(dispatch) {
+            RenderGraph::Pass trace{
+                "path trace", {{image, ResourceUsage::StorageReadWrite,
+                                  Flags<PipelineStage>(PipelineStage::ComputeShader)}}};
+            if(settings.denoise)
+                for(auto id : guides)
+                    trace.uses.push_back({id, ResourceUsage::StorageWrite,
+                        Flags<PipelineStage>(PipelineStage::ComputeShader)});
+            compute = graph.add_pass(std::move(trace));
+        }
+        RenderGraph::Pass show{
+            "filter and display", {{image, ResourceUsage::SampledRead,
+                                      Flags<PipelineStage>(PipelineStage::FragmentShader)}}};
+        if(settings.denoise)
+            for(auto id : guides)
+                show.uses.push_back({id, ResourceUsage::SampledRead,
+                    Flags<PipelineStage>(PipelineStage::FragmentShader)});
+        const auto display_id = graph.add_pass(std::move(show));
         auto compiled = graph.compile();
         if(!compiled)
             return Result<void, GraphicsError>::failure({compiled.error()});
-        const std::array<RenderGraph::Binding, 1> bindings{m_resources->image->get_image()};
+        std::vector<RenderGraph::Binding> bindings{m_resources->image->get_image()};
+        if(settings.denoise) {
+            bindings.emplace_back(m_resources->guide->get_image());
+            bindings.emplace_back(m_resources->motion->get_image());
+        }
         const auto record = [&](RenderGraph::PassId pass, CommandBuffer& command) {
             if(clear && pass == *clear) {
                 const vk::ImageSubresourceRange color(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1);
@@ -230,18 +365,33 @@ namespace Comet {
                     vk::ClearColorValue(std::array<float, 4>{0, 0, 0, 0}), color);
                 return Result<void, GraphicsError>::success();
             }
-            if(!compute || pass != *compute)
+            if(pass == display_id) {
+                m_settings.denoise = settings.denoise;
+                if(settings.denoise) {
+                    if(auto filtered = m_filter->render(frames, m_resources->image,
+                           m_resources->guide, m_resources->motion, camera, m_previous_camera,
+                           settings.history_weight, history_valid);
+                        !filtered)
+                        return filtered;
+                }
                 return display(pass, command);
+            }
+            if(!compute || pass != *compute)
+                return Result<void, GraphicsError>::failure({"Unknown path trace pass"});
             if(dispatch) {
                 const auto size = m_resources->size;
                 const Parameters parameters{inverse, Math::Vec4(scene->background, 1),
                     {size.x, size.y, m_samples, settings.bounces},
                     {uint32_t(scene->geometry->nodes.size()),
-                        uint32_t(scene->lighting->light_count), settings.seed,
+                        uint32_t(scene->lighting->light_count),
+                        settings.seed
+                            ^ (settings.dynamic
+                                    ? uint32_t(frames.get_current_frame_serial()) * 747796405u
+                                    : 0u),
                         uint32_t(scene->emitters->size())},
                     scene->environment};
                 const auto vk_command = command.get();
-                const auto set = m_resources->descriptors[0].get();
+                const auto set = m_resources->descriptors[slot].get();
                 vk_command.bindPipeline(vk::PipelineBindPoint::eCompute, m_program->pipeline.get());
                 vk_command.bindDescriptorSets(vk::PipelineBindPoint::eCompute,
                     m_program->layout.get(), 0, 1, &set, 0, nullptr);
@@ -255,6 +405,11 @@ namespace Comet {
                                           : compiled.value().record(frames, bindings, record);
         if(recorded) {
             m_resources->initialized = true;
+            if(settings.denoise)
+                m_resources->guides_initialized = true;
+            m_previous_camera = camera;
+            m_previous_buffers = m_resources->buffers;
+            m_settings = settings;
             m_recorded_serial = frames.get_current_frame_serial();
             m_samples += dispatch ? 1 : 0;
             m_dispatches += dispatch ? 1 : 0;
@@ -263,6 +418,8 @@ namespace Comet {
     }
 
     std::shared_ptr<ImageView> PathTracePass::output() const {
+        if(m_settings.denoise && m_filter && m_filter->output())
+            return m_filter->output();
         return m_resources ? m_resources->image : nullptr;
     }
     PathTracePass::Statistics PathTracePass::statistics() const {
@@ -274,6 +431,9 @@ namespace Comet {
     }
     void PathTracePass::reset() {
         m_resources.reset();
+        m_previous_buffers.reset();
+        if(m_filter)
+            m_filter->reset();
         m_samples = 0;
         m_recorded_serial = 0;
         m_upload_bytes = 0;

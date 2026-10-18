@@ -7,6 +7,7 @@
 #include "render/lighting.h"
 
 #include <functional>
+#include <map>
 #include <memory>
 #include <vector>
 
@@ -15,8 +16,8 @@ namespace Comet {
 
     // Main 构造的只读世界空间快照；不持有 Scene、资产服务或 GPU 对象。
     struct RayScene {
-        static constexpr uint32_t MAX_SKINNED_VERTICES = 65536;
-        static constexpr uint32_t MAX_TRIANGLES = 262144;
+        static constexpr uint32_t MAX_SKINNED_VERTICES = 262144;
+        static constexpr uint32_t MAX_TRIANGLES = 1048576;
         static constexpr size_t MAX_TEXTURE_BYTES = 128 * 1024 * 1024;
         struct Triangle {
             Math::Vec4 positions[3];
@@ -32,11 +33,13 @@ namespace Comet {
             Math::Vec4 emission_roughness;
             // base color、normal、metallic/roughness、emissive；0 表示默认贴图。
             std::array<uint32_t, 4> textures{};
-            Math::Vec4 parameters{};          // normal scale、double sided、transmission、IOR
+            Math::Vec4 parameters{}; // normal scale、double sided、transmission、IOR
+            Math::Vec4 water{0};
+            Math::Vec4 absorption{0};         // Beer–Lambert 的每米吸收系数；w 保留。
             Math::Vec4 opacity{1, .5f, 0, 0}; // alpha factor、cutoff、AlphaMode，保留
         };
         struct Texture {
-            std::array<uint32_t, 4> extent{};  // texel offset、width、height，保留
+            std::array<uint32_t, 4> extent{};  // texel offset、width、height、mip 数
             std::array<uint32_t, 4> sampler{}; // address u、address v、filter，保留
         };
         struct Node {
@@ -55,17 +58,28 @@ namespace Comet {
             struct Deformation {
                 std::shared_ptr<const AnimationPlayback> playback;
                 std::shared_ptr<const std::vector<MeshVertex>> vertices;
+                Math::Vec4 bend{0};
             };
             std::vector<Deformation> deformations;
             std::vector<Triangle> triangles;
             std::vector<Node> nodes;
             // 原地重排三角形；所有消费者共用相同的 escape 链布局。
             COMET_API void build_bvh();
+            COMET_API void refit_bvh();
+        };
+        // 射线与粒子碰撞共用相同的蒙皮／柔性弯曲求值，结果只读。
+        [[nodiscard]] static COMET_API Result<Geometry::Deformation> deform(const MeshData& mesh,
+            const std::shared_ptr<const AnimationPlayback>& playback,
+            Math::Vec4 bend = Math::Vec4(0),
+            const std::shared_ptr<const AnimationData>& source = {});
+        struct TextureBank {
+            std::vector<Texture> textures;
+            std::vector<Math::Vec4> texels;
+            std::map<AssetHandle, uint32_t> indices;
         };
         struct Materials {
             std::vector<Surface> surfaces;
-            std::vector<Texture> textures;
-            std::vector<Math::Vec4> texels;
+            std::shared_ptr<const TextureBank> images;
         };
         struct Environment {
             Math::Vec2u size{};
@@ -100,6 +114,7 @@ namespace Comet {
             uint64_t geometry_builds = 0;
             uint64_t geometry_refits = 0;
             uint64_t material_builds = 0;
+            uint64_t texture_builds = 0;
             uint64_t environment_builds = 0;
         };
         [[nodiscard]] Statistics statistics() const { return m_statistics; }
@@ -111,6 +126,8 @@ namespace Comet {
         std::vector<std::byte> m_geometry_key;
         std::vector<std::byte> m_topology_key;
         std::vector<std::byte> m_material_key;
+        std::vector<std::byte> m_texture_key;
+        std::shared_ptr<const RayScene::TextureBank> m_images;
         std::vector<std::byte> m_environment_key;
         std::vector<std::byte> m_lighting_key;
         std::shared_ptr<const RayScene::Geometry> m_geometry;

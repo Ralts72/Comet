@@ -1,3 +1,4 @@
+#include "asset/runtime/prefab_loader.h"
 #include "assets/irradiance_bake.h"
 #include "assets/editor_assets.h"
 #include "asset/artifact/texture_artifact.h"
@@ -326,7 +327,7 @@ namespace CometEditor::Tests {
         Math::Vec3 closed_floor{};
         for(const std::string kind : {"closed", "open"}) {
             const auto loaded =
-                SceneSerializer(components)
+                SceneSerializer(components, project_scene_sources(assets, components))
                     .load((paths.assets() / "scenes" / ("gi_" + kind + "_room.scene")).string());
             ASSERT_TRUE(loaded) << loaded.error();
             auto& scene = *loaded.value();
@@ -334,7 +335,8 @@ namespace CometEditor::Tests {
             for(const auto entity : scene.get_entities()) {
                 if(entity.has_component<IrradianceVolumeComponent>())
                     region = entity;
-                if(entity.has_component<RigidBodyComponent>())
+                if(entity.has_component<RigidBodyComponent>()
+                    && entity.get_component<RigidBodyComponent>().motion == BodyMotion::Kinematic)
                     moving = entity;
             }
             ASSERT_TRUE(region);

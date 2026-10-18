@@ -30,7 +30,11 @@ layout(set = 1, binding = 0, std140) uniform MaterialData {
     float emissive_strength;
     float transmission;
     float ior;
+    float attenuation_distance;
+    vec4 attenuation_color;
+    vec4 water_parameters;
 } material;
+#include "../common/water.glsl"
 layout(set = 1, binding = 1) uniform sampler2D base_color_texture;
 layout(set = 1, binding = 2) uniform sampler2D normal_texture;
 layout(set = 1, binding = 3) uniform sampler2D metallic_roughness_texture;
@@ -97,6 +101,8 @@ void main() {
             geometric_normal = -geometric_normal;
         }
     }
+    if(length(normal) > 1e-6)
+        normal = water_normal(normal, world_position, material.water_parameters);
     float alpha = surface_alpha(base_sample.a);
 #ifdef COMET_GBUFFER
     g_base_metallic = vec4(base_color, metallic);

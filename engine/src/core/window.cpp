@@ -186,6 +186,7 @@ namespace Comet {
         glfwGetCursorPos(m_window.get(), &cursor_x, &cursor_y);
         m_ui_cursor_position = {static_cast<float>(cursor_x), static_cast<float>(cursor_y)};
         m_input.cursor_event(m_ui_cursor_position);
+        update_display_state();
     }
 
     Window::~Window() = default;
@@ -252,7 +253,7 @@ namespace Comet {
         GLFWmonitor* monitor = nullptr;
         const GLFWvidmode* video = nullptr;
         if(mode != WindowMode::Windowed) {
-            monitor = glfwGetPrimaryMonitor();
+            monitor = current_monitor();
             if(monitor)
                 video = glfwGetVideoMode(monitor);
             if(!video)
@@ -325,6 +326,40 @@ namespace Comet {
             static_cast<uint32_t>(std::max(width, 0)), static_cast<uint32_t>(std::max(height, 0))};
     }
 
+    GLFWmonitor* Window::current_monitor() const {
+        if(auto* full = glfwGetWindowMonitor(m_window.get()))
+            return full;
+        int x = 0, y = 0, width = 0, height = 0, count = 0;
+        glfwGetWindowPos(m_window.get(), &x, &y);
+        glfwGetWindowSize(m_window.get(), &width, &height);
+        auto** monitors = glfwGetMonitors(&count);
+        auto* selected = glfwGetPrimaryMonitor();
+        int64_t greatest = 0;
+        for(int i = 0; i < count; ++i) {
+            int mx = 0, my = 0;
+            glfwGetMonitorPos(monitors[i], &mx, &my);
+            const auto* mode = glfwGetVideoMode(monitors[i]);
+            if(!mode)
+                continue;
+            const int64_t overlap =
+                int64_t(std::max(0, std::min(x + width, mx + mode->width) - std::max(x, mx)))
+                * std::max(0, std::min(y + height, my + mode->height) - std::max(y, my));
+            if(overlap > greatest) {
+                greatest = overlap;
+                selected = monitors[i];
+            }
+        }
+        return selected;
+    }
+    void Window::update_display_state() {
+        auto* monitor = current_monitor();
+        const auto scale = get_content_scale();
+        if(m_display_monitor != monitor || m_display_scale != scale) {
+            m_display_monitor = monitor;
+            m_display_scale = scale;
+            ++m_display_revision;
+        }
+    }
     Math::Vec2 Window::get_content_scale() const {
         float x = 1;
         float y = 1;
@@ -357,6 +392,7 @@ namespace Comet {
         // 原生最大化动画的 resize 回调含过渡尺寸，只在事件泵边界采样。
         update_restore_state();
         glfwPollEvents();
+        update_display_state();
         update_restore_state();
     }
 

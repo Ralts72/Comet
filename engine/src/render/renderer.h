@@ -29,6 +29,7 @@
 #include <vector>
 
 namespace Comet {
+    class TaskScheduler;
     class Window;
     class Engine;
     class CommandBuffer;
@@ -123,6 +124,7 @@ namespace Comet {
         [[nodiscard]] Result<void, GraphicsError> warmup_scene(
             std::shared_ptr<const RenderWorld> world);
         void request_swapchain_recreation();
+        void set_task_scheduler(TaskScheduler*);
         // 修改请求在下一次 prepare_frame 的交换链重建中生效。
         void set_vsync_enabled(bool enabled);
         [[nodiscard]] bool is_vsync_enabled() const;
@@ -264,5 +266,7 @@ namespace Comet {
         OutputSettings m_output;
         std::optional<OutputSettings> m_pending_output;
         bool m_output_recreating = false;
+        uint64_t m_display_revision = 0;
+        bool m_display_refresh_pending = false;
     };
 }

@@ -3,6 +3,7 @@
 #include "support/imgui_context.h"
 #include <gtest/gtest.h>
 #include <imgui_internal.h>
+#include <array>
 
 namespace CometEditor::Tests {
     class AppExportDialogTest: public ::testing::Test {
@@ -43,7 +44,11 @@ namespace CometEditor::Tests {
         auto request = dialog.take_request();
         ASSERT_TRUE(request);
         EXPECT_EQ(request->project, "/projects/中文 game");
+#ifdef __APPLE__
         EXPECT_EQ(request->destination, "/projects/中文 game.app");
+#else
+        EXPECT_EQ(request->destination, "/projects/中文 game-export");
+#endif
         EXPECT_TRUE(request->scenes.empty());
         activate("Export");
         EXPECT_FALSE(dialog.take_request());
@@ -58,6 +63,17 @@ namespace CometEditor::Tests {
         activate("Close");
         frame();
         EXPECT_FALSE(ImGui::FindWindowByName("Export App")->Active);
+    }
+
+    TEST_F(AppExportDialogTest, RequiredProjectSceneIsIncludedWithoutManualSelection) {
+        const std::array<std::filesystem::path, 1> required{"scenes/second.scene"};
+        dialog.open("/projects/中文 game", "scenes/start.scene",
+            {"scenes/second.scene", "scenes/start.scene"}, required);
+        frame();
+        activate("Export");
+        const auto request = dialog.take_request();
+        ASSERT_TRUE(request);
+        EXPECT_EQ(request->scenes, (std::vector<std::filesystem::path>{"scenes/second.scene"}));
     }
 
     TEST_F(AppExportDialogTest, SelectedAdditionalSceneIsPassedWithoutDuplicatingStartup) {

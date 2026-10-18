@@ -354,6 +354,7 @@ namespace Comet {
 
             std::set<std::filesystem::path> selected(scenes.begin(), scenes.end());
             selected.insert(project.startup_scene());
+            selected.insert(project.included_scenes().begin(), project.included_scenes().end());
             for(const auto& relative : selected) {
                 auto path = paths.resolve_asset_path(relative);
                 if(!path)

@@ -49,6 +49,7 @@ namespace Comet::Tests {
         unsigned audio_applications = 0;
         ParameterMap session_values;
         std::vector<std::string> game_events;
+        std::vector<std::optional<ParameterValue>> game_event_values;
         std::string settings_load_error;
 
         void SetUp() override {
@@ -77,8 +78,9 @@ namespace Comet::Tests {
                     return std::nullopt;
                 return found->second;
             };
-            services.emit = [this](std::string_view event) {
+            services.emit = [this](std::string_view event, std::optional<ParameterValue> value) {
                 game_events.emplace_back(event);
+                game_event_values.push_back(std::move(value));
                 return true;
             };
             services.load_input = [this] {
@@ -304,6 +306,41 @@ namespace Comet::Tests {
             EXPECT_EQ(input->GetAttribute("value", Rml::String{}), value);
         }
     };
+    TEST_F(ProjectUiGpuTest, JourneyShowsChineseGuideAndChapterSelectionSendsItsNumber) {
+        std::string entries;
+        for(int i = 1; i <= 36; ++i) {
+            if(!entries.empty())
+                entries += '\n';
+            entries += "光影旅程\t第 " + std::to_string(i) + " 站";
+        }
+        session_values = {{"tour.active", true}, {"tour.number", 1.f}, {"tour.total", 36.f},
+            {"tour.title", std::string("材质长廊")}, {"tour.section", std::string("光影旅程")},
+            {"tour.description", std::string("走近观察法线与金属高光")},
+            {"tour.task", std::string("绕到玻璃另一侧")}, {"tour.entries", entries},
+            {"tour.completed", std::string(36, '0')}, {"tour.has_reference", true}};
+        ASSERT_TRUE(submit_frame());
+        auto* guide = document().GetElementById("tour-guide");
+        ASSERT_TRUE(guide && guide->IsVisible());
+        EXPECT_NE(guide->GetInnerRML().find("材质长廊"), std::string::npos);
+        click("tour-complete");
+        ASSERT_EQ(game_events.back(), "tour.complete");
+        click("tour-open");
+        EXPECT_TRUE(ui->is_modal());
+        EXPECT_TRUE(input_blocked);
+        ASSERT_NE(document().GetElementById("tour-chapter-36"), nullptr);
+        click("tour-chapter-36");
+        ASSERT_EQ(game_events.back(), "tour.goto");
+        ASSERT_TRUE(game_event_values.back());
+        EXPECT_EQ(std::get<float>(*game_event_values.back()), 36.f);
+        EXPECT_FALSE(ui->is_modal());
+        click("tour-open");
+        click("tour-close");
+        EXPECT_FALSE(ui->is_modal());
+        session_values.clear();
+        ASSERT_TRUE(submit_frame());
+        EXPECT_FALSE(guide->IsVisible());
+    }
+
     TEST_F(ProjectUiGpuTest, DemoHudReadsSessionAndClearsWhenTheGameStops) {
         session_values["character.score"] = 1.0f;
         session_values["character.finished"] = false;

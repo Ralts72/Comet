@@ -84,4 +84,23 @@ namespace Comet {
         return environment && environment->has_lighting();
     }
 
+    uint64_t RenderAssetFactory::gpu_bytes(const std::shared_ptr<Mesh>& value) const {
+        return m_resources.gpu_bytes(value);
+    }
+    uint64_t RenderAssetFactory::gpu_bytes(const std::shared_ptr<Texture>& value) const {
+        return m_resources.gpu_bytes(value);
+    }
+    uint64_t RenderAssetFactory::gpu_bytes(const std::shared_ptr<Environment>& value) const {
+        if(!value)
+            return 0;
+        return m_resources.gpu_bytes(value->background) + m_resources.gpu_bytes(value->irradiance)
+               + m_resources.gpu_bytes(value->specular) + m_resources.gpu_bytes(value->brdf);
+    }
+    uint64_t RenderAssetFactory::gpu_bytes(const std::shared_ptr<Irradiance>& value) const {
+        return value ? m_resources.gpu_bytes(value->probes) : 0;
+    }
+    uint64_t RenderAssetFactory::gpu_bytes(const std::shared_ptr<VectorField>& value) const {
+        return value ? m_resources.gpu_bytes(value->texture) : 0;
+    }
+
 }

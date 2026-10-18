@@ -1,3 +1,4 @@
+#include "support/demo_project.h"
 #include "animation/animation_retarget.h"
 #include "asset/data/animation_library.h"
 #include "asset/import/mesh_importer.h"
@@ -362,8 +363,7 @@ namespace Comet::Tests {
         auto second = std::make_shared<AnimationController>(retarget_controller.value());
         auto first_library = std::make_shared<AnimationLibrary>(reference.value());
         auto second_library = std::make_shared<AnimationLibrary>(definition.value());
-        auto scene = SceneSerializer(create_scene_component_registry())
-                         .load((assets / "scenes/retarget.scene").string());
+        auto scene = load_demo_scene(create_scene_component_registry(), "scenes/retarget.scene");
         ASSERT_TRUE(scene) << scene.error();
         PhysicsService physics;
         SceneRuntime runtime;

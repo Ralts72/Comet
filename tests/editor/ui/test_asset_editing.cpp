@@ -223,11 +223,11 @@ namespace CometEditor::Tests {
         }
 
         ImVec2 property_point(int index) {
-            auto* window = ImGui::FindWindowByName("Inspector");
-            // 此 fixture 只注册 MeshRenderer：组件标题、两个引用控件。
+            const auto* window = ImGui::FindWindowByName("Inspector");
+            // 搜索框、唯一组件标题，之后是此 fixture 的两个资产控件。
             return {window->DC.CursorStartPos.x + 50,
-                window->DC.CursorStartPos.y + (index + 1) * ImGui::GetFrameHeightWithSpacing()
-                    + ImGui::GetFrameHeight() * 0.5f};
+                window->DC.CursorStartPos.y + (index + 2) * ImGui::GetFrameHeightWithSpacing()
+                    + ImGui::GetFrameHeight() * .5f};
         }
 
         ImVec2 material_point(const char* name, const char* label, const char* child = nullptr) {

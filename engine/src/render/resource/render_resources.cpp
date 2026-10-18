@@ -1,3 +1,5 @@
+#include "render/resource/mesh.h"
+#include "render/resource/texture.h"
 #include "render/resource/render_resources.h"
 #include "asset/data/texture_data.h"
 #include "asset/data/mesh_data.h"
@@ -29,6 +31,13 @@ namespace Comet {
 
     void RenderResources::collect_completed_uploads() {
         m_upload_manager->collect_completed();
+    }
+
+    uint64_t RenderResources::gpu_bytes(const std::shared_ptr<Mesh>& value) const {
+        return value ? value->gpu_resident_bytes() : 0;
+    }
+    uint64_t RenderResources::gpu_bytes(const std::shared_ptr<Texture>& value) const {
+        return value ? value->gpu_resident_bytes() : 0;
     }
 
 }

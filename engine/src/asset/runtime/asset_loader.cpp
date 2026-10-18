@@ -28,8 +28,8 @@
 namespace Comet {
     namespace {
         template<typename T, typename Create>
-        Result<std::shared_ptr<T>, Error> load_default_asset(
-            AssetRegistry& registry, const AssetHandle handle, Create&& create) {
+        Result<std::shared_ptr<T>, Error> load_default_asset(AssetRegistry& registry,
+            const AssetHandle handle, Create&& create, RenderAssetFactory* memory = nullptr) {
             using LoadResult = Result<std::shared_ptr<T>, Error>;
             if(auto asset = registry.resolve<T>(handle))
                 return LoadResult::success(std::move(asset));
@@ -38,7 +38,8 @@ namespace Comet {
             auto candidate = create();
             if(!candidate)
                 return candidate;
-            if(!registry.register_asset(handle, candidate.value()))
+            if(!registry.register_asset(
+                   handle, candidate.value(), memory ? memory->gpu_bytes(candidate.value()) : 0))
                 return LoadResult::failure({"Cannot register default asset"});
             return candidate;
         }
@@ -46,7 +47,7 @@ namespace Comet {
         template<typename T, typename Create>
         Result<std::shared_ptr<T>, Error> load_runtime_asset(const AssetDatabase& database,
             AssetRegistry& registry, const AssetHandle handle, const AssetType type,
-            Create&& create) {
+            Create&& create, RenderAssetFactory* memory = nullptr) {
             using LoadResult = Result<std::shared_ptr<T>, Error>;
             const auto* record = database.find(handle);
             if(!record || record->type != type)
@@ -67,7 +68,8 @@ namespace Comet {
             if(!database.is_current(handle, revision)
                 || registry.get_revision(handle) != publication)
                 return LoadResult::failure({"Asset changed during loading"});
-            if(!registry.register_asset(handle, candidate.value()))
+            if(!registry.register_asset(
+                   handle, candidate.value(), memory ? memory->gpu_bytes(candidate.value()) : 0))
                 return LoadResult::failure({"Failed to publish runtime asset"});
             return candidate;
         }
@@ -304,9 +306,12 @@ namespace Comet {
         };
         if(handle == DEFAULT_CHARACTER_MESH)
             return load_default_asset<Mesh>(
-                m_registry, handle, [&] { return create(read_mesh_data(handle)); });
-        return load_runtime_asset<Mesh>(m_database, m_registry, handle, AssetType::Mesh,
-            [&](const AssetRecord& record) { return create(read_mesh_data(record)); });
+                m_registry, handle, [&] { return create(read_mesh_data(handle)); },
+                &m_render_factory);
+        return load_runtime_asset<Mesh>(
+            m_database, m_registry, handle, AssetType::Mesh,
+            [&](const AssetRecord& record) { return create(read_mesh_data(record)); },
+            &m_render_factory);
     }
 
     Result<TextureData, Error> AssetLoader::read_texture_data(const AssetHandle handle) {
@@ -365,7 +370,8 @@ namespace Comet {
     }
 
     Result<std::shared_ptr<Texture>, Error> AssetLoader::load_texture(const AssetHandle handle) {
-        return load_runtime_asset<Texture>(m_database, m_registry, handle, AssetType::Texture,
+        return load_runtime_asset<Texture>(
+            m_database, m_registry, handle, AssetType::Texture,
             [this](const AssetRecord& record) -> Result<std::shared_ptr<Texture>, Error> {
                 if(m_database.is_read_only() || record.source_asset) {
                     auto data = read_texture_data(record.handle);
@@ -379,7 +385,8 @@ namespace Comet {
                         {"Texture asset has incompatible import settings"});
                 }
                 return prepare_texture(record, *settings);
-            });
+            },
+            &m_render_factory);
     }
 
     Result<std::shared_ptr<ShaderProgramArtifact>, Error> AssetLoader::load_shader_program(
@@ -436,8 +443,8 @@ namespace Comet {
 
     Result<std::shared_ptr<Environment>, Error> AssetLoader::load_environment(
         const AssetHandle handle) {
-        return load_runtime_asset<Environment>(m_database, m_registry, handle,
-            AssetType::Environment,
+        return load_runtime_asset<Environment>(
+            m_database, m_registry, handle, AssetType::Environment,
             [this](const AssetRecord& record) -> Result<std::shared_ptr<Environment>, Error> {
                 if(m_database.is_read_only()) {
                     auto data = read_environment_data(record);
@@ -449,14 +456,16 @@ namespace Comet {
                 if(!prepared)
                     return Result<std::shared_ptr<Environment>, Error>::failure({prepared.error()});
                 return m_render_factory.prepare(std::move(prepared).value().data);
-            });
+            },
+            &m_render_factory);
     }
 
     Result<std::shared_ptr<VectorField>, Error> AssetLoader::load_vector_field(
         const AssetHandle handle) {
         using Loaded = Result<std::shared_ptr<VectorField>, Error>;
-        return load_runtime_asset<VectorField>(m_database, m_registry, handle,
-            AssetType::VectorField, [this](const AssetRecord& record) -> Loaded {
+        return load_runtime_asset<VectorField>(
+            m_database, m_registry, handle, AssetType::VectorField,
+            [this](const AssetRecord& record) -> Loaded {
                 auto path = m_database.paths().resolve_asset_path(record.path);
                 if(!path)
                     return Loaded::failure({path.error()});
@@ -464,13 +473,15 @@ namespace Comet {
                 if(!data)
                     return Loaded::failure({data.error()});
                 return m_render_factory.prepare(std::move(data).value());
-            });
+            },
+            &m_render_factory);
     }
 
     Result<std::shared_ptr<Irradiance>, Error> AssetLoader::load_irradiance(
         const AssetHandle handle) {
         using Loaded = Result<std::shared_ptr<Irradiance>, Error>;
-        return load_runtime_asset<Irradiance>(m_database, m_registry, handle, AssetType::Irradiance,
+        return load_runtime_asset<Irradiance>(
+            m_database, m_registry, handle, AssetType::Irradiance,
             [this](const AssetRecord& record) -> Loaded {
                 auto path = m_database.paths().resolve_asset_path(record.path);
                 if(!path)
@@ -479,7 +490,8 @@ namespace Comet {
                 if(!data)
                     return Loaded::failure({data.error()});
                 return m_render_factory.prepare(std::move(data).value());
-            });
+            },
+            &m_render_factory);
     }
 
     Result<std::shared_ptr<Texture>, Error> AssetLoader::prepare_texture(

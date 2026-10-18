@@ -6,6 +6,7 @@
 #include "gameplay/foot_placement.h"
 #include "gameplay/pose_constraints.h"
 #include "gameplay/wind_sway.h"
+#include "gameplay/world_effects.h"
 #include "animation/animation_system.h"
 #include "particles/particle_system.h"
 #include "common/scope_exit.h"
@@ -59,6 +60,7 @@ namespace Comet {
           m_material_parameters(std::make_unique<MaterialProgramValidator>(*m_asset_registry)),
           m_scene_resolver(*m_asset_registry) {
         m_renderer->m_render_thread = m_render_thread.get();
+        m_renderer->set_task_scheduler(m_task_scheduler.get());
     }
 
     Engine::~Engine() {
@@ -170,6 +172,8 @@ namespace Comet {
             !configured)
             return configured;
         // 注册顺序也是各更新阶段的执行顺序；SceneRuntime 停止时按逆序清理。
+        if(auto added = add_system(std::make_unique<Gameplay::SplineMotionSystem>()); !added)
+            return added;
         if(auto added = add_system(std::make_unique<CameraControllerSystem>()); !added)
             return added;
         if(auto added = add_system(
@@ -197,6 +201,12 @@ namespace Comet {
         if(auto added = add_system(std::make_unique<Gameplay::FootPlacementSystem>()); !added)
             return added;
         if(auto added = add_system(std::make_unique<Gameplay::PoseConstraintSystem>()); !added)
+            return added;
+        if(auto added = add_system(std::make_unique<Gameplay::WeatherSystem>()); !added)
+            return added;
+        if(auto added =
+                add_system(std::make_unique<Gameplay::WaterSurfaceSystem>(*m_material_parameters));
+            !added)
             return added;
         if(auto added = add_system(std::make_unique<Gameplay::WindSwaySystem>()); !added)
             return added;

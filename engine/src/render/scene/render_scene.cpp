@@ -4,20 +4,6 @@
 #include <cmath>
 
 namespace Comet {
-    Result<void> PathTraceSettings::validate() const {
-        if(samples == 0 || samples > 4096 || bounces == 0 || bounces > 8 || max_dimension < 32
-            || max_dimension > 1024)
-            return Result<void>::failure(
-                "路径追踪参数超出范围（采样 1～4096，反弹 1～8，尺寸 32～1024）");
-        return Result<void>::success();
-    }
-
-    Math::Vec2u PathTraceSettings::image_size(Math::Vec2u output) const {
-        const float scale =
-            std::min(1.f, float(max_dimension) / std::max({output.x, output.y, 1u}));
-        return {std::max(1u, uint32_t(output.x * scale)), std::max(1u, uint32_t(output.y * scale))};
-    }
-
     void RenderItemChanges::begin_update(const bool full) {
         // 不同提取器、解析器和快照副本不能共用一个局部版本序列。
         static VersionSequence next_revision;

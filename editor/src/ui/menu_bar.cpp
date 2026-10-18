@@ -73,10 +73,8 @@ namespace CometEditor {
             render_scene_menu(
                 "启动场景###Startup Scene", Command::SetStartupScene, current_scene, startup_scene);
             ImGui::Separator();
-#ifdef __APPLE__
             if(ImGui::MenuItem("导出 App...###Export App..."))
                 m_request = Request{Command::ExportApp, {}};
-#endif
             if(ImGui::BeginMenu("设置###Settings")) {
                 if(ImGui::MenuItem("显示###Display"))
                     m_request = Request{Command::ProjectDisplaySettings, {}};

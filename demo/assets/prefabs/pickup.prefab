@@ -49,6 +49,7 @@
         "script": {
           "asset": 14309634625000312005,
           "parameters": {
+            "collection": "6729301842000000001",
             "level": 1,
             "goal": 1
           }

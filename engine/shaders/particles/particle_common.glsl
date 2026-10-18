@@ -3,6 +3,7 @@ struct Particle { vec4 position_size; vec4 color; vec4 uv_rect; vec4 sort_key; }
 struct Parameters {
     mat4 view;
     vec4 acceleration_lifetime, start_color, end_color, sizes_speed_cone, atlas, animation;
+    vec4 spawn_extents;
     uvec4 counts;
 };
 uint random_hash(uint value) {
@@ -33,4 +34,10 @@ Particle particle_appearance(vec3 position, float age, uint index, Parameters pa
         floor(frame/parameters.atlas.x)/parameters.atlas.y,1.0/parameters.atlas.xy);
     particle.sort_key.x=(parameters.view*vec4(position,1)).z;
     return particle;
+}
+
+vec3 birth_position(Spawn birth, uint local, Parameters parameters) {
+    uint seed=random_hash(birth.range.z+local)^parameters.counts.w;
+    vec3 offset=(vec3(random_unit(seed+2u),random_unit(seed+3u),random_unit(seed+4u))*2.0-1.0)*parameters.spawn_extents.xyz;
+    return (birth.pose*vec4(offset,1)).xyz;
 }

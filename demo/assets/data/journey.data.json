@@ -1,0 +1,387 @@
+{
+  "fields": {
+    "scene": {
+      "type": "string"
+    },
+    "section": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "task": {
+      "type": "string"
+    },
+    "requires_deferred": {
+      "type": "bool"
+    },
+    "collection_challenge": {
+      "type": "bool"
+    }
+  },
+  "rows": [
+    {
+      "id": "01",
+      "scene": "scenes/character.scene",
+      "section": "启程 · 基础玩法",
+      "title": "跨越训练场",
+      "description": "熟悉角色移动、跑步、蹲伏与跳跃，台阶、缓坡和移动平台使用同一套角色控制。",
+      "task": "收集三个发光目标，观察角色与脚步反馈，然后继续旅程。",
+      "requires_deferred": false,
+      "collection_challenge": true
+    },
+    {
+      "id": "02",
+      "scene": "scenes/character_second.scene",
+      "section": "启程 · 基础玩法",
+      "title": "第二座训练场",
+      "description": "绕过隔墙与高低差，关卡切换复用同一个角色和输入习惯。",
+      "task": "收集三个目标；在章节面板保存后，可从这关起点继续。",
+      "requires_deferred": false,
+      "collection_challenge": true
+    },
+    {
+      "id": "03",
+      "scene": "scenes/default.scene",
+      "section": "启程 · 基础玩法",
+      "title": "物理实验庭院",
+      "description": "小型关节与刚体展台：碰撞、铰链、滑轨和脉冲响应。",
+      "task": "靠近观察摆锤与升降块；方向键左右移动小方块，观察它与场地碰撞。",
+      "requires_deferred": false,
+      "collection_challenge": false
+    },
+    {
+      "id": "04",
+      "scene": "scenes/combat.scene",
+      "section": "启程 · 基础玩法",
+      "title": "守卫挑战",
+      "description": "角色动画事件、命中查询、描边、音效与粒子一起构成战斗反馈。",
+      "task": "J／鼠标左键／手柄 X 攻击；击败两个守卫。",
+      "requires_deferred": false,
+      "collection_challenge": false
+    },
+    {
+      "id": "05",
+      "scene": "scenes/navigation.scene",
+      "section": "同行 · 导航",
+      "title": "绕墙追逐",
+      "description": "NPC 使用导航网格、动态障碍和局部避障追踪玩家。",
+      "task": "绕到隔墙另一侧，观察 NPC 改道；再靠近它并改变方向。",
+      "requires_deferred": false,
+      "collection_challenge": false
+    },
+    {
+      "id": "06",
+      "scene": "scenes/navigation_links.scene",
+      "section": "同行 · 导航",
+      "title": "跨越断桥",
+      "description": "导航连接让 NPC 在不同高度的平台间跳跃。",
+      "task": "在两座平台间跳跃，观察 NPC 起跳、落地与继续寻路。",
+      "requires_deferred": false,
+      "collection_challenge": false
+    },
+    {
+      "id": "07",
+      "scene": "scenes/root_motion.scene",
+      "section": "动作 · 动画",
+      "title": "动作驱动位移",
+      "description": "展示角色动画的根运动与物理碰撞协调；前方演员会自动向墙行走。",
+      "task": "绕到演员侧面，确认角色抵墙后停止位移，动画仍按约定推进。",
+      "requires_deferred": false,
+      "collection_challenge": false
+    },
+    {
+      "id": "08",
+      "scene": "scenes/retarget.scene",
+      "section": "动作 · 动画",
+      "title": "换一副骨架",
+      "description": "左右演员对照原始动作与重定向，目标骨架复用动画来源。",
+      "task": "走近两名演员，比较步幅、朝向与脚部贴地。",
+      "requires_deferred": false,
+      "collection_challenge": false
+    },
+    {
+      "id": "09",
+      "scene": "scenes/chain_retarget.scene",
+      "section": "动作 · 动画",
+      "title": "骨骼链重定向",
+      "description": "链式映射把来源骨骼动作传递到不同长度的目标骨骼链。",
+      "task": "从侧面比较肩臂与腿部，观察动作连续性和比例差异。",
+      "requires_deferred": false,
+      "collection_challenge": false
+    },
+    {
+      "id": "10",
+      "scene": "scenes/foot_placement.scene",
+      "section": "动作 · 动画",
+      "title": "脚踩实地",
+      "description": "对照关闭 IK、台阶贴地和斜面贴地；骨盆补偿协助双脚支撑。",
+      "task": "靠近脚部，比较悬空、穿插与坡面上的脚掌方向。",
+      "requires_deferred": false,
+      "collection_challenge": false
+    },
+    {
+      "id": "11",
+      "scene": "scenes/hand_ik.scene",
+      "section": "动作 · 动画",
+      "title": "伸手取物",
+      "description": "全身 IK 在脚部支撑基础上调整双手与身体姿态。",
+      "task": "绕到演员侧面，观察手部目标、身体补偿和脚部支撑。",
+      "requires_deferred": false,
+      "collection_challenge": false
+    },
+    {
+      "id": "12",
+      "scene": "scenes/motion_warp.scene",
+      "section": "动作 · 动画",
+      "title": "攻击对位",
+      "description": "左右演员分别展示原始根运动攻击和朝目标扭曲的攻击。",
+      "task": "比较两条攻击路径与落点，观察动作对位后的接近距离。",
+      "requires_deferred": false,
+      "collection_challenge": false
+    },
+    {
+      "id": "13",
+      "scene": "scenes/pbr_surfaces.scene",
+      "section": "光影 · 材质",
+      "title": "材质长廊",
+      "description": "金属粗糙度、法线、自发光、树叶裁切和透明材质并排展示。",
+      "task": "从不同角度观察高光、法线细节、叶片边缘与两层玻璃。",
+      "requires_deferred": false,
+      "collection_challenge": false
+    },
+    {
+      "id": "14",
+      "scene": "scenes/reflection_probes.scene",
+      "section": "光影 · 材质",
+      "title": "两种环境",
+      "description": "两个局部反射探针为暖色与蓝色区域提供不同反射。",
+      "task": "绕过两颗反射体，比较局部环境反射与交叠区域。",
+      "requires_deferred": false,
+      "collection_challenge": false
+    },
+    {
+      "id": "15",
+      "scene": "scenes/ambient_occlusion.scene",
+      "section": "光影 · 材质",
+      "title": "接触的阴影",
+      "description": "环境遮蔽强调接触面、台阶和墙角，不替代直接光阴影。",
+      "task": "靠近立方体底边与墙角，比较接触处和开阔表面的明暗。",
+      "requires_deferred": false,
+      "collection_challenge": false
+    },
+    {
+      "id": "16",
+      "scene": "scenes/distance_fog.scene",
+      "section": "光影 · 材质",
+      "title": "走进薄雾",
+      "description": "成排立柱展示按观察距离混合的雾。",
+      "task": "沿走廊向前走，再转身比较近处与远处的柱体。",
+      "requires_deferred": false,
+      "collection_challenge": false
+    },
+    {
+      "id": "17",
+      "scene": "scenes/shadow_cascades.scene",
+      "section": "光影 · 材质",
+      "title": "长廊上的太阳",
+      "description": "方向光级联阴影覆盖从近处到远处的长场地。",
+      "task": "沿柱廊行走，比较近远横梁阴影，并移动相机观察级联稳定性。",
+      "requires_deferred": false,
+      "collection_challenge": false
+    },
+    {
+      "id": "18",
+      "scene": "scenes/spot_shadows.scene",
+      "section": "光影 · 材质",
+      "title": "四束聚光灯",
+      "description": "四盏聚光灯共用固定阴影图集，各自投射立柱与横杆。",
+      "task": "穿过四束光，比较光锥边缘、遮挡与彩色灯光。",
+      "requires_deferred": false,
+      "collection_challenge": false
+    },
+    {
+      "id": "19",
+      "scene": "scenes/point_shadows.scene",
+      "section": "光影 · 材质",
+      "title": "灯下六个方向",
+      "description": "点光源向六个方向投影；地面、墙面和顶板共同接收阴影。",
+      "task": "绕着灯和立柱行走，观察墙角、顶板与六面交界。",
+      "requires_deferred": false,
+      "collection_challenge": false
+    },
+    {
+      "id": "20",
+      "scene": "scenes/screen_space_reflections.scene",
+      "section": "光影 · 材质",
+      "title": "镜中的移动物体",
+      "description": "Deferred 屏幕空间反射对照平滑与粗糙镜面；离屏内容会回退环境反射。",
+      "task": "先点击“启用 Deferred”，再走近镜面并移动视角，观察红色物体的倒影。",
+      "requires_deferred": true,
+      "collection_challenge": false
+    },
+    {
+      "id": "21",
+      "scene": "scenes/realtime_quality.scene",
+      "section": "光影 · 材质",
+      "title": "光束与镜头",
+      "description": "贴花、体积高度雾、景深与运动模糊组成这一段光影走廊。",
+      "task": "走过地面贴花、聚光灯和雾，跑动与转动镜头观察拖影与焦点变化。",
+      "requires_deferred": false,
+      "collection_challenge": false
+    },
+    {
+      "id": "22",
+      "scene": "scenes/gi_closed_room.scene",
+      "section": "反弹 · 全局光照",
+      "title": "封闭房间",
+      "description": "已烘焙的静态探针保存墙面颜色反弹，移动物体在当前位置采样。",
+      "task": "走近红墙、蓝墙与白色方块，比较颜色渗透与暗部。",
+      "requires_deferred": false,
+      "collection_challenge": false
+    },
+    {
+      "id": "23",
+      "scene": "scenes/gi_open_room.scene",
+      "section": "反弹 · 全局光照",
+      "title": "打开一面墙",
+      "description": "开口房间对照环境入射和静态间接光。",
+      "task": "走到开口附近，再回到墙角，比较亮度与环境色。",
+      "requires_deferred": false,
+      "collection_challenge": false
+    },
+    {
+      "id": "24",
+      "scene": "scenes/realtime_gi.scene",
+      "section": "反弹 · 全局光照",
+      "title": "会变化的间接光",
+      "description": "实时探针逐步接纳移动光源、门与蒙皮遮挡的变化。",
+      "task": "站在不同墙面附近，观察移动门后间接光的响应与收敛。",
+      "requires_deferred": false,
+      "collection_challenge": false
+    },
+    {
+      "id": "25",
+      "scene": "scenes/gi_regions.scene",
+      "section": "反弹 · 全局光照",
+      "title": "穿过红蓝两室",
+      "description": "两个实时 GI 区域分别保留历史，在门洞与交叠处归一化混合。",
+      "task": "穿过门洞，在两室之间往返，观察颜色平滑变化与多跳反馈。",
+      "requires_deferred": false,
+      "collection_challenge": false
+    },
+    {
+      "id": "26",
+      "scene": "scenes/path_tracing.scene",
+      "section": "追光 · 路径追踪",
+      "title": "逐条追踪光线",
+      "description": "软件路径追踪直接积分多次反弹；旅程中启用动态采样和 GPU 时空降噪。",
+      "task": "移动角色与相机，观察红蓝墙的间接照明。软件追踪开销较高，可在设置中降低渲染比例。",
+      "requires_deferred": false,
+      "collection_challenge": false
+    },
+    {
+      "id": "27",
+      "scene": "scenes/path_tracing_materials.scene",
+      "section": "追光 · 路径追踪",
+      "title": "穿过玻璃的光",
+      "description": "路径追踪采样 PBR 贴图、环境、透明覆盖和粗糙介质折射。",
+      "task": "绕过两块玻璃，比较清晰／粗糙折射，再查看金属和裁切树叶。",
+      "requires_deferred": false,
+      "collection_challenge": false
+    },
+    {
+      "id": "28",
+      "scene": "scenes/dynamic_path_tracing.scene",
+      "section": "追光 · 路径追踪",
+      "title": "光线也跟着演员走",
+      "description": "动态蒙皮几何参与 BVH refit、遮挡和光线反弹，App 与 Editor 共用 GPU 降噪。",
+      "task": "围绕两名演员走动，观察轮廓变化、遮挡显露与历史过滤。",
+      "requires_deferred": false,
+      "collection_challenge": false
+    },
+    {
+      "id": "29",
+      "scene": "scenes/particle_effects.scene",
+      "section": "风与火 · 特效",
+      "title": "粒子工坊",
+      "description": "火花反弹、碰撞消失、软交界、图集动画与运动拖尾集中展示。",
+      "task": "绕到烟雾与地面交界，再跟随能量环和拖尾移动。",
+      "requires_deferred": false,
+      "collection_challenge": false
+    },
+    {
+      "id": "30",
+      "scene": "scenes/gpu_particles.scene",
+      "section": "风与火 · 特效",
+      "title": "CPU 与 GPU",
+      "description": "左右发射器对照同样参数下的 CPU／GPU 粒子。",
+      "task": "从前后两侧比较火花、烟雾与排序；压力发射器仍保持默认关闭。",
+      "requires_deferred": false,
+      "collection_challenge": false
+    },
+    {
+      "id": "31",
+      "scene": "scenes/gpu_dynamics.scene",
+      "section": "风与火 · 特效",
+      "title": "风场与碰撞",
+      "description": "GPU 有状态模拟结合风、涡旋、湍流和世界碰撞。",
+      "task": "绕到屏幕外的碰撞区域，再转回镜头，观察粒子持续模拟与反弹。",
+      "requires_deferred": false,
+      "collection_challenge": false
+    },
+    {
+      "id": "32",
+      "scene": "scenes/transparency.scene",
+      "section": "风与火 · 特效",
+      "title": "穿梭透明层",
+      "description": "交错烟雾、玻璃和粒子展示透明排序与加权 OIT 的取舍。",
+      "task": "在玻璃两侧往返移动相机，观察混合层次与遮挡。",
+      "requires_deferred": false,
+      "collection_challenge": false
+    },
+    {
+      "id": "33",
+      "scene": "scenes/terrain.scene",
+      "section": "远行 · 世界制作",
+      "title": "走上丘陵",
+      "description": "分块地形 LOD、分层材质、植被与刚体碰撞组成户外区域。",
+      "task": "登上山坡，靠近植被与落下的箱子，再从远处观察地形细节变化。",
+      "requires_deferred": false,
+      "collection_challenge": false
+    },
+    {
+      "id": "34",
+      "scene": "scenes/streaming_terrain.scene",
+      "section": "远行 · 世界制作",
+      "title": "边走边加载",
+      "description": "按相机距离准备地形 Prefab 单元，离开后撤销子树与无需求资产。",
+      "task": "从起点平台走向四片地形，再远离原区域；返回时应能重新加载。",
+      "requires_deferred": false,
+      "collection_challenge": false
+    },
+    {
+      "id": "35",
+      "scene": "scenes/world_authoring.scene",
+      "section": "远行 · 世界制作",
+      "title": "天气中的庭园",
+      "description": "样条镜头、世界风、降水、水面波纹与植被交互共同构成庭园。",
+      "task": "从小径走近植物与水面；移动交互体沿路径演示弯曲与恢复。",
+      "requires_deferred": false,
+      "collection_challenge": false
+    },
+    {
+      "id": "36",
+      "scene": "scenes/mesh_lod.scene",
+      "section": "远行 · 世界制作",
+      "title": "细节的距离",
+      "description": "同一物体按投影尺寸选择静态网格 LOD，纹理 Mipmap 独立决定采样细节。",
+      "task": "沿长路接近和远离球体，观察轮廓细节与切换稳定性；完成本关即走完整段旅程。",
+      "requires_deferred": false,
+      "collection_challenge": false
+    }
+  ]
+}

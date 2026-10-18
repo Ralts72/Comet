@@ -1,4 +1,5 @@
 #include "editor.h"
+#include "gameplay/world_streaming.h"
 #include "gameplay/checkpoint_store.h"
 #include "runtime/player_settings_owner.h"
 #include "runtime/application.h"
@@ -219,6 +220,26 @@ namespace {
                            }});
                 !added)
                 return added;
+            auto streaming = std::make_unique<Comet::Gameplay::WorldStreamingSystem>(
+                Comet::Gameplay::WorldStreamingSystem::Sources{
+                    .load =
+                        [sources = m_assets->scene_sources(m_component_registry)](
+                            Comet::AssetHandle handle) {
+                            return sources(handle, Comet::AssetType::Prefab);
+                        },
+                    .prepare =
+                        [this](Comet::Scene& cell) {
+                            return m_assets->prepare_streaming_cell(cell, m_component_registry);
+                        },
+                    .ready =
+                        [this](std::span<const Comet::AssetReference> references) {
+                            return m_assets->streaming_ready(references);
+                        },
+                    .resident_bytes =
+                        [this] { return get_engine().get_asset_registry().resident_gpu_bytes(); }});
+            m_streaming = streaming.get();
+            if(auto added = engine.add_system(std::move(streaming)); !added)
+                return added;
             m_selection.emplace(scene);
             m_scene_editor = std::make_unique<CometEditor::SceneEditor>(m_editor_state,
                 m_command_history, m_property_edit, m_component_registry, *m_selection, *m_assets);
@@ -279,6 +300,10 @@ namespace {
             }
             if(auto mode = apply_editor_mode_request(); !mode)
                 return mode;
+            if(m_streaming && m_streaming_revision != m_streaming->revision()) {
+                m_streaming_revision = m_streaming->revision();
+                m_asset_residency_pending = true;
+            }
             if(m_asset_residency_pending && !m_material_edits->active())
                 release_unused_assets();
 
@@ -453,10 +478,12 @@ namespace {
                     return std::nullopt;
                 return runtime.get_session().get_value(key);
             };
-            services.emit = [this](std::string_view event) {
+            services.emit = [this](std::string_view event,
+                                std::optional<Comet::ParameterValue> value) {
                 auto& engine = get_engine();
                 auto* scene = engine.get_scene();
-                return engine.get_scene_runtime().is_active() && scene && scene->emit_event(event);
+                return engine.get_scene_runtime().is_active() && scene
+                       && scene->emit_event(event, std::move(value));
             };
             m_game_ui = std::make_unique<CometEditor::GameUi>(
                 engine.get_window(), renderer, m_project, std::move(services));
@@ -632,8 +659,8 @@ namespace {
                     for(const auto& record : m_assets->database().get_assets())
                         if(record.type == Comet::AssetType::Scene)
                             scenes.push_back(record.path);
-                    m_app_export_dialog.open(
-                        m_project.paths().root(), m_project.startup_scene(), std::move(scenes));
+                    m_app_export_dialog.open(m_project.paths().root(), m_project.startup_scene(),
+                        std::move(scenes), m_project.included_scenes());
                     break;
                 }
                 case CometEditor::MenuBar::Command::RenameProject:
@@ -862,9 +889,14 @@ namespace {
                 inspector.controller_active() ? inspector.controller_handle()
                                               : Comet::AssetHandle{}};
             // 缩略图拥有独立 Registry；烘焙与场景预览在切场景时取消，旧帧自行保活快照。
+            auto entry_references = m_play_entry_references;
+            if(m_streaming) {
+                const auto pending = m_streaming->references();
+                entry_references.insert(entry_references.end(), pending.begin(), pending.end());
+            }
             const auto released = m_assets->release_unused(*get_engine().get_scene(),
                 m_scene_session ? m_scene_session->retained_edit_scene() : nullptr,
-                m_component_registry, preview_roots, m_play_entry_references);
+                m_component_registry, preview_roots, entry_references);
             if(!released) {
                 LOG_WARN("Keeping asset residency because scene demands could not be collected: {}",
                     released.error().message);
@@ -1472,6 +1504,8 @@ namespace {
         CometEditor::PlayerInputPanel m_player_input_panel;
         std::optional<Comet::Input::Frame> m_runtime_input;
         Comet::PlayerSettingsOwner m_player_settings{m_project};
+        Comet::Gameplay::WorldStreamingSystem* m_streaming = nullptr;
+        uint64_t m_streaming_revision = 0;
         bool m_asset_residency_pending = false;
         std::vector<Comet::AssetReference> m_play_entry_references;
         bool m_play_entry_references_complete = true;

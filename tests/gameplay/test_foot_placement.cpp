@@ -1,3 +1,5 @@
+#include "asset/serialization/animation_controller_serializer.h"
+#include "support/demo_project.h"
 #include "animation/animation_system.h"
 #include "asset/import/mesh_importer.h"
 #include "gameplay/foot_placement.h"
@@ -187,14 +189,19 @@ namespace Comet::Tests {
         ASSERT_TRUE(mesh) << mesh.error();
         const auto data = mesh.value().animation;
         ASSERT_TRUE(data);
-        auto scene = SceneSerializer(create_scene_component_registry())
-                         .load((assets / "scenes/foot_placement.scene").string());
+        auto scene =
+            load_demo_scene(create_scene_component_registry(), "scenes/foot_placement.scene");
         ASSERT_TRUE(scene) << scene.error();
+        auto definition = AnimationControllerSerializer{}.load(assets / "animations/character.ani");
+        ASSERT_TRUE(definition) << definition.error();
+        const auto controller =
+            std::make_shared<AnimationController>(std::move(definition).value());
         PhysicsService physics;
         SceneRuntime runtime;
         ASSERT_TRUE(runtime.set_services({.physics = &physics}));
         ASSERT_TRUE(runtime.add_system(
-            std::make_unique<AnimationSystem>([data](AssetHandle) { return data; })));
+            std::make_unique<AnimationSystem>([data](AssetHandle) { return data; },
+                [controller](AssetHandle) { return controller; })));
         ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         ASSERT_TRUE(runtime.add_system(std::make_unique<Gameplay::FootPlacementSystem>()));
         ASSERT_TRUE(runtime.start(*scene.value()));

@@ -83,7 +83,7 @@ namespace Comet {
     // 组件类型与属性元信息；组件实例由 Scene 持有。
     class COMET_API ComponentRegistry {
     public:
-        enum class ReferenceScope { All, Runtime };
+        enum class ReferenceScope { All, Runtime, Resident };
 
         [[nodiscard]] bool register_component(ComponentDescriptor descriptor);
 
@@ -99,7 +99,7 @@ namespace Comet {
             const std::function<Result<std::shared_ptr<Script>, Error>(AssetHandle)>& load_script,
             const std::function<Result<std::shared_ptr<Prefab>, Error>(AssetHandle)>& load_prefab,
             const std::function<Result<std::shared_ptr<GameData>, Error>(AssetHandle)>& load_data,
-            bool allow_missing = false) const;
+            bool allow_missing = false, bool include_streamed = true) const;
 
         [[nodiscard]] const std::vector<ComponentDescriptor>& components() const {
             return m_components;

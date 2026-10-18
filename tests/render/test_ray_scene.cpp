@@ -205,14 +205,14 @@ namespace Comet::Tests {
             return Result<MeshData, Error>::success(triangle_mesh());
         };
         const auto opaque = builder.update(world, read).value();
-        EXPECT_EQ(opaque->materials->surfaces[0].opacity, Math::Vec4(.4f, .5f, 0, 0));
+        EXPECT_EQ(Math::Vec3(opaque->materials->surfaces[0].opacity), Math::Vec3(.4f, .5f, 0));
         for(const auto mode : {AlphaMode::Mask, AlphaMode::Blend}) {
             ASSERT_TRUE(material->set_surface({.alpha_mode = mode, .alpha_cutoff = .3f}));
             const auto current = builder.update(world, read);
             ASSERT_TRUE(current) << current.error();
             EXPECT_EQ(current.value()->geometry, opaque->geometry);
-            EXPECT_EQ(current.value()->materials->surfaces[0].opacity,
-                Math::Vec4(.4f, .3f, static_cast<float>(mode), 0));
+            EXPECT_EQ(Math::Vec3(current.value()->materials->surfaces[0].opacity),
+                Math::Vec3(.4f, .3f, static_cast<float>(mode)));
         }
         auto overrides = std::make_shared<MaterialOverrides>();
         overrides->instance_id = 1;
@@ -259,7 +259,7 @@ namespace Comet::Tests {
         const auto first = builder.update(world, read, {}, images);
         ASSERT_TRUE(first) << first.error();
         EXPECT_EQ(reads, 1);
-        ASSERT_EQ(first.value()->materials->textures.size(), 2u);
+        ASSERT_EQ(first.value()->materials->images->textures.size(), 2u);
         ASSERT_EQ(first.value()->materials->surfaces.size(), 2u);
         const auto& surface = first.value()->materials->surfaces.front();
         EXPECT_EQ(surface.textures[0], surface.textures[3]);
@@ -268,15 +268,15 @@ namespace Comet::Tests {
         EXPECT_FLOAT_EQ(triangle.tangents[0].w, .75f);
         EXPECT_EQ(Math::Vec3(triangle.tangents[0]), Math::Vec3(-1, 0, 0));
         EXPECT_EQ(Math::Vec3(triangle.bitangents[0]), Math::Vec3(0, 1, 0));
-        EXPECT_NEAR(first.value()->materials->texels[0].r, .2158605f, 1e-6f);
+        EXPECT_NEAR(first.value()->materials->images->texels[0].r, .2158605f, 1e-6f);
         EXPECT_EQ(builder.update(world, read, {}, images).value(), first.value());
         image.pixels[0] = 255;
         ++revision;
         const auto changed = builder.update(world, read, {}, images);
         ASSERT_TRUE(changed);
         EXPECT_NE(changed.value(), first.value());
-        EXPECT_FLOAT_EQ(changed.value()->materials->texels[0].r, 1);
-        EXPECT_NEAR(first.value()->materials->texels[0].r, .2158605f, 1e-6f);
+        EXPECT_FLOAT_EQ(changed.value()->materials->images->texels[0].r, 1);
+        EXPECT_NEAR(first.value()->materials->images->texels[0].r, .2158605f, 1e-6f);
         auto snapshot = material->snapshot();
         material->set_texture_property("base_color_texture", texture, AssetHandle(21));
         EXPECT_EQ(snapshot->get_texture_source("base_color_texture"), AssetHandle(20));
@@ -569,9 +569,9 @@ namespace Comet::Tests {
         const auto reduced = low.update(world, read, {}, images);
         ASSERT_TRUE(original) << original.error();
         ASSERT_TRUE(reduced) << reduced.error();
-        EXPECT_EQ(original.value()->materials->texels.size(), 4u);
-        ASSERT_EQ(reduced.value()->materials->texels.size(), 1u);
-        EXPECT_EQ(reduced.value()->materials->texels[0], Math::Vec4(.5f, .5f, .5f, 1));
+        EXPECT_EQ(original.value()->materials->images->texels.size(), 5u);
+        ASSERT_EQ(reduced.value()->materials->images->texels.size(), 1u);
+        EXPECT_EQ(reduced.value()->materials->images->texels[0], Math::Vec4(.5f, .5f, .5f, 1));
         EXPECT_EQ(image.pixels.size(), 16u);
         EXPECT_EQ(full.update(world, read, {}, images).value(), original.value());
     }

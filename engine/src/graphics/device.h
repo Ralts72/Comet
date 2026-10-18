@@ -84,6 +84,7 @@ namespace Comet {
             return m_present_queues.at(index);
         }
 
+        [[nodiscard]] Queue* get_async_compute_queue() { return m_async_compute.get(); }
         [[nodiscard]] PipelineCache& get_pipeline_cache() { return *m_pipeline_cache; }
         [[nodiscard]] const PipelineCache& get_pipeline_cache() const { return *m_pipeline_cache; }
 
@@ -126,6 +127,7 @@ namespace Comet {
 
         std::vector<Queue> m_graphics_queues;
         std::vector<Queue> m_present_queues;
+        std::unique_ptr<Queue> m_async_compute;
         DeviceCapability m_capability;
         std::unique_ptr<PipelineCache> m_pipeline_cache;
         std::unique_ptr<CommandPool> m_default_command_pool;

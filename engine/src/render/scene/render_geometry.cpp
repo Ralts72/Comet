@@ -33,6 +33,7 @@ namespace Comet {
                                && m_bounds.size() == items.size();
         const bool partial =
             tracked && changes.can_apply(m_scene_version.revision, m_bounds.size(), items.size());
+        m_spatial_dirty = !unchanged;
         const auto update_bounds = [&](const std::size_t index) {
             const auto& item = items[index];
             auto& cached = m_bounds[index];
@@ -188,9 +189,17 @@ namespace Comet {
         // 预留后才保存指针，保证本帧各队列借用的地址稳定。
         m_selected_items.reserve(world.m_lod_count);
         const auto frustum = cull_before_lod ? Frustum::from_view_projection(clip) : std::nullopt;
-        for(const auto& input : inputs) {
+        if(frustum)
+            m_view_statistics.spatial_tests = world.visible_indices(*frustum, m_visible);
+        size_t visible = 0;
+        for(size_t slot = 0; slot < inputs.size(); ++slot) {
+            const auto& input = inputs[slot];
             const auto& item = *input.source;
-            if(frustum && input.world_bounds && !frustum->intersects(*input.world_bounds)) {
+            const bool included =
+                !frustum || (visible < m_visible.size() && m_visible[visible] == slot);
+            if(included && frustum)
+                ++visible;
+            if(!included) {
                 ++m_view_statistics.culled_items;
                 if(const auto history = m_lod_history.find(item.entity_id);
                     history != m_lod_history.end())
@@ -223,17 +232,32 @@ namespace Comet {
         }
         std::erase_if(m_lod_history, [](const auto& entry) { return !entry.second.used; });
         m_scene_bounds = world.m_scene_bounds;
+        m_spatial_dirty = true;
         return *this;
     }
 
     void RenderGeometry::replace_skinned(
         std::size_t index, const ResolvedRenderItem& item, const BoundingBox& bounds) {
+        m_spatial_dirty = true;
         m_skin_bounds[index] = bounds;
         m_items[index] = {&item, &m_skin_bounds[index]};
         if(m_scene_bounds)
             m_scene_bounds->include(bounds);
         else
             m_scene_bounds = bounds;
+    }
+    uint32_t RenderGeometry::visible_indices(
+        const Frustum& frustum, std::vector<uint32_t>& output) const {
+        if(m_spatial_dirty) {
+            m_spatial_bounds.clear();
+            m_spatial_bounds.reserve(m_items.size());
+            for(const auto& item : m_items)
+                m_spatial_bounds.push_back(
+                    item.world_bounds ? std::optional(*item.world_bounds) : std::nullopt);
+            m_spatial.update(m_spatial_bounds);
+            m_spatial_dirty = false;
+        }
+        return m_spatial.query(frustum, output);
     }
     void RenderGeometry::clear_frame() {
         m_items.clear();
@@ -247,6 +271,9 @@ namespace Comet {
         m_lod_history.clear();
         m_cached_scene_bounds.reset();
         m_scene_version = {};
+        m_spatial.clear();
+        m_spatial_bounds.clear();
+        m_spatial_dirty = true;
     }
 
 }

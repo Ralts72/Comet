@@ -45,6 +45,42 @@ namespace Comet::Tests {
         }
     }
 
+    TEST(AudioTest, FadesOcclusionAndReverbChangeRealPcmAndKeepTheirTail) {
+        TemporaryDirectory directory;
+        const auto path = directory.path() / "tone.wav";
+        write_test_wave(path, 4800);
+        const auto clip = AudioClip::load(path).value();
+        const auto render = [&](AudioEffectSettings effects, float fade) {
+            auto playback = AudioPlayback::create(AudioPlayback::Mode::Offline).value();
+            auto voice = playback->create_voice(clip, 1, false).value();
+            EXPECT_TRUE(voice->set_effects(effects));
+            EXPECT_TRUE(voice->fade_in(fade));
+            EXPECT_TRUE(voice->start());
+            std::vector<float> samples(48000 * 2);
+            EXPECT_TRUE(playback->read_frames(samples));
+            return samples;
+        };
+        const auto dry = render({}, 0);
+        const auto faded = render({}, .1f);
+        const auto blocked = render({.occlusion = 1}, 0);
+        const auto reverb = render({.reverb_mix = .8f, .reverb_decay = .5f}, 0);
+        const auto first = std::span(dry).first(4800);
+        EXPECT_LT(energy(std::span(faded).first(4800), 0), energy(first, 0) * .2);
+        EXPECT_LT(energy(std::span(blocked).first(4800), 0), energy(first, 0) * .05);
+        EXPECT_LT(energy(std::span(dry).subspan(12000), 0), 1e-8);
+        EXPECT_GT(energy(std::span(reverb).subspan(12000), 0), .001);
+        auto playback = AudioPlayback::create(AudioPlayback::Mode::Offline).value();
+        auto voice = playback->create_voice(clip, 1, true).value();
+        EXPECT_TRUE(voice->start());
+        EXPECT_TRUE(voice->fade_out(.02f));
+        std::array<float, 9600> ending{};
+        EXPECT_TRUE(playback->read_frames(ending));
+        EXPECT_FALSE(voice->is_playing());
+        EXPECT_LT(energy(std::span(ending).subspan(4800), 0), 1e-8);
+        EXPECT_FALSE(voice->fade_in(-1));
+        EXPECT_FALSE(voice->set_effects({.reverb_decay = 0}));
+    }
+
     TEST(AudioTest, StreamingKeepsMetadataAndMatchesDecodedPlaybackAcrossPauseAndLoop) {
         TemporaryDirectory directory;
         const auto path = directory.path() / "tone.wav";

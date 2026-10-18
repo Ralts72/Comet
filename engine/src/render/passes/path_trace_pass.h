@@ -9,6 +9,8 @@ namespace Comet {
     class Device;
     class ImageView;
     class RenderDiagnostics;
+    class RadianceFilter;
+    struct RaySceneBuffers;
 
     class COMET_API PathTracePass {
     public:
@@ -36,13 +38,16 @@ namespace Comet {
         struct Program;
         struct Resources;
         Result<void, GraphicsError> initialize();
-        Result<void, GraphicsError> prepare(
-            const std::shared_ptr<const RayScene>& scene, Math::Vec2u size);
+        Result<void, GraphicsError> prepare(const std::shared_ptr<const RayScene>& scene,
+            Math::Vec2u size, uint32_t frame_slots, bool guides);
         Device& m_device;
         std::shared_ptr<Program> m_program;
         std::shared_ptr<Resources> m_resources;
         Math::Mat4 m_view_projection{0};
         PathTraceSettings m_settings;
+        ViewProjectMatrix m_previous_camera{Math::Mat4(1), Math::Mat4(1)};
+        std::shared_ptr<RaySceneBuffers> m_previous_buffers;
+        std::unique_ptr<RadianceFilter> m_filter;
         uint32_t m_samples = 0;
         uint64_t m_recorded_serial = 0;
         uint64_t m_upload_bytes = 0;

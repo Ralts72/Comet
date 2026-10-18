@@ -35,11 +35,14 @@ namespace Comet {
 
         AssetRegistry& operator=(AssetRegistry&& other) noexcept;
 
+        // 字节来自创建工厂；注册表不解引用资源，未知／非 GPU 资产为 0。
         template<typename T>
-        [[nodiscard]] bool register_asset(AssetHandle handle, std::shared_ptr<T> asset);
+        [[nodiscard]] bool register_asset(
+            AssetHandle handle, std::shared_ptr<T> asset, uint64_t gpu_bytes = 0);
 
         template<typename T>
-        [[nodiscard]] bool replace_asset(AssetHandle handle, std::shared_ptr<T> asset);
+        [[nodiscard]] bool replace_asset(
+            AssetHandle handle, std::shared_ptr<T> asset, uint64_t gpu_bytes = 0);
 
         // 可选返回同一资源的发布版本；缺失或类型不匹配时为 0。
         template<typename T>
@@ -52,6 +55,8 @@ namespace Comet {
         [[nodiscard]] bool unregister_asset(AssetHandle handle);
 
         [[nodiscard]] std::size_t size() const;
+        // 已注册 GPU 资产的分配字节；在途旧代和渲染目标另由 GPU 诊断观测。
+        [[nodiscard]] uint64_t resident_gpu_bytes() const;
 
         void clear();
 
@@ -68,13 +73,14 @@ namespace Comet {
             std::shared_ptr<void> asset;
             std::type_index type;
             uint64_t revision;
+            uint64_t gpu_bytes = 0;
         };
 
-        [[nodiscard]] bool register_asset_impl(
-            AssetHandle handle, std::shared_ptr<void> asset, std::type_index type);
+        [[nodiscard]] bool register_asset_impl(AssetHandle handle, std::shared_ptr<void> asset,
+            std::type_index type, uint64_t gpu_bytes);
 
-        [[nodiscard]] bool replace_asset_impl(
-            AssetHandle handle, std::shared_ptr<void> asset, std::type_index type);
+        [[nodiscard]] bool replace_asset_impl(AssetHandle handle, std::shared_ptr<void> asset,
+            std::type_index type, uint64_t gpu_bytes);
 
         [[nodiscard]] std::shared_ptr<void> resolve_impl(
             AssetHandle handle, std::type_index type, uint64_t* revision) const;
@@ -94,18 +100,21 @@ namespace Comet {
     };
 
     template<typename T>
-    bool AssetRegistry::register_asset(const AssetHandle handle, std::shared_ptr<T> asset) {
+    bool AssetRegistry::register_asset(
+        const AssetHandle handle, std::shared_ptr<T> asset, uint64_t bytes) {
         static_assert(!std::is_void_v<T>, "AssetRegistry requires a concrete asset type");
 
         return register_asset_impl(
-            handle, std::shared_ptr<void>(std::move(asset)), asset_type<T>());
+            handle, std::shared_ptr<void>(std::move(asset)), asset_type<T>(), bytes);
     }
 
     template<typename T>
-    bool AssetRegistry::replace_asset(const AssetHandle handle, std::shared_ptr<T> asset) {
+    bool AssetRegistry::replace_asset(
+        const AssetHandle handle, std::shared_ptr<T> asset, uint64_t bytes) {
         static_assert(!std::is_void_v<T>, "AssetRegistry requires a concrete asset type");
 
-        return replace_asset_impl(handle, std::shared_ptr<void>(std::move(asset)), asset_type<T>());
+        return replace_asset_impl(
+            handle, std::shared_ptr<void>(std::move(asset)), asset_type<T>(), bytes);
     }
 
     template<typename T>

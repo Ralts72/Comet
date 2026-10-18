@@ -164,7 +164,8 @@ namespace Comet::Tests {
                 engine->get_render_resource_factory(), engine->get_task_scheduler());
             ASSERT_TRUE(assets.scan().succeeded());
             auto components = create_scene_component_registry();
-            auto loaded = SceneSerializer(components).load((paths.assets() / filename).string());
+            auto loaded = SceneSerializer(components, assets.scene_sources(components))
+                              .load((paths.assets() / filename).string());
             ASSERT_TRUE(loaded) << loaded.error();
             scene = SceneExtractor::extract(*loaded.value());
             for(const auto& item : scene.render_items) {
@@ -292,6 +293,102 @@ namespace Comet::Tests {
         EXPECT_LT(mean.r, .7f);
         EXPECT_GT(mean.r, mean.g * 2);
         EXPECT_GT(mean.g, mean.b * 1.5f);
+    }
+
+    TEST_F(PathTraceGpuTest, SceneSettingsEnableTheSharedRuntimePathWithoutEditorOverrides) {
+        view.path_trace.reset();
+        view.path_trace_enabled = false;
+        engine->get_renderer().set_ray_scene_sources(
+            [&](AssetHandle) { return Result<MeshData, Error>::success(mesh); }, {});
+        scene.environment.background_color = {2, 1, .5f};
+        scene.post_process.path_trace = {
+            .samples = 4, .max_dimension = 32, .enabled = true, .dynamic = true, .denoise = true};
+        ASSERT_NO_FATAL_FAILURE(draw(3));
+        EXPECT_EQ(samples(), 1u) << engine->get_renderer().path_trace_error();
+        const auto result = mean(pixels());
+        EXPECT_LT(Math::length(result - Math::Vec3(2, 1, .5f)), 1e-5f);
+        scene.post_process.path_trace.enabled = false;
+        ASSERT_NO_FATAL_FAILURE(draw());
+        EXPECT_EQ(samples(), 0u);
+    }
+
+    TEST_F(PathTraceGpuTest, DynamicDenoisingReducesNoiseAndSurvivesRefitResizeAndReset) {
+        source.environment.background_color = {1, 1, 1};
+        ASSERT_TRUE(material->set_scalar_property("roughness", 1));
+        ASSERT_TRUE(material->set_vector_property("base_color", {.6f, .2f, .1f, 1}));
+        ASSERT_NO_FATAL_FAILURE(capture_source());
+        ASSERT_NO_FATAL_FAILURE(draw(128));
+        const auto reference = pixels();
+        view.path_trace_settings.dynamic = true;
+        ASSERT_NO_FATAL_FAILURE(draw());
+        const auto noisy = pixels();
+        view.path_trace_settings.denoise = true;
+        ASSERT_NO_FATAL_FAILURE(draw(8));
+        const auto filtered = pixels();
+        double original_error = 0, filtered_error = 0;
+        for(size_t i = 0; i < filtered.size(); ++i) {
+            ASSERT_TRUE(Math::is_finite(filtered[i]));
+            const auto a = Math::Vec3(noisy[i] - reference[i]);
+            const auto b = Math::Vec3(filtered[i] - reference[i]);
+            original_error += Math::dot(a, a);
+            filtered_error += Math::dot(b, b);
+        }
+        EXPECT_LT(filtered_error, original_error * .4);
+        EXPECT_EQ(samples(), 1u);
+        source.render_items[0].model_matrix = Math::translate(Math::Mat4(1), {0, 0, -.5f});
+        ASSERT_NO_FATAL_FAILURE(capture_source(false));
+        ASSERT_NO_FATAL_FAILURE(draw(2));
+        view.render_size = {64, 32};
+        ++view.path_trace_settings.reset_generation;
+        ASSERT_TRUE(engine->get_renderer().enable_offscreen_rendering(view.render_size));
+        ASSERT_NO_FATAL_FAILURE(draw(2));
+        for(const auto value : pixels())
+            EXPECT_TRUE(Math::is_finite(value));
+        view.path_trace_settings.denoise = false;
+        ASSERT_NO_FATAL_FAILURE(draw());
+        EXPECT_EQ(samples(), 1u);
+    }
+
+    TEST_F(PathTraceGpuTest, MediumAbsorptionUsesThicknessAndNestedVolumesReplaceTheirParent) {
+        source.environment.background_color = {1, 1, 1};
+        ASSERT_TRUE(material->set_vector_property("base_color", {1, 1, 1, 1}));
+        ASSERT_TRUE(material->set_scalar_property("transmission", 1));
+        ASSERT_TRUE(material->set_scalar_property("ior", 1));
+        ASSERT_TRUE(material->set_vector_property("attenuation_color", {.25f, .25f, .25f, 1}));
+        mesh.vertices.insert(
+            mesh.vertices.end(), {{{-20, -20, -1}, {}, {0, 0, -1}}, {{0, 20, -1}, {}, {0, 0, -1}},
+                                     {{20, -20, -1}, {}, {0, 0, -1}}});
+        mesh.indices = {0, 1, 2, 3, 4, 5};
+        view.path_trace_settings.bounces = 8;
+        ASSERT_NO_FATAL_FAILURE(capture_source());
+        ASSERT_NO_FATAL_FAILURE(draw());
+        const auto absorbed = mean(pixels());
+        EXPECT_NEAR(absorbed.r, .25f, .001f);
+        auto inner = std::make_shared<Material>("inner", "pbr");
+        ASSERT_TRUE(inner->set_scalar_property("transmission", 1));
+        ASSERT_TRUE(inner->set_scalar_property("ior", 1));
+        ASSERT_TRUE(inner->set_vector_property("base_color", {1, 1, 1, 1}));
+        auto item = source.render_items[0];
+        item.material.resource = inner;
+        item.model_matrix =
+            Math::scale(Math::translate(Math::Mat4(1), {0, 0, -.25f}), Math::Vec3(1, 1, .5f));
+        source.render_items.push_back(item);
+        ASSERT_NO_FATAL_FAILURE(capture_source());
+        ASSERT_NO_FATAL_FAILURE(draw(128));
+        EXPECT_NEAR(mean(pixels()).r, .5f, .006f);
+    }
+
+    TEST_F(PathTraceGpuTest, HomogeneousAbsorbingMediumAttenuatesFiniteDistance) {
+        material = std::make_shared<Material>("emitter", "unlit_color");
+        ASSERT_TRUE(material->set_vector_property("color", {1, 1, 1, 1}));
+        source.render_items[0].material.resource = material;
+        view.path_trace_settings.medium_density = .5f;
+        view.path_trace_settings.medium_color = Math::Vec3(0);
+        ASSERT_NO_FATAL_FAILURE(capture_source());
+        ASSERT_NO_FATAL_FAILURE(draw(128));
+        const auto result = mean(pixels());
+        EXPECT_NEAR(result.r, std::exp(-.5f * 2.9f), .03f);
+        EXPECT_NEAR(result.g, result.r, 1e-5f);
     }
 
     TEST_F(PathTraceGpuTest, RefractionBendsRaysAndRoughnessBroadensTransmission) {
@@ -791,7 +888,7 @@ namespace Comet::Tests {
 
     TEST_F(PathTraceGpuTest, MaterialReferenceUsesImportedTexturesAndEnvironmentProducts) {
         ASSERT_NO_FATAL_FAILURE(capture_project_scene("scenes/path_tracing_materials.scene"));
-        EXPECT_GT(view.path_trace->materials->textures.size(), 3u);
+        EXPECT_GT(view.path_trace->materials->images->textures.size(), 3u);
         EXPECT_TRUE(std::ranges::any_of(view.path_trace->materials->surfaces,
             [](const auto& surface) { return surface.opacity.z == float(AlphaMode::Mask); }));
         EXPECT_TRUE(std::ranges::any_of(view.path_trace->materials->surfaces,

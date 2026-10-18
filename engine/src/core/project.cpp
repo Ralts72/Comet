@@ -262,7 +262,7 @@ namespace Comet {
                                              + "; expected " + std::to_string(FORMAT_VERSION)));
         if(auto valid = context.validate_keys(
                data, {"version", "id", "name", "startup_scene", "input_actions", "input_contexts",
-                         "ui", "display", "quality", "audio"});
+                         "ui", "display", "quality", "audio", "included_scenes"});
             !valid)
             return Result<Project>::failure(valid.error());
 
@@ -317,6 +317,33 @@ namespace Comet {
         if(!resolved)
             return Result<Project>::failure(context.error("startup_scene", resolved.error()));
         project.m_startup_scene = relative.lexically_normal();
+        const auto included = context.find(data, "included_scenes");
+        if(!included)
+            return Result<Project>::failure(included.error());
+        if(included.value()) {
+            const auto entries = context.array(*included.value(), "included_scenes");
+            if(!entries)
+                return Result<Project>::failure(entries.error());
+            for(const auto entry : entries.value()) {
+                auto text =
+                    context.read_scalar<std::string>(entry, "included_scenes", "a scene path");
+                if(!text)
+                    return Result<Project>::failure(text.error());
+                const std::filesystem::path candidate(text.value());
+                if(candidate.empty() || candidate.is_absolute() || candidate.extension() != ".scene"
+                    || text.value().find('\\') != std::string::npos
+                    || std::ranges::any_of(candidate, [](const auto& part) { return part == ".."; })
+                    || !project.paths().resolve_asset_path(candidate))
+                    return Result<Project>::failure(context.error(
+                        "included_scenes", "expected an assets-relative .scene path"));
+                const auto normalized = candidate.lexically_normal();
+                if(std::ranges::find(project.m_included_scenes, normalized)
+                    != project.m_included_scenes.end())
+                    return Result<Project>::failure(
+                        context.error("included_scenes", "duplicate scene"));
+                project.m_included_scenes.push_back(normalized);
+            }
+        }
         Json::Node ui;
         if(!data["ui"].get(ui)) {
             if(auto valid = context.validate_keys(ui, {"document", "controller"}, "ui"); !valid)
@@ -372,6 +399,13 @@ namespace Comet {
         writer.field("id", m_id.to_string());
         writer.field("name", name);
         writer.field("startup_scene", startup_scene.generic_string());
+        if(!m_included_scenes.empty()) {
+            writer.key("included_scenes");
+            writer.begin_array();
+            for(const auto& path : m_included_scenes)
+                writer.value(path.generic_string());
+            writer.end_array();
+        }
         writer.key("display");
         display_settings.write(writer);
         writer.key("quality");

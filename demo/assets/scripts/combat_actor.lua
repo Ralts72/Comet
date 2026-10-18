@@ -28,6 +28,7 @@ function script:on_start()
         self.controls = {movement_reference = self.parameters.camera,
             facing = self.parameters.visual, run = "character.run", crouch = "character.crouch"}
         comet.set_input_context("character", true)
+        comet.set_input_context("combat", true)
         comet.session_set("demo.mode", "combat")
         comet.session_set("combat.maximum", self.health)
         comet.session_set("combat.total", self.tuning.opponents)
@@ -95,6 +96,10 @@ function script:damage(amount)
         comet.emit("combat.defeat", nil, self.parameters.model)
         if not self.parameters.player then
             comet.session_set("combat.defeated", comet.session_get("combat.defeated") + 1)
+            if comet.session_get("tour.active")
+                and comet.session_get("combat.defeated") >= comet.session_get("combat.total") then
+                comet.emit("tour.complete")
+            end
             self.remove_after = 1.2
         end
     end
@@ -155,7 +160,10 @@ function script:fixed_update(dt)
 end
 
 function script:on_stop()
-    if self.parameters.player then comet.set_input_context("character", false) end
+    if self.parameters.player then
+        comet.set_input_context("character", false)
+        comet.set_input_context("combat", false)
+    end
 end
 
 return script

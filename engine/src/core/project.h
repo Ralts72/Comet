@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace Comet {
     class COMET_API Project final {
@@ -35,6 +36,9 @@ namespace Comet {
         [[nodiscard]] Uuid id() const { return m_id; }
         [[nodiscard]] const std::string& name() const { return m_name; }
         [[nodiscard]] const std::filesystem::path& startup_scene() const { return m_startup_scene; }
+        [[nodiscard]] const std::vector<std::filesystem::path>& included_scenes() const {
+            return m_included_scenes;
+        }
         [[nodiscard]] const InputActions& input_actions() const { return m_input_actions; }
         [[nodiscard]] const DisplaySettings& display_settings() const { return m_display_settings; }
         [[nodiscard]] const QualitySettings& quality_settings() const { return m_quality_settings; }
@@ -56,6 +60,7 @@ namespace Comet {
         Uuid m_id;
         std::string m_name;
         std::filesystem::path m_startup_scene;
+        std::vector<std::filesystem::path> m_included_scenes;
         InputActions m_input_actions;
         DisplaySettings m_display_settings;
         QualitySettings m_quality_settings;

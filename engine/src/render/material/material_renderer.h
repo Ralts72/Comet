@@ -22,6 +22,7 @@
 #include <vector>
 
 namespace Comet {
+    class GpuMeshVisibility;
     class AssetRegistry;
     class CPUBuffer;
     struct FogVolume;
@@ -67,6 +68,8 @@ namespace Comet {
             uint32_t drawn_instances = 0;
             uint64_t drawn_triangles = 0;
             uint32_t instanced_draw_calls = 0;
+            uint32_t gpu_indirect_draws = 0;
+            uint32_t gpu_candidate_instances = 0;
             uint64_t instance_upload_bytes = 0;
             uint32_t pipeline_binds = 0;
             uint64_t pipeline_creations = 0;
@@ -239,12 +242,15 @@ namespace Comet {
         struct DrawCandidate {
             const ResolvedRenderItem* item;
             bool mirrored;
+            bool visible;
         };
+        static constexpr uint32_t GPU_CULL_MIN_INSTANCES = 128;
         struct DrawItem {
             const ResolvedRenderItem* item;
             std::shared_ptr<MaterialResources> material;
             uint32_t instance_count = 1;
             uint32_t first_instance = 0;
+            uint32_t gpu_command = UINT32_MAX;
             bool mirrored = false;
             float camera_depth = 0;
         };
@@ -267,7 +273,8 @@ namespace Comet {
             const DescriptorSet* depth = nullptr);
         void append_material_draws(
             std::span<DrawCandidate> items, const std::shared_ptr<MaterialResources>& material);
-        Result<void, GraphicsError> upload_instances(FrameScheduler& frames);
+        Result<void, GraphicsError> upload_instances(
+            FrameScheduler& frames, const Math::Mat4& clip);
         void collect_unused_materials(uint64_t frame_serial);
 
         Result<std::shared_ptr<const PipelineState>, GraphicsError> create_pipeline(
@@ -316,6 +323,7 @@ namespace Comet {
         std::shared_ptr<Texture> m_normal_texture;
         ViewBindings m_view_bindings;
         std::vector<InstanceBuffer> m_instances;
+        std::shared_ptr<GpuMeshVisibility> m_gpu_visibility;
         std::unordered_map<std::string, std::shared_ptr<const PipelineState>> m_pipelines;
         std::shared_ptr<MaterialResources> m_error_material;
         std::map<std::pair<AssetHandle, std::string>, ProjectPipeline> m_project_pipelines;
@@ -327,6 +335,8 @@ namespace Comet {
         std::vector<DrawItem> m_draw_queue;
         std::vector<float> m_transparent_depths;
         std::vector<PushConstant> m_instance_transforms;
+        std::vector<uint32_t> m_visible_slots;
+        std::vector<uint8_t> m_visibility;
         Statistics m_statistics;
         uint64_t m_warmup_pipeline_creations = 0;
         bool m_has_runtime_instances = false;

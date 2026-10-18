@@ -1,3 +1,4 @@
+#include "../common/water.glsl"
 #ifndef RAY_CULL_BACKFACES
 #define RAY_CULL_BACKFACES 1
 #endif
@@ -14,6 +15,8 @@ struct Surface {
     vec4 emission_roughness;
     uvec4 textures;
     vec4 parameters;
+    vec4 water;
+    vec4 absorption;
     vec4 opacity;
 };
 struct Texture { uvec4 extent; uvec4 sampler_state; };
@@ -63,9 +66,13 @@ vec4 texture_texel(Texture image, ivec2 p) {
     if(x < 0 || y < 0) return vec4(0, 0, 0, 1);
     return texels[image.extent.x + uint(y) * image.extent.y + uint(x)];
 }
-vec4 sample_texture(uint index, vec2 uv, vec4 fallback) {
+vec4 sample_texture_level(uint index, vec2 uv, vec4 fallback, uint level) {
     if(index == 0) return fallback;
     Texture image = textures[index];
+    for(uint mip = 0; mip < level; ++mip) {
+        image.extent.x += image.extent.y * image.extent.z;
+        image.extent.yz = max(uvec2(1), image.extent.yz / 2);
+    }
     for(int axis = 0; axis < 2; ++axis) {
         uint mode = image.sampler_state[axis];
         if(mode == 1) uv[axis] = fract(uv[axis]);
@@ -78,6 +85,21 @@ vec4 sample_texture(uint index, vec2 uv, vec4 fallback) {
     vec2 f = fract(p);
     return mix(mix(texture_texel(image, low), texture_texel(image, low + ivec2(1, 0)), f.x),
         mix(texture_texel(image, low + ivec2(0, 1)), texture_texel(image, low + ivec2(1)), f.x), f.y);
+}
+vec4 sample_texture(uint index, vec2 uv, vec4 fallback) {
+    return sample_texture_level(index, uv, fallback, 0);
+}
+float ray_cone_width = 0;
+vec4 sample_surface_texture(uint index, Triangle triangle, vec2 uv, vec4 fallback) {
+    if(index == 0) return fallback;
+    vec3 a = triangle.p[1].xyz - triangle.p[0].xyz, b = triangle.p[2].xyz - triangle.p[0].xyz;
+    vec2 ta = vec2(triangle.n[1].w - triangle.n[0].w, triangle.tangent[1].w - triangle.tangent[0].w);
+    vec2 tb = vec2(triangle.n[2].w - triangle.n[0].w, triangle.tangent[2].w - triangle.tangent[0].w);
+    float density = max(length(ta) / max(length(a), 1e-6), length(tb) / max(length(b), 1e-6));
+    float footprint = ray_cone_width * density * float(max(textures[index].extent.y, textures[index].extent.z));
+    float lod = clamp(log2(max(footprint, 1)), 0, float(max(textures[index].extent.w, 1u) - 1));
+    uint low = uint(floor(lod)), high = min(low + 1, max(textures[index].extent.w, 1u) - 1);
+    return mix(sample_texture_level(index, uv, fallback, low), sample_texture_level(index, uv, fallback, high), fract(lod));
 }
 vec2 hit_uv(Triangle triangle, vec3 barycentric) {
     vec2 a = vec2(triangle.n[0].w, triangle.tangent[0].w);
@@ -100,11 +122,11 @@ Surface hit_surface(Triangle triangle, vec3 barycentric) {
     if(value.emission_roughness.w < 0.0) return value;
     vec2 uv = hit_uv(triangle, barycentric);
     value.albedo_metallic.rgb = clamp(value.albedo_metallic.rgb
-        * sample_texture(value.textures.x, uv, vec4(1)).rgb, 0.0, 1.0);
-    vec2 mr = sample_texture(value.textures.z, uv, vec4(1)).bg;
+        * sample_surface_texture(value.textures.x, triangle, uv, vec4(1)).rgb, 0.0, 1.0);
+    vec2 mr = sample_surface_texture(value.textures.z, triangle, uv, vec4(1)).bg;
     value.albedo_metallic.w = clamp(value.albedo_metallic.w * mr.x, 0.0, 1.0);
     value.emission_roughness.w = clamp(value.emission_roughness.w * mr.y, 0.045, 1.0);
-    value.emission_roughness.rgb *= sample_texture(value.textures.w, uv, vec4(1)).rgb;
+    value.emission_roughness.rgb *= sample_surface_texture(value.textures.w, triangle, uv, vec4(1)).rgb;
     return value;
 }
 vec3 hit_normal(Triangle triangle, Surface surface, vec3 barycentric, vec3 geometric, vec3 outgoing) {
@@ -133,12 +155,14 @@ vec3 hit_normal(Triangle triangle, Surface surface, vec3 barycentric, vec3 geome
             }
         }
         if(dot(tangent, tangent) > 1e-12) {
-            vec3 sampled = sample_texture(surface.textures.y, hit_uv(triangle, barycentric), vec4(0.5, 0.5, 1, 1)).rgb * 2.0 - 1.0;
+            vec3 sampled = sample_surface_texture(surface.textures.y, triangle, hit_uv(triangle, barycentric), vec4(0.5, 0.5, 1, 1)).rgb * 2.0 - 1.0;
             sampled.xy *= surface.parameters.x;
             vec3 mapped = mat3(tangent, bitangent, basis_normal) * sampled;
             if(dot(mapped, mapped) > 1e-12) normal = normalize(mapped);
         }
     }
+    vec3 point = triangle.p[0].xyz * barycentric.x + triangle.p[1].xyz * barycentric.y + triangle.p[2].xyz * barycentric.z;
+    normal = water_normal(normal, point, surface.water);
     if(dot(normal, geometric) < 0.0) normal = -normal;
     return dot(normal, outgoing) > 0.0 ? normal : geometric;
 }

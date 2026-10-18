@@ -115,4 +115,8 @@ namespace Comet {
             new Texture(int(extent.x), int(extent.y), std::move(image), {}, std::move(sampler)));
     }
 
+    uint64_t Texture::gpu_resident_bytes() const {
+        return m_image_view->get_image()->allocation_bytes();
+    }
+
 }

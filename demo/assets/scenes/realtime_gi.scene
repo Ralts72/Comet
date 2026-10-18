@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "environment": {
     "asset": 6729301842000000104,
     "background": false,
@@ -7,19 +7,12 @@
     "rotation": 0,
     "lighting": true,
     "lighting_intensity": 0.2,
-    "background_color": [
-      0.02,
-      0.02,
-      0.02
-    ],
+    "background_color": [0.02, 0.02, 0.02],
     "fog_enabled": false,
-    "fog_color": [
-      0.5,
-      0.5,
-      0.5
-    ],
+    "fog_color": [0.5, 0.5, 0.5],
     "fog_start": 10,
-    "fog_end": 100
+    "fog_end": 100,
+    "realtime_gi_budget": 32
   },
   "post_process": {
     "exposure": 1,
@@ -27,231 +20,222 @@
     "bloom_strength": 0.05,
     "bloom_threshold": 1,
     "ao_enabled": false,
+    "weighted_oit": false,
     "ao_radius": 0.5,
     "ao_strength": 1
   },
   "entities": [
     {
-      "uuid": "ca18463e-eb8a-523b-ac5a-688c154db885",
+      "uuid": "0d51a60b-c12c-5368-8383-3f52c941d8ff",
       "components": {
-        "name": "后墙",
+        "name": "蓝墙",
         "transform": {
-          "translation": [
-            0,
-            2,
-            -2.1
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            4,
-            4,
-            0.2
-          ]
+          "translation": [2.1, 2, 0],
+          "rotation": [0, 0, 0],
+          "scale": [0.2, 4, 4.4]
         },
         "mesh_renderer": {
           "mesh": 7535385251553858160,
-          "material": 6729301842000000100
+          "material": 6729301842000000102,
+          "contributes_to_gi": true
+        },
+        "rigid_body": {
+          "motion": "static",
+          "mass_mode": "mass",
+          "mass": 1,
+          "density": 1000,
+          "continuous_collision": false
+        },
+        "collider": {
+          "shape": "box",
+          "mesh": 0,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
+          "half_extents": [0.5, 0.5, 0.5],
+          "radius": 0.5,
+          "height": 2,
+          "is_trigger": false,
+          "friction": 0.2,
+          "restitution": 0
         }
       }
     },
     {
-      "uuid": "45387758-2e45-537b-ae8b-93edf44a56d9",
+      "uuid": "3267ad3a-9e4d-5c3c-a2b2-83d5850456b3",
       "components": {
-        "name": "红墙",
+        "name": "地面",
         "transform": {
-          "translation": [
-            -2.1,
-            2,
-            0
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            0.2,
-            4,
-            4.4
-          ]
+          "translation": [0, -0.1, 0],
+          "rotation": [0, 0, 0],
+          "scale": [4.4, 0.2, 4.4]
         },
         "mesh_renderer": {
           "mesh": 7535385251553858160,
-          "material": 6729301842000000101
+          "material": 6729301842000000100,
+          "contributes_to_gi": true
+        },
+        "rigid_body": {
+          "motion": "static",
+          "mass_mode": "mass",
+          "mass": 1,
+          "density": 1000,
+          "continuous_collision": false
+        },
+        "collider": {
+          "shape": "box",
+          "mesh": 0,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
+          "half_extents": [0.5, 0.5, 0.5],
+          "radius": 0.5,
+          "height": 2,
+          "is_trigger": false,
+          "friction": 0.2,
+          "restitution": 0
         }
       }
     },
     {
-      "uuid": "77ba4364-930d-522f-94d0-3be698b3ad35",
+      "uuid": "372777a0-789c-41ec-9248-74b4b88e1588",
       "components": {
-        "name": "顶板",
-        "transform": {
-          "translation": [
-            0,
-            4.1,
-            0
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            4.4,
-            0.2,
-            4.4
-          ]
+        "name": "旅人"
+      },
+      "prefab": {
+        "asset": 6729301842000001202,
+        "entities": {
+          "3078a5ce-543c-4df2-90d1-d8c7b1e2769c": "d4ee7755-0a39-47a0-acb6-7d7f7ecab891",
+          "8c7518af-a8a2-472c-8f21-d63fc11b2b33": "1fd4c99e-8c36-4dbd-9631-9fb0203aab16",
+          "d3bb4700-17b7-4112-b03d-44d354eabaae": "372777a0-789c-41ec-9248-74b4b88e1588",
+          "dd8d0ac8-87a1-485b-96f6-84a127b948a0": "99c2454a-b0d7-4483-957b-1538525e147a"
         },
-        "mesh_renderer": {
-          "mesh": 7535385251553858160,
-          "material": 6729301842000000100
-        }
-      }
-    },
-    {
-      "uuid": "4dabf01a-f5bf-56a2-a07d-bc43844f8f92",
-      "components": {
-        "name": "静态高方块",
-        "transform": {
-          "translation": [
-            -0.6,
-            0.6,
-            -0.5
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            0.7,
-            1.2,
-            0.7
-          ]
-        },
-        "mesh_renderer": {
-          "mesh": 7535385251553858160,
-          "material": 6729301842000000100
-        }
-      }
-    },
-    {
-      "uuid": "884ad2fa-8cd8-5282-992b-ea59250d9e07",
-      "components": {
-        "name": "主相机",
-        "transform": {
-          "translation": [
-            0,
-            1.8,
-            1.65
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            1,
-            1,
-            1
-          ]
-        },
-        "camera": {
-          "primary": true,
-          "projection": "perspective",
-          "fov": 70,
-          "orthographic_height": 10,
-          "near_clip": 0.05,
-          "far_clip": 50
-        },
-        "camera_controller": {
-          "enabled": true,
-          "mode": "free",
-          "move_speed": 3,
-          "look_sensitivity": 0.2,
-          "look_speed": 120,
-          "orbit_distance": 6,
-          "orbit_height": 1.2,
-          "orbit_min_distance": 1.5,
-          "orbit_max_distance": 12,
-          "orbit_zoom_step": 0.5,
-          "collision_radius": 0.15
-        }
-      }
-    },
-    {
-      "uuid": "4a1648ac-51c6-5f7f-8a1d-9b10e479dbd9",
-      "components": {
-        "name": "静态矮方块",
-        "transform": {
-          "translation": [
-            0.7,
-            0.3,
-            -0.8
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            0.6,
-            0.6,
-            0.6
-          ]
-        },
-        "mesh_renderer": {
-          "mesh": 7535385251553858160,
-          "material": 6729301842000000100
-        }
-      }
-    },
-    {
-      "uuid": "547a8fad-1b23-502b-bda4-dfcd64106278",
-      "components": {
-        "name": "实时探针 GI 区域",
-        "transform": {
-          "translation": [
-            0,
-            2,
-            0
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            1,
-            1,
-            1
-          ]
-        },
-        "irradiance_volume": {
-          "enabled": true,
-          "irradiance": 0,
-          "half_extents": [
-            2.1,
-            2.1,
-            2.1
-          ],
-          "spacing": 0.72,
-          "max_distance": 30,
-          "ray_samples": 1024,
-          "bounces": 3,
-          "intensity": 1,
-          "normal_bias": 0.05,
-          "bake_fingerprint": "",
-          "realtime": true,
-          "update_budget": 16,
-          "update_rays": 128,
-          "history_weight": 0.85,
-          "bounce_strength": 0.7
-        }
+        "changes": [
+          {
+            "base": {
+              "parent": "00000000-0000-0000-0000-000000000000",
+              "entity": {
+                "uuid": "d3bb4700-17b7-4112-b03d-44d354eabaae",
+                "components": {
+                  "name": "旅人",
+                  "script": {
+                    "asset": 6729301842000000023,
+                    "parameters": {
+                      "camera": {
+                        "entity": "dd8d0ac8-87a1-485b-96f6-84a127b948a0"
+                      },
+                      "visual": {
+                        "entity": "3078a5ce-543c-4df2-90d1-d8c7b1e2769c"
+                      }
+                    }
+                  },
+                  "transform": {
+                    "translation": [0, 0, 0],
+                    "rotation": [0, 0, 0],
+                    "scale": [1, 1, 1]
+                  },
+                  "audio_source": {
+                    "clip": 8247160951280394421,
+                    "play_on_start": false,
+                    "loop": false,
+                    "category": "effects",
+                    "volume": 0.2,
+                    "spatial": false,
+                    "min_distance": 1,
+                    "max_distance": 30,
+                    "rolloff": 1,
+                    "fade_in": 0,
+                    "fade_out": 0,
+                    "reverb_mix": 0,
+                    "reverb_decay": 1.2,
+                    "occlusion_strength": 0.75,
+                    "occlusion": false,
+                    "occlusion_layers": 4294967295
+                  },
+                  "character_controller": {
+                    "enabled": true,
+                    "radius": 0.3,
+                    "height": 1.8,
+                    "move_speed": 4,
+                    "run_speed": 6,
+                    "crouch_speed": 2,
+                    "crouch_height_ratio": 0.6,
+                    "air_control": 1,
+                    "push_force": 100,
+                    "jump_speed": 5,
+                    "max_slope_angle": 45,
+                    "step_height": 0.3,
+                    "ground_snap_distance": 0.3,
+                    "collision_layer": 1,
+                    "collision_mask": 4294967295,
+                    "gravity_scale": 1
+                  }
+                }
+              }
+            },
+            "value": {
+              "parent": "00000000-0000-0000-0000-000000000000",
+              "entity": {
+                "uuid": "372777a0-789c-41ec-9248-74b4b88e1588",
+                "components": {
+                  "name": "旅人",
+                  "script": {
+                    "asset": 6729301842000000023,
+                    "parameters": {
+                      "camera": {
+                        "entity": "99c2454a-b0d7-4483-957b-1538525e147a"
+                      },
+                      "visual": {
+                        "entity": "d4ee7755-0a39-47a0-acb6-7d7f7ecab891"
+                      }
+                    }
+                  },
+                  "transform": {
+                    "translation": [0, 0, 1.25],
+                    "rotation": [0, 0, 0],
+                    "scale": [1, 1, 1]
+                  },
+                  "audio_source": {
+                    "clip": 8247160951280394421,
+                    "play_on_start": false,
+                    "loop": false,
+                    "category": "effects",
+                    "volume": 0.2,
+                    "spatial": false,
+                    "min_distance": 1,
+                    "max_distance": 30,
+                    "rolloff": 1,
+                    "fade_in": 0,
+                    "fade_out": 0,
+                    "reverb_mix": 0,
+                    "reverb_decay": 1.2,
+                    "occlusion_strength": 0.75,
+                    "occlusion": false,
+                    "occlusion_layers": 4294967295
+                  },
+                  "character_controller": {
+                    "enabled": true,
+                    "radius": 0.3,
+                    "height": 1.8,
+                    "move_speed": 4,
+                    "run_speed": 6,
+                    "crouch_speed": 2,
+                    "crouch_height_ratio": 0.6,
+                    "air_control": 1,
+                    "push_force": 100,
+                    "jump_speed": 5,
+                    "max_slope_angle": 45,
+                    "step_height": 0.3,
+                    "ground_snap_distance": 0.3,
+                    "collision_layer": 1,
+                    "collision_mask": 4294967295,
+                    "gravity_scale": 1
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "removed": [],
+        "added": []
       }
     },
     {
@@ -266,21 +250,9 @@
           }
         },
         "transform": {
-          "translation": [
-            0,
-            1,
-            0.6
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            0.5,
-            0.5,
-            0.5
-          ]
+          "translation": [0, 1, 0.6],
+          "rotation": [0, 0, 0],
+          "scale": [0.5, 0.5, 0.5]
         },
         "mesh_renderer": {
           "mesh": 7535385251553858160,
@@ -299,11 +271,7 @@
           "mesh": 0,
           "collision_layer": 1,
           "collision_mask": 4294967295,
-          "half_extents": [
-            0.5,
-            0.5,
-            0.5
-          ],
+          "half_extents": [0.5, 0.5, 0.5],
           "radius": 0.5,
           "height": 2,
           "is_trigger": false,
@@ -313,83 +281,228 @@
       }
     },
     {
-      "uuid": "3267ad3a-9e4d-5c3c-a2b2-83d5850456b3",
+      "uuid": "45387758-2e45-537b-ae8b-93edf44a56d9",
       "components": {
-        "name": "地面",
+        "name": "红墙",
         "transform": {
-          "translation": [
-            0,
-            -0.1,
-            0
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            4.4,
-            0.2,
-            4.4
-          ]
+          "translation": [-2.1, 2, 0],
+          "rotation": [0, 0, 0],
+          "scale": [0.2, 4, 4.4]
         },
         "mesh_renderer": {
           "mesh": 7535385251553858160,
-          "material": 6729301842000000100
+          "material": 6729301842000000101,
+          "contributes_to_gi": true
+        },
+        "rigid_body": {
+          "motion": "static",
+          "mass_mode": "mass",
+          "mass": 1,
+          "density": 1000,
+          "continuous_collision": false
+        },
+        "collider": {
+          "shape": "box",
+          "mesh": 0,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
+          "half_extents": [0.5, 0.5, 0.5],
+          "radius": 0.5,
+          "height": 2,
+          "is_trigger": false,
+          "friction": 0.2,
+          "restitution": 0
         }
       }
     },
     {
-      "uuid": "f7b07b11-e841-5ea6-bf79-92cb7d36322e",
+      "uuid": "4a1648ac-51c6-5f7f-8a1d-9b10e479dbd9",
       "components": {
-        "name": "发光顶灯",
+        "name": "静态矮方块",
         "transform": {
-          "translation": [
-            0,
-            3.94,
-            -0.2
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            1.2,
-            0.08,
-            1.2
-          ]
+          "translation": [0.7, 0.3, -0.8],
+          "rotation": [0, 0, 0],
+          "scale": [0.6, 0.6, 0.6]
         },
         "mesh_renderer": {
           "mesh": 7535385251553858160,
-          "material": 6729301842000000103
+          "material": 6729301842000000100,
+          "contributes_to_gi": true
+        },
+        "rigid_body": {
+          "motion": "static",
+          "mass_mode": "mass",
+          "mass": 1,
+          "density": 1000,
+          "continuous_collision": false
+        },
+        "collider": {
+          "shape": "box",
+          "mesh": 0,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
+          "half_extents": [0.5, 0.5, 0.5],
+          "radius": 0.5,
+          "height": 2,
+          "is_trigger": false,
+          "friction": 0.2,
+          "restitution": 0
         }
       }
     },
     {
-      "uuid": "0d51a60b-c12c-5368-8383-3f52c941d8ff",
+      "uuid": "4dabf01a-f5bf-56a2-a07d-bc43844f8f92",
       "components": {
-        "name": "蓝墙",
+        "name": "静态高方块",
         "transform": {
-          "translation": [
-            2.1,
-            2,
-            0
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            0.2,
-            4,
-            4.4
-          ]
+          "translation": [-0.6, 0.6, -0.5],
+          "rotation": [0, 0, 0],
+          "scale": [0.7, 1.2, 0.7]
         },
         "mesh_renderer": {
           "mesh": 7535385251553858160,
-          "material": 6729301842000000102
+          "material": 6729301842000000100,
+          "contributes_to_gi": true
+        },
+        "rigid_body": {
+          "motion": "static",
+          "mass_mode": "mass",
+          "mass": 1,
+          "density": 1000,
+          "continuous_collision": false
+        },
+        "collider": {
+          "shape": "box",
+          "mesh": 0,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
+          "half_extents": [0.5, 0.5, 0.5],
+          "radius": 0.5,
+          "height": 2,
+          "is_trigger": false,
+          "friction": 0.2,
+          "restitution": 0
+        }
+      }
+    },
+    {
+      "uuid": "53d8a13b-4f1a-4227-803a-95bfd490a871",
+      "components": {
+        "name": "蒙皮动态遮挡（切换 GI 贡献作对照）",
+        "transform": {
+          "translation": [0.4, 0, -0.2],
+          "rotation": [0, 0, 0],
+          "scale": [1, 1, 1]
+        },
+        "mesh_renderer": {
+          "mesh": 13857136248767905793,
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
+        },
+        "animator": {
+          "enabled": true,
+          "clip": "walk",
+          "speed": 1,
+          "loop": true,
+          "transition": 0,
+          "controller": 0,
+          "parameters": {}
+        }
+      }
+    },
+    {
+      "uuid": "547a8fad-1b23-502b-bda4-dfcd64106278",
+      "components": {
+        "name": "实时探针 GI 区域",
+        "transform": {
+          "translation": [0, 2, 0],
+          "rotation": [0, 0, 0],
+          "scale": [1, 1, 1]
+        },
+        "irradiance_volume": {
+          "enabled": true,
+          "realtime": true,
+          "update_budget": 16,
+          "update_rays": 128,
+          "bounce_strength": 0.7,
+          "history_weight": 0.85,
+          "irradiance": 0,
+          "half_extents": [2.1, 2.1, 2.1],
+          "spacing": 0.72,
+          "max_distance": 30,
+          "ray_samples": 1024,
+          "bounces": 3,
+          "intensity": 1,
+          "normal_bias": 0.05,
+          "blend_distance": 1,
+          "bake_fingerprint": ""
+        }
+      }
+    },
+    {
+      "uuid": "77ba4364-930d-522f-94d0-3be698b3ad35",
+      "components": {
+        "name": "顶板",
+        "transform": {
+          "translation": [0, 4.1, 0],
+          "rotation": [0, 0, 0],
+          "scale": [4.4, 0.2, 4.4]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 6729301842000000100,
+          "contributes_to_gi": true
+        },
+        "rigid_body": {
+          "motion": "static",
+          "mass_mode": "mass",
+          "mass": 1,
+          "density": 1000,
+          "continuous_collision": false
+        },
+        "collider": {
+          "shape": "box",
+          "mesh": 0,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
+          "half_extents": [0.5, 0.5, 0.5],
+          "radius": 0.5,
+          "height": 2,
+          "is_trigger": false,
+          "friction": 0.2,
+          "restitution": 0
+        }
+      }
+    },
+    {
+      "uuid": "884ad2fa-8cd8-5282-992b-ea59250d9e07",
+      "components": {
+        "name": "主相机",
+        "transform": {
+          "translation": [0, 1.8, 1.65],
+          "rotation": [0, 0, 0],
+          "scale": [1, 1, 1]
+        },
+        "camera": {
+          "primary": false,
+          "projection": "perspective",
+          "fov": 70,
+          "orthographic_height": 10,
+          "near_clip": 0.05,
+          "far_clip": 50
+        },
+        "camera_controller": {
+          "enabled": false,
+          "mode": "free",
+          "move_speed": 3,
+          "look_sensitivity": 0.2,
+          "look_speed": 120,
+          "orbit_distance": 6,
+          "orbit_height": 1.2,
+          "orbit_min_distance": 1.5,
+          "orbit_max_distance": 12,
+          "orbit_zoom_step": 0.5,
+          "collision_radius": 0.15
         }
       }
     },
@@ -397,44 +510,28 @@
       "uuid": "8c81f3ce-0f0c-5eae-97e5-c8a1da82b949",
       "components": {
         "name": "移动点光源（运行后观察间接光变化）",
-        "transform": {
-          "translation": [
-            0,
-            2.8,
-            0.4
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            1,
-            1,
-            1
-          ]
-        },
-        "light": {
-          "type": "point",
-          "enabled": true,
-          "color": [
-            1,
-            0.8,
-            0.5
-          ],
-          "intensity": 12,
-          "range": 8,
-          "inner_angle": 20,
-          "outer_angle": 30,
-          "casts_shadow": true,
-          "shadow_distance": 30
-        },
         "script": {
           "asset": 14309634625000312006,
           "parameters": {
             "amplitude": 1.2,
             "speed": 0.7
           }
+        },
+        "transform": {
+          "translation": [0, 2.8, 0.4],
+          "rotation": [0, 0, 0],
+          "scale": [1, 1, 1]
+        },
+        "light": {
+          "type": "point",
+          "enabled": true,
+          "casts_shadow": true,
+          "shadow_distance": 30,
+          "color": [1, 0.8, 0.5],
+          "intensity": 12,
+          "range": 8,
+          "inner_angle": 20,
+          "outer_angle": 30
         }
       }
     },
@@ -450,21 +547,9 @@
           }
         },
         "transform": {
-          "translation": [
-            0,
-            1.2,
-            0
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            1.1,
-            2.4,
-            0.18
-          ]
+          "translation": [0, 1.2, 0],
+          "rotation": [0, 0, 0],
+          "scale": [1.1, 2.4, 0.18]
         },
         "mesh_renderer": {
           "mesh": 7535385251553858160,
@@ -483,11 +568,7 @@
           "mesh": 0,
           "collision_layer": 1,
           "collision_mask": 4294967295,
-          "half_extents": [
-            0.5,
-            0.5,
-            0.5
-          ],
+          "half_extents": [0.5, 0.5, 0.5],
           "radius": 0.5,
           "height": 2,
           "is_trigger": false,
@@ -497,39 +578,100 @@
       }
     },
     {
-      "uuid": "53d8a13b-4f1a-4227-803a-95bfd490a871",
+      "uuid": "a4f2063b-2364-542d-8903-73afc72a50c2",
       "components": {
-        "name": "蒙皮动态遮挡（切换 GI 贡献作对照）",
+        "name": "旅程 · 24 会变化的间接光",
+        "script": {
+          "asset": 6729301842000001201,
+          "parameters": {
+            "camera": {
+              "entity": "99c2454a-b0d7-4483-957b-1538525e147a"
+            },
+            "catalog": "6729301842000001200",
+            "chapter": 24,
+            "intro": false,
+            "player": {
+              "entity": "372777a0-789c-41ec-9248-74b4b88e1588"
+            },
+            "reference_camera": {
+              "entity": "884ad2fa-8cd8-5282-992b-ea59250d9e07"
+            }
+          }
+        },
         "transform": {
-          "translation": [
-            0.4,
-            0,
-            -0.2
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            1,
-            1,
-            1
-          ]
+          "translation": [0, 0, 1.25],
+          "rotation": [0, 0, 0],
+          "scale": [1, 1, 1]
+        }
+      }
+    },
+    {
+      "uuid": "ca18463e-eb8a-523b-ac5a-688c154db885",
+      "components": {
+        "name": "后墙",
+        "transform": {
+          "translation": [0, 2, -2.1],
+          "rotation": [0, 0, 0],
+          "scale": [4, 4, 0.2]
         },
         "mesh_renderer": {
-          "mesh": 13857136248767905793,
-          "material": 13857136248767905794,
+          "mesh": 7535385251553858160,
+          "material": 6729301842000000100,
           "contributes_to_gi": true
         },
-        "animator": {
-          "enabled": true,
-          "clip": "walk",
-          "speed": 1,
-          "loop": true,
-          "transition": 0,
-          "controller": 0,
-          "parameters": {}
+        "rigid_body": {
+          "motion": "static",
+          "mass_mode": "mass",
+          "mass": 1,
+          "density": 1000,
+          "continuous_collision": false
+        },
+        "collider": {
+          "shape": "box",
+          "mesh": 0,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
+          "half_extents": [0.5, 0.5, 0.5],
+          "radius": 0.5,
+          "height": 2,
+          "is_trigger": false,
+          "friction": 0.2,
+          "restitution": 0
+        }
+      }
+    },
+    {
+      "uuid": "f7b07b11-e841-5ea6-bf79-92cb7d36322e",
+      "components": {
+        "name": "发光顶灯",
+        "transform": {
+          "translation": [0, 3.94, -0.2],
+          "rotation": [0, 0, 0],
+          "scale": [1.2, 0.08, 1.2]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 6729301842000000103,
+          "contributes_to_gi": true
+        },
+        "rigid_body": {
+          "motion": "static",
+          "mass_mode": "mass",
+          "mass": 1,
+          "density": 1000,
+          "continuous_collision": false
+        },
+        "collider": {
+          "shape": "box",
+          "mesh": 0,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
+          "half_extents": [0.5, 0.5, 0.5],
+          "radius": 0.5,
+          "height": 2,
+          "is_trigger": false,
+          "friction": 0.2,
+          "restitution": 0
         }
       }
     }

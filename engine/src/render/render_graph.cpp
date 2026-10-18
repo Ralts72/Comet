@@ -480,7 +480,8 @@ namespace Comet {
     }
 
     Result<void, GraphicsError> RenderGraph::Plan::record(FrameScheduler& frames,
-        std::span<const Binding> bindings, const RecordPass& record_pass) const {
+        std::span<const Binding> bindings, const RecordPass& record_pass,
+        Execution execution) const {
         if(!frames.is_recording_frame() || bindings.size() != m_resources.size() || !record_pass)
             return Result<void, GraphicsError>::failure(
                 {"RenderGraph requires active frame, complete bindings and recorder"});
@@ -560,6 +561,17 @@ namespace Comet {
                         {"RenderGraph overlapping aliases need one resource declaration"});
             }
         }
+        if(execution == Execution::IndependentCompute)
+            for(const auto& resource : m_resources) {
+                const auto& state = access(resource.initial);
+                if(state.access && state.access != Flags<Access>(Access::HostWrite))
+                    return Result<void, GraphicsError>::failure(
+                        {"Independent graph inputs must be host-written or undefined; GPU producers require an explicit queue dependency"});
+                if(const auto* image = std::get_if<ImageState>(&resource.initial);
+                    image && image->layout != ImageLayout::Undefined)
+                    return Result<void, GraphicsError>::failure(
+                        {"Independent graph images require undefined initial layout"});
+            }
         // 所有绑定和 barrier 先验证，再对当前命令缓冲产生任何副作用。
         std::vector<NativeBarriers> native;
         native.reserve(m_passes.size() + 1);
@@ -576,13 +588,19 @@ namespace Comet {
         for(const auto& binding : bindings)
             std::visit(
                 [&](const auto& owner) { frames.retain_current_frame_resource(owner); }, binding);
-        auto& commands = frames.get_current_command_buffer();
-        for(size_t index = 0; index < m_passes.size(); ++index) {
-            record_barriers(commands, native[index]);
-            if(auto recorded = record_pass(index, commands); !recorded)
-                return recorded;
-        }
-        record_barriers(commands, native.back());
-        return Result<void, GraphicsError>::success();
+        auto record = [barriers = std::move(native), recorder = record_pass,
+                          count = m_passes.size()](
+                          CommandBuffer& commands) -> Result<void, GraphicsError> {
+            for(size_t index = 0; index < count; ++index) {
+                record_barriers(commands, barriers[index]);
+                if(auto recorded = recorder(index, commands); !recorded)
+                    return recorded;
+            }
+            record_barriers(commands, barriers.back());
+            return Result<void, GraphicsError>::success();
+        };
+        if(execution == Execution::IndependentCompute)
+            return frames.record_independent(std::move(record));
+        return record(frames.get_current_command_buffer());
     }
 }

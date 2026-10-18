@@ -266,7 +266,8 @@ namespace Comet {
             }
             if(!m_database.is_current(handle, pending->revision))
                 return Result<void, Error>::success();
-            static_cast<void>(m_registry.register_asset(handle, environment.value()));
+            static_cast<void>(m_registry.register_asset(
+                handle, environment.value(), m_render_factory->gpu_bytes(environment.value())));
             return Result<void, Error>::success();
         }
         return Result<void, Error>::success();

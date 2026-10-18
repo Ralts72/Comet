@@ -35,6 +35,7 @@ function script:on_trigger_enter(other)
         self.parameters.beacon:translate(offset[1], offset[2], offset[3])
     end
     if comet.session_get("character.finished") then
+        if comet.session_get("tour.active") then comet.emit("tour.complete") end
         comet.log("挑战完成！可通过 HUD 进入下一关或返回第一关。")
     end
     comet.destroy_entity(comet.self_entity())

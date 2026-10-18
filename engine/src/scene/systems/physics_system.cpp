@@ -17,7 +17,7 @@ namespace Comet {
         Result<void, Error> result = Result<void, Error>::success();
         const auto append = [&](Entity entity, const auto&) {
             if(result) {
-                const auto synchronized = synchronize_object(scene, entity.m_handle);
+                const auto synchronized = synchronize_object(scene, entity);
                 if(!synchronized)
                     result = Result<void, Error>::failure(synchronized.error());
             }
@@ -53,7 +53,7 @@ namespace Comet {
             // 销毁会移除脏项；移除刚体的实体仍可能在本批中。
             if(!scene.m_registry.any_of<RigidBodyComponent, CharacterControllerComponent>(handle))
                 continue;
-            const auto result = synchronize_object(scene, handle);
+            const auto result = synchronize_object(scene, Entity(handle, &scene));
             if(!result)
                 return Result<void, Error>::failure(result.error());
             joints_changed |= scene.m_registry.all_of<RigidBodyComponent>(handle)
@@ -72,7 +72,8 @@ namespace Comet {
     }
 
     Result<PhysicsService::ObjectChange, Error> PhysicsSystem::synchronize_object(
-        Scene& scene, const entt::entity handle) {
+        Scene& scene, Entity entity) {
+        const auto handle = entity.m_handle;
         const auto& [id, uuid, relationship] =
             scene.m_registry.get<IdComponent, UuidComponent, RelationshipComponent>(handle);
         const auto* transform = scene.m_registry.try_get<TransformComponent>(handle);

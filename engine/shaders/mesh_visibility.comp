@@ -1,0 +1,33 @@
+#version 450
+layout(local_size_x=64) in;
+struct Instance { mat4 model; vec4 bend; };
+struct Draw { uint elements, count, first, offset, instance; };
+layout(std430,set=0,binding=0) readonly buffer Source { Instance source[]; };
+layout(std430,set=0,binding=1) writeonly buffer Visible { Instance visible[]; };
+layout(std430,set=0,binding=2) buffer Commands { Draw commands[]; };
+layout(push_constant) uniform Parameters { mat4 clip; vec4 minimum, maximum; uvec4 range; } parameters;
+void main() {
+    uint index=gl_GlobalInvocationID.x;
+    if(index>=parameters.range.y) return;
+    Instance item=source[parameters.range.x+index];
+    float envelope=item.bend.z*.577351;
+    vec3 low=parameters.minimum.xyz-vec3(envelope,0,envelope);
+    vec3 high=parameters.maximum.xyz+vec3(envelope,0,envelope);
+    mat4 clip=parameters.clip*item.model;
+    uint outside=63u;
+    for(uint corner=0;corner<8;corner++) {
+        vec3 p=mix(low,high,bvec3((corner&1u)!=0u,(corner&2u)!=0u,(corner&4u)!=0u));
+        vec4 point=clip*vec4(p,1);
+        uint mask=0;
+        if(point.x< -point.w) mask|=1u;
+        if(point.x>point.w) mask|=2u;
+        if(point.y< -point.w) mask|=4u;
+        if(point.y>point.w) mask|=8u;
+        if(point.z<0) mask|=16u;
+        if(point.z>point.w) mask|=32u;
+        outside&=mask;
+    }
+    if(outside!=0u) return;
+    uint output_index=atomicAdd(commands[parameters.range.z].count,1u);
+    visible[parameters.range.x+output_index]=item;
+}

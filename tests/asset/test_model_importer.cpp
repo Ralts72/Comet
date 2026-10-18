@@ -1,3 +1,4 @@
+#include "support/demo_project.h"
 #include "asset/import/model_importer.h"
 #include "asset/import/texture_importer.h"
 #include "asset/import/import_service.h"
@@ -779,7 +780,7 @@ namespace Comet::Tests {
         std::vector<EntityUuid> roots;
         for(const auto* name : {"character.scene", "character_second.scene"}) {
             SCOPED_TRACE(name);
-            auto loaded = serializer.load((demo / "assets/scenes" / name).string());
+            auto loaded = load_demo_scene(registry, std::filesystem::path("scenes") / name);
             ASSERT_TRUE(loaded) << loaded.error();
             auto& scene = *loaded.value();
             const auto root = named(scene, "牛奶货车");

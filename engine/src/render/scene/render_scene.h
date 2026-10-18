@@ -143,17 +143,6 @@ namespace Comet {
         std::vector<ParticleMeshCollider> particle_meshes;
     };
 
-    struct COMET_API PathTraceSettings {
-        uint32_t samples = 256;
-        uint32_t bounces = 4;
-        uint32_t seed = 0;
-        uint64_t reset_generation = 0;
-        uint32_t max_dimension = 512;
-        [[nodiscard]] Result<void> validate() const;
-        [[nodiscard]] Math::Vec2u image_size(Math::Vec2u output) const;
-        bool operator==(const PathTraceSettings&) const = default;
-    };
-
     enum class IrradianceDebugMode : uint32_t { Off, Status, Lighting };
 
     struct RenderView {
@@ -164,6 +153,7 @@ namespace Comet {
         CameraSelection camera_selection = CameraSelection::ScenePrimary;
         std::optional<RenderCamera> camera_override;
         bool path_trace_enabled = false;
+        bool path_trace_override = false; // 显式视图选择优先于场景默认。
         std::shared_ptr<const RayScene> path_trace;
         PathTraceSettings path_trace_settings;
         std::shared_ptr<const RayScene> particle_collisions;

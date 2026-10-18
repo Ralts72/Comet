@@ -30,9 +30,9 @@ namespace Comet {
         if(!m_buffer || m_buffer->get_size() < bytes) {
             const auto capacity =
                 std::max(bytes, m_buffer ? m_buffer->get_size() * 2 : size_t{4096});
-            auto buffer =
-                Buffer::try_create_cpu_buffer(device, Flags<BufferUsage>(BufferUsage::Vertex),
-                    capacity, true, nullptr, "mesh instance transforms");
+            auto buffer = Buffer::try_create_cpu_buffer(device,
+                Flags<BufferUsage>(BufferUsage::Vertex) | BufferUsage::Storage, capacity, true,
+                nullptr, "mesh instance transforms");
             if(!buffer)
                 return Result<size_t, GraphicsError>::failure(buffer.error());
             m_buffer = std::move(buffer).value();

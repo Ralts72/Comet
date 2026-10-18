@@ -1,3 +1,4 @@
+#include "render/resource/texture.h"
 #include "render/resource/environment.h"
 #include "render/resource/resource_factory.h"
 #include "asset/data/environment_data.h"
@@ -21,4 +22,5 @@ namespace Comet {
         }
         return Creation::success(std::move(result));
     }
+
 }

@@ -95,6 +95,7 @@ namespace Comet {
         struct Residency {
             std::size_t registry_assets = 0;
             std::size_t model_cache_entries = 0;
+            uint64_t gpu_bytes = 0;
         };
         // 当前 Registry 与 CPU 模型缓存的条目数；GPU 内存见渲染诊断。
         [[nodiscard]] Residency residency() const;

@@ -34,6 +34,12 @@ namespace Comet {
             std::string name, const MaterialData& data,
             const std::map<std::string, std::shared_ptr<Texture>>& textures);
 
+        template<typename T> uint64_t gpu_bytes(const std::shared_ptr<T>&) const { return 0; }
+        uint64_t gpu_bytes(const std::shared_ptr<Mesh>&) const;
+        uint64_t gpu_bytes(const std::shared_ptr<Texture>&) const;
+        uint64_t gpu_bytes(const std::shared_ptr<Environment>&) const;
+        uint64_t gpu_bytes(const std::shared_ptr<Irradiance>&) const;
+        uint64_t gpu_bytes(const std::shared_ptr<VectorField>&) const;
         [[nodiscard]] static bool has_lighting(const std::shared_ptr<Environment>& environment);
 
     private:

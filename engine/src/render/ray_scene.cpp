@@ -11,6 +11,7 @@
 #include "scene/material_parameters.h"
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <map>
 #include <optional>
@@ -105,6 +106,8 @@ namespace Comet {
                 topology.write_u64(revision ? revision(item.mesh_handle) : 0);
                 topology.write_u32(bool(item.mesh));
                 transforms.write_u64(reinterpret_cast<uintptr_t>(item.animation.get()));
+                for(int axis = 0; axis < 4; ++axis)
+                    transforms.write_float(item.vertex_bend[axis]);
                 for(int column = 0; column < 4; ++column)
                     for(int row = 0; row < 4; ++row)
                         transforms.write_float(item.model_matrix[column][row]);
@@ -135,10 +138,13 @@ namespace Comet {
 
         class TexturePacker {
         public:
-            TexturePacker(RayScene::Materials& scene, const RaySceneBuilder::Images& sources,
-                uint32_t maximum_dimension)
-                : m_scene(scene), m_sources(sources), m_maximum_dimension(maximum_dimension) {
-                m_scene.textures.emplace_back();
+            TexturePacker(const std::shared_ptr<const RayScene::TextureBank>& reused,
+                const RaySceneBuilder::Images& sources, uint32_t maximum_dimension)
+                : m_sources(sources), m_maximum_dimension(maximum_dimension), m_reused(reused) {
+                if(!m_reused) {
+                    m_storage = std::make_shared<RayScene::TextureBank>();
+                    m_storage->textures.emplace_back();
+                }
             }
 
             Result<uint32_t> add(const Material& material, const std::string& property) {
@@ -148,8 +154,11 @@ namespace Comet {
                 const auto handle = material.get_texture_source(property);
                 if(!handle || !m_sources.texture)
                     return Added::failure("射线场景贴图没有 CPU 源：" + property);
-                if(const auto found = m_textures.find(handle); found != m_textures.end())
+                const auto& indices = m_reused ? m_reused->indices : m_storage->indices;
+                if(const auto found = indices.find(handle); found != indices.end())
                     return Added::success(found->second);
+                if(m_reused)
+                    return Added::failure("射线贴图缓存缺少已声明的资源");
                 auto data = m_sources.texture(handle);
                 if(!data)
                     return Added::failure(data.error().message);
@@ -163,25 +172,57 @@ namespace Comet {
                         + ", payload=" + std::to_string(data.value().pixels.size())
                         + ", remaining=" + std::to_string(remaining()));
                 const auto& image = decoded.value();
-                const auto index = static_cast<uint32_t>(m_scene.textures.size());
-                m_scene.textures.push_back({{static_cast<uint32_t>(m_scene.texels.size()),
-                                                image.width, image.height, 0},
+                const auto index = static_cast<uint32_t>(m_storage->textures.size());
+                m_storage->textures.push_back({{static_cast<uint32_t>(m_storage->texels.size()),
+                                                   image.width, image.height, 1},
                     {uint32_t(image.sampler.address_mode_u), uint32_t(image.sampler.address_mode_v),
                         uint32_t(image.sampler.mag_filter), 0}});
-                m_scene.texels.insert(
-                    m_scene.texels.end(), image.pixels.begin(), image.pixels.end());
-                m_textures.emplace(handle, index);
+                m_storage->texels.insert(
+                    m_storage->texels.end(), image.pixels.begin(), image.pixels.end());
+                auto level = image.pixels;
+                uint32_t width = image.width, height = image.height;
+                while(width > 1 || height > 1) {
+                    const auto next_width = std::max(1u, width / 2),
+                               next_height = std::max(1u, height / 2);
+                    if(size_t(next_width) * next_height > remaining() / sizeof(Math::Vec4))
+                        return Added::failure("射线贴图 mip 链超过字节预算");
+                    std::vector<Math::Vec4> next(size_t(next_width) * next_height);
+                    // 线性空间覆盖平均，奇数尺寸的最后一行／列也参与。
+                    for(uint32_t y = 0; y < next_height; ++y)
+                        for(uint32_t x = 0; x < next_width; ++x) {
+                            const auto begin_x = x * width / next_width,
+                                       end_x = (x + 1) * width / next_width;
+                            const auto begin_y = y * height / next_height,
+                                       end_y = (y + 1) * height / next_height;
+                            Math::Vec4 sum(0);
+                            for(uint32_t sy = begin_y; sy < end_y; ++sy)
+                                for(uint32_t sx = begin_x; sx < end_x; ++sx)
+                                    sum += level[size_t(sy) * width + sx];
+                            next[size_t(y) * next_width + x] =
+                                sum / float((end_x - begin_x) * (end_y - begin_y));
+                        }
+                    m_storage->texels.insert(m_storage->texels.end(), next.begin(), next.end());
+                    ++m_storage->textures[index].extent[3];
+                    level = std::move(next);
+                    width = next_width;
+                    height = next_height;
+                }
+                m_storage->indices.emplace(handle, index);
                 return Added::success(index);
+            }
+
+            std::shared_ptr<const RayScene::TextureBank> finish() const {
+                return m_reused ? m_reused : m_storage;
             }
 
         private:
             size_t remaining() const {
-                return RayScene::MAX_TEXTURE_BYTES - m_scene.texels.size() * sizeof(Math::Vec4);
+                return RayScene::MAX_TEXTURE_BYTES - m_storage->texels.size() * sizeof(Math::Vec4);
             }
-            RayScene::Materials& m_scene;
             const RaySceneBuilder::Images& m_sources;
-            std::map<AssetHandle, uint32_t> m_textures;
             uint32_t m_maximum_dimension;
+            std::shared_ptr<const RayScene::TextureBank> m_reused;
+            std::shared_ptr<RayScene::TextureBank> m_storage;
         };
 
         Result<std::shared_ptr<const RayScene::Environment>> build_environment(
@@ -273,6 +314,13 @@ namespace Comet {
                 result.parameters.x = scalar("normal_scale");
                 result.parameters.z = scalar("transmission");
                 result.parameters.w = scalar("ior");
+                result.water = vector("water_parameters");
+                const auto attenuation = vector("attenuation_color");
+                const float attenuation_distance = scalar("attenuation_distance");
+                for(int channel = 0; channel < 3; ++channel)
+                    result.absorption[channel] =
+                        -std::log(std::clamp(attenuation[channel], .0001f, 1.f))
+                        / attenuation_distance;
                 const std::array<std::string, 4> properties{"base_color_texture", "normal_texture",
                     "metallic_roughness_texture", "emissive_texture"};
                 for(size_t i = 0; i < properties.size(); ++i) {
@@ -287,6 +335,13 @@ namespace Comet {
                 || !Math::is_finite(result.parameters) || !Math::is_finite(result.opacity)
                 || Math::any_less(Math::Vec3(result.emission_roughness), Math::Vec3(0)))
                 return Surface::failure("射线场景材质包含无效参数");
+            auto signature = result;
+            signature.water.z = 0; // 波纹相位改变法线，不改变材质身份。
+            uint32_t hash = 2166136261u;
+            for(const auto word :
+                std::bit_cast<std::array<uint32_t, sizeof(RayScene::Surface) / 4>>(signature))
+                hash = (hash ^ word) * 16777619u;
+            result.opacity.w = float((hash & 0x7fffffu) + 1);
             return Surface::success(result);
         }
 
@@ -335,54 +390,8 @@ namespace Comet {
         }
         Result<RayScene::Geometry::Deformation> deform_mesh(
             const MeshData& mesh, const ResolvedRenderItem& item) {
-            using Deformed = Result<RayScene::Geometry::Deformation>;
-            if(mesh.skin.empty())
-                return Deformed::success({item.animation, {}});
-            if(!mesh.animation || mesh.skin.size() != mesh.vertices.size())
-                return Deformed::failure("蒙皮射线网格缺少完整骨骼数据");
-            const auto& source = item.mesh && item.mesh->animation_data()
-                                     ? item.mesh->animation_data()
-                                     : mesh.animation;
-            std::string error;
-            std::optional<AnimationPose> sampled;
-            const AnimationPose* pose = nullptr;
-            if(item.animation && item.animation->pose && item.animation->pose_source == source) {
-                if(!item.animation->pose_error.empty())
-                    return Deformed::failure(item.animation->pose_error);
-                pose = item.animation->pose.get();
-            } else {
-                auto evaluated =
-                    resolve_animation_pose(*source, item.animation.get(), error, false);
-                if(!evaluated)
-                    return Deformed::failure(evaluated.error());
-                if(!error.empty())
-                    return Deformed::failure(error);
-                sampled = std::move(evaluated).value();
-                pose = &*sampled;
-            }
-            auto vertices = std::make_shared<std::vector<MeshVertex>>(mesh.vertices);
-            for(size_t i = 0; i < vertices->size(); ++i) {
-                const auto& influence = mesh.skin[i];
-                Math::Mat4 skin(0);
-                for(size_t j = 0; j < 4; ++j) {
-                    if(influence.weights[j] == 0)
-                        continue;
-                    if(influence.joints[j] >= pose->matrices.size())
-                        return Deformed::failure("射线蒙皮骨骼索引越界");
-                    skin += pose->matrices[influence.joints[j]] * influence.weights[j];
-                }
-                auto& vertex = (*vertices)[i];
-                vertex.position = Math::Vec3(skin * Math::Vec4(vertex.position, 1));
-                const auto basis = Math::Mat3(skin);
-                const auto determinant = Math::determinant(basis);
-                const auto normal_basis =
-                    std::abs(determinant) > 1e-8f ? Math::transpose(Math::inverse(basis)) : basis;
-                vertex.normal = Math::normalized_direction(normal_basis * vertex.normal)
-                                    .value_or(vertex.normal);
-                vertex.tangent = Math::Vec4(
-                    basis * Math::Vec3(vertex.tangent), vertex.tangent.w * Math::sign(determinant));
-            }
-            return Deformed::success({item.animation, std::move(vertices)});
+            const auto source = item.mesh ? item.mesh->animation_data() : nullptr;
+            return RayScene::deform(mesh, item.animation, item.vertex_bend, source);
         }
         std::span<const MeshVertex> deformed_vertices(
             const MeshData& mesh, const RayScene::Geometry::Deformation& deformation) {
@@ -497,13 +506,15 @@ namespace Comet {
             for(size_t i = 0; i < world.render_items.size(); ++i) {
                 const auto& matrix = world.render_items[i].model_matrix;
                 if(matrix == previous.transforms[i]
-                    && world.render_items[i].animation == previous.deformations[i].playback)
+                    && world.render_items[i].animation == previous.deformations[i].playback
+                    && world.render_items[i].vertex_bend == previous.deformations[i].bend)
                     continue;
                 if(!valid_transform(matrix))
                     return Built::failure("射线场景物体变换无效或不可逆");
                 result->transforms[i] = matrix;
                 transforms[i].emplace(matrix);
-                if(world.render_items[i].animation != previous.deformations[i].playback) {
+                if(world.render_items[i].animation != previous.deformations[i].playback
+                    || world.render_items[i].vertex_bend != previous.deformations[i].bend) {
                     auto deformed =
                         deform_mesh(*previous.topology->meshes[i], world.render_items[i]);
                     if(!deformed)
@@ -522,31 +533,16 @@ namespace Comet {
                     !transformed)
                     return Built::failure(transformed.error());
             }
-            // 节点按前序存储；逆序时两个子树的界限都已更新，不改变叶与三角形顺序。
-            for(size_t i = result->nodes.size(); i-- > 0;) {
-                auto& node = result->nodes[i];
-                BoundingBox box;
-                const auto count = node.links[1];
-                if(count) {
-                    box =
-                        triangle_bounds(std::span(result->triangles).subspan(node.links[0], count));
-                } else {
-                    const auto& left = result->nodes[i + 1];
-                    const auto& right = result->nodes[left.links[3]];
-                    box = {Math::min(Math::Vec3(left.minimum), Math::Vec3(right.minimum)),
-                        Math::max(Math::Vec3(left.maximum), Math::Vec3(right.maximum))};
-                }
-                node.minimum = Math::Vec4(box.minimum, 0);
-                node.maximum = Math::Vec4(box.maximum, 0);
-            }
+            result->refit_bvh();
             return Built::success(std::move(result));
         }
         Result<std::shared_ptr<const RayScene::Materials>> build_materials(const RenderWorld& world,
-            const RaySceneBuilder::Images& images, uint32_t maximum_dimension) {
+            const RaySceneBuilder::Images& images, uint32_t maximum_dimension,
+            const std::shared_ptr<const RayScene::TextureBank>& reused) {
             using Built = Result<std::shared_ptr<const RayScene::Materials>>;
             auto result = std::make_shared<RayScene::Materials>();
             MaterialRuntimeCache cache;
-            TexturePacker textures(*result, images, maximum_dimension);
+            TexturePacker textures(reused, images, maximum_dimension);
             // 每个实例使用稳定槽位，换材质不改变 BVH 中的几何记录。
             for(const auto& item : world.render_items) {
                 auto value = surface(item.material, cache, textures);
@@ -554,9 +550,33 @@ namespace Comet {
                     return Built::failure(value.error());
                 result->surfaces.push_back(value.value());
             }
+            result->images = textures.finish();
             return Built::success(std::move(result));
         }
-
+        std::vector<std::byte> texture_key(
+            const RenderWorld& world, const RaySceneBuilder::Images& images) {
+            std::map<AssetHandle, uint64_t> sources;
+            for(const auto& item : world.render_items) {
+                if(!item.material.resource)
+                    continue;
+                const auto& material = *item.material.resource;
+                const auto layout = MaterialLayout::find_builtin(material.get_template_name());
+                if(!layout)
+                    continue;
+                for(const auto& texture : layout->get_textures()) {
+                    const auto handle = material.get_texture_source(texture.name);
+                    if(handle)
+                        sources[handle] = images.revision ? images.revision(handle) : 0;
+                }
+            }
+            Binary::Writer key;
+            key.write_u64(world.scene_lifetime);
+            for(const auto& [handle, revision] : sources) {
+                key.write_u64(handle.value());
+                key.write_u64(revision);
+            }
+            return key.data();
+        }
     }
 
     Result<std::shared_ptr<const RayScene>> RaySceneBuilder::update(const RenderWorld& world,
@@ -565,7 +585,11 @@ namespace Comet {
         const bool topology_changed = update_key(m_topology_key, std::move(keys.topology));
         const bool transforms_changed = update_key(m_geometry_key, std::move(keys.transforms));
         const bool geometry_changed = topology_changed || transforms_changed;
-        const bool materials_changed = update_key(m_material_key, material_key(world, images));
+        const bool textures_changed = update_key(m_texture_key, texture_key(world, images));
+        const bool materials_changed =
+            update_key(m_material_key, material_key(world, images)) || textures_changed;
+        if(textures_changed)
+            m_images.reset();
         const bool environment_changed =
             update_key(m_environment_key, environment_key(world, images));
         const bool lighting_changed = update_key(m_lighting_key, lighting_key(world));
@@ -604,10 +628,14 @@ namespace Comet {
                     ++m_statistics.geometry_builds;
             }
             if(!m_materials) {
-                auto candidate = build_materials(world, images, m_texture_dimension);
+                auto candidate = build_materials(world, images, m_texture_dimension, m_images);
                 if(!candidate)
                     return Built::failure(candidate.error());
                 m_materials = candidate.value();
+                if(!m_images) {
+                    m_images = m_materials->images;
+                    ++m_statistics.texture_builds;
+                }
                 ++m_statistics.material_builds;
             }
             if(!m_environment) {
@@ -618,7 +646,8 @@ namespace Comet {
                 ++m_statistics.environment_builds;
             }
             const auto texture_bytes =
-                (m_materials->texels.size() + m_environment->texels.size()) * sizeof(Math::Vec4);
+                (m_materials->images->texels.size() + m_environment->texels.size())
+                * sizeof(Math::Vec4);
             if(texture_bytes > RayScene::MAX_TEXTURE_BYTES)
                 return Built::failure("射线场景材质与环境超过解码纹理总预算");
             auto scene = std::make_shared<RayScene>();
@@ -637,8 +666,16 @@ namespace Comet {
             scene->environment = {world.environment.background ? world.environment.intensity : -1.f,
                 world.environment.lighting ? world.environment.lighting_intensity : 0.f,
                 std::sin(rotation), std::cos(rotation)};
-            if(previous && previous->geometry->topology == m_geometry->topology
-                && previous->materials == m_materials) {
+            const bool same_emitters =
+                previous && previous->materials->surfaces.size() == m_materials->surfaces.size()
+                && std::equal(previous->materials->surfaces.begin(),
+                    previous->materials->surfaces.end(), m_materials->surfaces.begin(),
+                    [](const auto& a, const auto& b) {
+                        return Math::any_greater(Math::Vec3(a.emission_roughness), Math::Vec3(0))
+                               == Math::any_greater(
+                                   Math::Vec3(b.emission_roughness), Math::Vec3(0));
+                    });
+            if(previous && previous->geometry->topology == m_geometry->topology && same_emitters) {
                 scene->emitters = previous->emitters;
             } else {
                 auto emitters = std::make_shared<std::vector<uint32_t>>();
@@ -658,6 +695,96 @@ namespace Comet {
         return result;
     }
 
+    Result<RayScene::Geometry::Deformation> RayScene::deform(const MeshData& mesh,
+        const std::shared_ptr<const AnimationPlayback>& playback, Math::Vec4 bend,
+        const std::shared_ptr<const AnimationData>& override_source) {
+        using Deformed = Result<Geometry::Deformation>;
+        if(mesh.skin.empty() && bend.z <= 0)
+            return Deformed::success({playback, {}, bend});
+        if(!Math::is_finite(bend))
+            return Deformed::failure("Invalid mesh deformation");
+        const auto source =
+            override_source
+                ? override_source
+                : (playback && playback->pose_source ? playback->pose_source : mesh.animation);
+        auto vertices = std::make_shared<std::vector<MeshVertex>>(mesh.vertices);
+        if(!mesh.skin.empty()) {
+            if(!mesh.animation || mesh.skin.size() != mesh.vertices.size())
+                return Deformed::failure("蒙皮射线网格缺少完整骨骼数据");
+            std::string error;
+            std::optional<AnimationPose> sampled;
+            const AnimationPose* pose = nullptr;
+            if(playback && playback->pose && playback->pose_source == source) {
+                if(!playback->pose_error.empty())
+                    return Deformed::failure(playback->pose_error);
+                pose = playback->pose.get();
+            } else {
+                auto evaluated = resolve_animation_pose(*source, playback.get(), error, false);
+                if(!evaluated)
+                    return Deformed::failure(evaluated.error());
+                if(!error.empty())
+                    return Deformed::failure(error);
+                sampled = std::move(evaluated).value();
+                pose = &*sampled;
+            }
+            for(size_t i = 0; i < vertices->size(); ++i) {
+                const auto& influence = mesh.skin[i];
+                Math::Mat4 skin(0);
+                for(size_t j = 0; j < 4; ++j) {
+                    if(influence.weights[j] == 0)
+                        continue;
+                    if(influence.joints[j] >= pose->matrices.size())
+                        return Deformed::failure("射线蒙皮骨骼索引越界");
+                    skin += pose->matrices[influence.joints[j]] * influence.weights[j];
+                }
+                auto& vertex = (*vertices)[i];
+                vertex.position = Math::Vec3(skin * Math::Vec4(vertex.position, 1));
+                const auto basis = Math::Mat3(skin);
+                const auto determinant = Math::determinant(basis);
+                const auto normal_basis =
+                    std::abs(determinant) > 1e-8f ? Math::transpose(Math::inverse(basis)) : basis;
+                vertex.normal = Math::normalized_direction(normal_basis * vertex.normal)
+                                    .value_or(vertex.normal);
+                vertex.tangent = Math::Vec4(
+                    basis * Math::Vec3(vertex.tangent), vertex.tangent.w * Math::sign(determinant));
+            }
+        }
+        if(bend.z > 0) {
+            for(auto& vertex : *vertices) {
+                const float y = vertex.position.y;
+                Math::Vec2 gradient(0);
+                if(y > 0 && y < bend.z)
+                    gradient = 2.f * Math::Vec2(bend) * y / bend.z;
+                const float height = std::clamp(y / bend.z, 0.f, 1.f);
+                vertex.position.x += bend.x * bend.z * height * height;
+                vertex.position.z += bend.y * bend.z * height * height;
+                vertex.normal.y -= gradient.x * vertex.normal.x + gradient.y * vertex.normal.z;
+                vertex.tangent.x += gradient.x * vertex.tangent.y;
+                vertex.tangent.z += gradient.y * vertex.tangent.y;
+            }
+        }
+        return Deformed::success({playback, std::move(vertices), bend});
+    }
+
+    void RayScene::Geometry::refit_bvh() {
+        // 节点按前序存储；逆序时两个子树的界限都已更新，不改变叶与三角形顺序。
+        for(size_t i = nodes.size(); i-- > 0;) {
+            auto& node = nodes[i];
+            BoundingBox box;
+            const auto count = node.links[1];
+            if(count) {
+                box = triangle_bounds(std::span(triangles).subspan(node.links[0], count));
+            } else {
+                const auto& left = nodes[i + 1];
+                const auto& right = nodes[left.links[3]];
+                box = {Math::min(Math::Vec3(left.minimum), Math::Vec3(right.minimum)),
+                    Math::max(Math::Vec3(left.maximum), Math::Vec3(right.maximum))};
+            }
+            node.minimum = Math::Vec4(box.minimum, 0);
+            node.maximum = Math::Vec4(box.maximum, 0);
+        }
+    }
+
     void RayScene::Geometry::build_bvh() {
         nodes.clear();
         nodes.reserve(triangles.size());
@@ -669,6 +796,8 @@ namespace Comet {
         m_geometry_key.clear();
         m_topology_key.clear();
         m_material_key.clear();
+        m_texture_key.clear();
+        m_images.reset();
         m_environment_key.clear();
         m_lighting_key.clear();
         m_geometry.reset();

@@ -47,6 +47,21 @@ namespace CometEditor {
                     const auto extent = entity.get_component<Comet::DecalComponent>().half_extents;
                     visit_local(Comet::BoundingBox{-extent, extent});
                 }
+                if(entity.has_component<Comet::SplineComponent>()) {
+                    const auto& path = entity.get_component<Comet::SplineComponent>();
+                    auto box = Comet::BoundingBox::from_point(path.start);
+                    box.include(path.control_a);
+                    box.include(path.control_b);
+                    box.include(path.end);
+                    visit_local(box);
+                }
+                if(entity.has_component<Comet::StreamCellComponent>()) {
+                    const auto radius =
+                        entity.get_component<Comet::StreamCellComponent>().load_distance;
+                    const auto center = Comet::Math::Vec3(scene.get_world_matrix(entity)[3]);
+                    visit(Comet::BoundingBox{
+                        center - Comet::Math::Vec3(radius), center + Comet::Math::Vec3(radius)});
+                }
                 if(entity.has_component<Comet::IrradianceVolumeComponent>()) {
                     const auto center = Comet::Math::Vec3(scene.get_world_matrix(entity)[3]);
                     const auto extent =
@@ -102,11 +117,13 @@ namespace CometEditor {
         }
         if(m_panel.take_focus_request() && m_state.mode == EditorMode::Edit)
             focus_selection(scene);
+        if(scene)
+            m_panel.follow_scene_path_trace(scene->get_post_process().path_trace);
         auto parameters =
             make_render_view(m_state, m_panel.is_visible(), m_panel.get_requested_render_size());
-        parameters.path_trace_enabled = scene && m_panel.is_visible()
-                                        && m_panel.path_trace_enabled()
-                                        && m_state.mode == EditorMode::Edit;
+        parameters.path_trace_enabled =
+            scene && m_panel.is_visible() && m_panel.path_trace_enabled();
+        parameters.path_trace_override = m_panel.path_trace_override();
         parameters.path_trace_settings = m_panel.path_trace_settings();
         parameters.irradiance_debug = m_panel.irradiance_debug();
         if(m_panel.take_path_trace_restart())
@@ -172,9 +189,40 @@ namespace CometEditor {
             if(!entity)
                 continue;
             const auto& world = scene.get_world_matrix(entity);
+            if(entity.has_component<Comet::SplineComponent>()) {
+                const auto& path = entity.get_component<Comet::SplineComponent>();
+                auto previous = Comet::Math::Vec3(world * Comet::Math::Vec4(path.start, 1));
+                for(int i = 1; i <= 48; ++i) {
+                    const auto next =
+                        Comet::Math::Vec3(world * Comet::Math::Vec4(path.sample(float(i) / 48), 1));
+                    static_cast<void>(m_feedback_lines.add_line(previous, next, {.2f, 1, .7f, 1}));
+                    previous = next;
+                }
+                for(const auto& [a, b] :
+                    {std::pair{path.start, path.control_a}, std::pair{path.end, path.control_b}})
+                    static_cast<void>(m_feedback_lines.add_line(
+                        Comet::Math::Vec3(world * Comet::Math::Vec4(a, 1)),
+                        Comet::Math::Vec3(world * Comet::Math::Vec4(b, 1)), {1, .7f, .2f, 1}));
+            }
+            if(entity.has_component<Comet::StreamCellComponent>()) {
+                const auto& cell = entity.get_component<Comet::StreamCellComponent>();
+                const auto center =
+                    Comet::Math::translate(Comet::Math::Mat4(1), Comet::Math::Vec3(world[3]));
+                static_cast<void>(
+                    m_feedback_lines.add_sphere(cell.load_distance, center, {.2f, 1, .7f, 1}));
+                static_cast<void>(
+                    m_feedback_lines.add_sphere(cell.unload_distance, center, {1, .6f, .2f, 1}));
+            }
             if(entity.has_component<Comet::ParticleEmitterComponent>()) {
                 const auto& emitter = entity.get_component<Comet::ParticleEmitterComponent>();
                 const auto origin = Comet::Math::Vec3(world[3]);
+                if(emitter.spawn_extents != Comet::Math::Vec3(0)) {
+                    auto pose =
+                        entity.get_component<Comet::WorldTransformComponent>().pose_world_matrix;
+                    pose[3] = world[3];
+                    static_cast<void>(m_feedback_lines.add_box(
+                        {-emitter.spawn_extents, emitter.spawn_extents}, pose, {.2f, 1, .7f, 1}));
+                }
                 static_cast<void>(m_feedback_lines.add_line(
                     origin, origin + emitter.wind * .1f, {.2f, .7f, 1, 1}));
                 if(emitter.vortex_strength != 0) {

@@ -16,6 +16,13 @@ namespace Comet {
         [[nodiscard]] Result<void> validate() const;
     };
 
+    struct COMET_API AudioEffectSettings {
+        float reverb_mix = 0;
+        float reverb_decay = 1.2f; // RT60，秒。
+        float occlusion = 0;       // 0～1，同步控制低通与直达声衰减。
+        [[nodiscard]] Result<void> validate() const;
+    };
+
     struct AudioListenerPose {
         Math::Vec3 position{0};
         Math::Vec3 forward{0, 0, -1};

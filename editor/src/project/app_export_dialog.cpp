@@ -6,17 +6,25 @@
 
 namespace CometEditor {
     void AppExportDialog::open(const std::filesystem::path& project,
-        const std::filesystem::path& startup, std::vector<std::filesystem::path> scenes) {
+        const std::filesystem::path& startup, std::vector<std::filesystem::path> scenes,
+        std::span<const std::filesystem::path> included) {
         if(m_busy)
             return;
         m_project = project;
         m_startup = startup;
-        m_destination = (project.parent_path() / (project.filename().string() + ".app")).string();
+#ifdef __APPLE__
+        constexpr auto suffix = ".app";
+#else
+        constexpr auto suffix = "-export";
+#endif
+        m_destination = (project.parent_path() / (project.filename().string() + suffix)).string();
         std::ranges::sort(scenes);
         m_scenes.clear();
         for(auto& path : scenes)
-            if(path != startup)
-                m_scenes.push_back({std::move(path), false});
+            if(path != startup) {
+                const bool required = std::ranges::find(included, path) != included.end();
+                m_scenes.push_back({std::move(path), required, required});
+            }
         m_message.clear();
         m_log.clear();
         m_open_log = false;
@@ -32,16 +40,19 @@ namespace CometEditor {
         if(!ImGui::BeginPopupModal(title, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
             return;
         ImGui::TextWrapped(
-            "导出磁盘上已保存的项目。启动场景自动包含，请勾选游戏运行中还会进入的关卡。");
+            "导出磁盘上已保存的项目。启动场景和项目必需关卡自动包含，可另选其他关卡。");
         ImGui::TextWrapped("启动场景：%s", m_startup.generic_string().c_str());
         ImGui::BeginDisabled(m_busy);
         ImGui::SetNextItemWidth(500);
-        Ui::input_text("输出 .app###Destination", m_destination);
+        Ui::input_text("输出路径###Destination", m_destination);
         ImGui::TextWrapped("自动构建运行程序并打包资源。首次导出可能较慢，输出目录必须不存在。");
         if(!m_scenes.empty()) {
             ImGui::BeginChild("Scenes", {0, 130}, ImGuiChildFlags_Borders);
-            for(auto& scene : m_scenes)
+            for(auto& scene : m_scenes) {
+                ImGui::BeginDisabled(scene.required);
                 ImGui::Checkbox(scene.path.generic_string().c_str(), &scene.selected);
+                ImGui::EndDisabled();
+            }
             ImGui::EndChild();
         }
         const bool can_export = !scene_modified && edit_mode && !m_destination.empty();

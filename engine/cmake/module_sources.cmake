@@ -5,6 +5,7 @@ set(COMET_FOUNDATION_SOURCES
     src/common/parameters.h
     src/common/file_io.cpp
     src/common/executable_path.cpp
+    src/common/process.cpp
     src/common/player_settings_path.cpp
     src/common/retry_backoff.cpp
     src/common/uuid.cpp
@@ -129,6 +130,8 @@ set(COMET_GAMEPLAY_SOURCES
     src/gameplay/root_motion.cpp
     src/gameplay/root_motion.h
     src/gameplay/wind_sway.cpp
+    src/gameplay/world_effects.cpp
+    src/gameplay/world_streaming.cpp
     src/gameplay/wind_sway.h
     src/gameplay/pose_constraints.cpp
     src/gameplay/pose_constraints.h
@@ -238,9 +241,11 @@ set(COMET_RENDER_SOURCES
     src/render/particle_collision_scene.h
     src/render/ray_scene.cpp
     src/render/passes/path_trace_pass.cpp
+    src/render/passes/radiance_filter.cpp
     src/render/passes/realtime_irradiance_pass.cpp
     src/render/resource/ray_scene_buffers.cpp
     src/render/passes/particle_pass.cpp
+    src/render/passes/gpu_mesh_visibility.cpp
     src/render/passes/gpu_particle_simulation.cpp
     src/render/passes/skinning_pass.cpp
     src/render/presentation.cpp

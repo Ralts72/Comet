@@ -173,7 +173,7 @@ namespace Comet {
     std::vector<AssetReference> ComponentRegistry::collect_asset_references(
         Scene& scene, const ReferenceScope scope) const {
         std::vector<AssetReference> references;
-        if(scope == ReferenceScope::Runtime && scene.get_particles()) {
+        if(scope != ReferenceScope::All && scene.get_particles()) {
             for(const auto& batch : scene.get_particles()->batches)
                 if(batch.texture)
                     references.push_back({batch.texture, AssetType::Texture, true});
@@ -195,20 +195,22 @@ namespace Comet {
                 references.push_back({instance.asset, instance.source_type, false});
             }
             for(const auto& component : m_components) {
+                if(scope == ReferenceScope::Resident && component.id == "stream_cell")
+                    continue;
                 const auto* data = component.get_component(entity);
                 if(!data)
                     continue;
-                if(scope == ReferenceScope::Runtime && component.id == "collider"
+                if(scope != ReferenceScope::All && component.id == "collider"
                     && !entity.get_component<ColliderComponent>().uses_mesh())
                     continue;
-                if(scope == ReferenceScope::Runtime && component.id == "reflection_probe"
+                if(scope != ReferenceScope::All && component.id == "reflection_probe"
                     && !entity.get_component<ReflectionProbeComponent>().enabled)
                     continue;
-                if(scope == ReferenceScope::Runtime && component.id == "irradiance_volume"
+                if(scope != ReferenceScope::All && component.id == "irradiance_volume"
                     && (!entity.get_component<IrradianceVolumeComponent>().enabled
                         || entity.get_component<IrradianceVolumeComponent>().realtime))
                     continue;
-                if(scope == ReferenceScope::Runtime && component.id == "decal"
+                if(scope != ReferenceScope::All && component.id == "decal"
                     && !entity.get_component<DecalComponent>().enabled)
                     continue;
                 for(const auto& property : component.properties) {
@@ -232,11 +234,12 @@ namespace Comet {
         const std::function<Result<std::shared_ptr<Script>, Error>(AssetHandle)>& load_script,
         const std::function<Result<std::shared_ptr<Prefab>, Error>(AssetHandle)>& load_prefab,
         const std::function<Result<std::shared_ptr<GameData>, Error>(AssetHandle)>& load_data,
-        bool allow_missing) const {
+        bool allow_missing, bool include_streamed) const {
         using Collected = Result<std::vector<AssetReference>, Error>;
         std::vector<AssetReference> references;
         const auto append = [&](Scene& content) -> Result<void, Error> {
-            const auto direct = collect_asset_references(content, ReferenceScope::Runtime);
+            const auto direct = collect_asset_references(
+                content, include_streamed ? ReferenceScope::Runtime : ReferenceScope::Resident);
             references.insert(references.end(), direct.begin(), direct.end());
             for(const auto entity : content.get_entities()) {
                 if(!entity.has_component<ScriptComponent>())
@@ -535,6 +538,125 @@ namespace Comet {
                 make_property_descriptor("iterations", "求解迭代数",
                     &FullBodyIKComponent::iterations,
                     {.numeric = {.minimum = 1, .maximum = 12, .enforce_bounds = true}})}));
+        register_component(make_component_descriptor<StreamCellComponent>("stream_cell",
+            "流式世界单元",
+            {make_property_descriptor(
+                 "enabled", "启用", &StreamCellComponent::enabled, {.required = false}),
+                make_property_descriptor("prefab", "单元 Prefab", &StreamCellComponent::prefab,
+                    {.asset_type = AssetType::Prefab}),
+                make_property_descriptor("load_distance", "加载距离",
+                    &StreamCellComponent::load_distance,
+                    {.required = false,
+                        .numeric = {.minimum = 1, .maximum = 100000, .enforce_bounds = true}}),
+                make_property_descriptor("unload_distance", "卸载距离",
+                    &StreamCellComponent::unload_distance,
+                    {.required = false,
+                        .numeric = {.minimum = 1, .maximum = 100000, .enforce_bounds = true}})}));
+        register_component(make_component_descriptor<SplineComponent>("spline", "三次样条",
+            {make_property_descriptor(
+                 "start", "起点", &SplineComponent::start, {.required = false}),
+                make_property_descriptor(
+                    "control_a", "控制点 A", &SplineComponent::control_a, {.required = false}),
+                make_property_descriptor(
+                    "control_b", "控制点 B", &SplineComponent::control_b, {.required = false}),
+                make_property_descriptor(
+                    "end", "终点", &SplineComponent::end, {.required = false})}));
+
+        register_component(
+            make_component_descriptor<SplineFollowerComponent>("spline_follower", "样条跟随／过场",
+                {make_property_descriptor(
+                     "path", "路径实体", &SplineFollowerComponent::path, {.required = false}),
+                    make_property_descriptor(
+                        "playing", "播放", &SplineFollowerComponent::playing, {.required = false}),
+                    make_property_descriptor("duration", "时长（秒）",
+                        &SplineFollowerComponent::duration,
+                        {.required = false,
+                            .numeric =
+                                {.minimum = 0.01f, .maximum = 86400.0f, .enforce_bounds = true}}),
+                    make_property_descriptor(
+                        "loop", "循环", &SplineFollowerComponent::loop, {.required = false}),
+                    make_property_descriptor("orient", "沿路径转向",
+                        &SplineFollowerComponent::orient, {.required = false}),
+                    make_property_descriptor(
+                        "ease", "缓入缓出", &SplineFollowerComponent::ease, {.required = false}),
+                    make_property_descriptor("skip_action", "跳过输入动作",
+                        &SplineFollowerComponent::skip_action, {.required = false}),
+                    make_property_descriptor("finished_event", "完成通知",
+                        &SplineFollowerComponent::finished_event, {.required = false})}));
+
+        register_component(make_component_descriptor<WeatherComponent>("weather", "天气与日照",
+            {make_property_descriptor(
+                 "enabled", "启用", &WeatherComponent::enabled, {.required = false}),
+                make_property_descriptor("hour", "时刻（小时）", &WeatherComponent::hour,
+                    {.required = false,
+                        .numeric = {.minimum = 0.0f, .maximum = 24.0f, .enforce_bounds = true}}),
+                make_property_descriptor("day_length", "昼夜周期（秒；0 固定）",
+                    &WeatherComponent::day_length,
+                    {.required = false,
+                        .numeric = {.minimum = 0.0f, .maximum = 86400.0f, .enforce_bounds = true}}),
+                make_property_descriptor("overcast", "云量", &WeatherComponent::overcast,
+                    {.required = false,
+                        .numeric = {.minimum = 0.0f, .maximum = 1.0f, .enforce_bounds = true}}),
+                make_property_descriptor(
+                    "wind", "世界风（米／秒）", &WeatherComponent::wind, {.required = false}),
+                make_property_descriptor("fog_density", "雾密度", &WeatherComponent::fog_density,
+                    {.required = false,
+                        .numeric = {.minimum = 0.0f, .maximum = 2.0f, .enforce_bounds = true}}),
+                make_property_descriptor(
+                    "fog_color", "雾颜色", &WeatherComponent::fog_color, {.required = false}),
+                make_property_descriptor(
+                    "sun", "太阳实体", &WeatherComponent::sun, {.required = false}),
+                make_property_descriptor("sun_intensity", "日间太阳强度",
+                    &WeatherComponent::sun_intensity,
+                    {.required = false,
+                        .numeric = {.minimum = 0.0f, .maximum = 10000.0f, .enforce_bounds = true}}),
+                make_property_descriptor(
+                    "sun_yaw", "太阳方位角", &WeatherComponent::sun_yaw, {.required = false}),
+                make_property_descriptor("precipitation", "雨／雪发射器",
+                    &WeatherComponent::precipitation, {.required = false}),
+                make_property_descriptor("precipitation_amount", "降水强度",
+                    &WeatherComponent::precipitation_amount,
+                    {.required = false,
+                        .numeric = {.minimum = 0.0f, .maximum = 1.0f, .enforce_bounds = true}})}));
+
+        register_component(make_component_descriptor<VegetationInteractorComponent>(
+            "vegetation_interactor", "植被交互体",
+            {make_property_descriptor("radius", "作用半径", &VegetationInteractorComponent::radius,
+                 {.required = false,
+                     .numeric = {.minimum = .01, .maximum = 20, .enforce_bounds = true}}),
+                make_property_descriptor("height", "作用高度",
+                    &VegetationInteractorComponent::height,
+                    {.required = false,
+                        .numeric = {.minimum = .01, .maximum = 100, .enforce_bounds = true}})}));
+        register_component(make_component_descriptor<WaterSurfaceComponent>("water_surface",
+            "水面波纹",
+            {make_property_descriptor(
+                 "enabled", "启用", &WaterSurfaceComponent::enabled, {.required = false}),
+                make_property_descriptor("amplitude", "法线波纹强度",
+                    &WaterSurfaceComponent::amplitude,
+                    {.required = false,
+                        .numeric = {.minimum = 0.0f, .maximum = 1.0f, .enforce_bounds = true}}),
+                make_property_descriptor("wavelength", "波长（米）",
+                    &WaterSurfaceComponent::wavelength,
+                    {.required = false,
+                        .numeric = {.minimum = 0.01f, .maximum = 1000.0f, .enforce_bounds = true}}),
+                make_property_descriptor("speed", "相位速度", &WaterSurfaceComponent::speed,
+                    {.required = false,
+                        .numeric = {
+                            .minimum = -10.0f, .maximum = 10.0f, .enforce_bounds = true}})}));
+
+        register_component(make_component_descriptor<ParticleMeshCollisionComponent>(
+            "particle_mesh_collision", "粒子网格碰撞",
+            {make_property_descriptor(
+                 "enabled", "启用", &ParticleMeshCollisionComponent::enabled, {.required = false}),
+                make_property_descriptor("mesh", "碰撞网格（可选）",
+                    &ParticleMeshCollisionComponent::mesh,
+                    {.required = false, .asset_type = AssetType::Mesh, .asset_cpu_only = true}),
+                make_property_descriptor("layers", "粒子碰撞层",
+                    &ParticleMeshCollisionComponent::layers, {.required = false, .bitmask = true}),
+                make_property_descriptor("deformed", "使用蒙皮与柔性姿态",
+                    &ParticleMeshCollisionComponent::deformed, {.required = false})}));
+
         register_component(make_component_descriptor<WindSwayComponent>("wind_sway", "风动摆动",
             {make_property_descriptor("enabled", "启用", &WindSwayComponent::enabled),
                 make_property_descriptor(
@@ -544,6 +666,18 @@ namespace Comet {
                 make_property_descriptor("height", "弯曲高度（本地米）", &WindSwayComponent::height,
                     {.required = false,
                         .numeric = {.minimum = .01f, .maximum = 1000, .enforce_bounds = true}}),
+                make_property_descriptor("interaction_radius", "角色交互半径（米）",
+                    &WindSwayComponent::interaction_radius,
+                    {.required = false,
+                        .numeric = {.minimum = 0, .maximum = 20, .enforce_bounds = true}}),
+                make_property_descriptor("interaction_strength", "交互弯曲（度）",
+                    &WindSwayComponent::interaction_strength,
+                    {.required = false,
+                        .numeric = {.minimum = 0, .maximum = 30, .enforce_bounds = true}}),
+                make_property_descriptor("wind_response", "世界风响应",
+                    &WindSwayComponent::wind_response,
+                    {.required = false,
+                        .numeric = {.minimum = 0, .maximum = 10, .enforce_bounds = true}}),
                 make_property_descriptor("frequency", "频率（Hz）", &WindSwayComponent::frequency,
                     {.numeric = {.minimum = .01f, .maximum = 10, .enforce_bounds = true}})}));
         register_component(make_component_descriptor<MotionWarpComponent>("motion_warp", "动作对位",
@@ -840,6 +974,13 @@ namespace Comet {
                     &ParticleEmitterComponent::start_color, {.required = false}),
                 make_property_descriptor("end_color", "End Color",
                     &ParticleEmitterComponent::end_color, {.required = false}),
+                make_property_descriptor("spawn_extents", "发射盒半尺寸",
+                    &ParticleEmitterComponent::spawn_extents,
+                    {.required = false,
+                        .numeric = {.speed = .1f,
+                            .minimum = 0,
+                            .maximum = 10000,
+                            .enforce_bounds = true}}),
                 make_property_descriptor("start_size", "Start Size",
                     &ParticleEmitterComponent::start_size,
                     {.required = false,
@@ -924,7 +1065,47 @@ namespace Comet {
                             .numeric = {.speed = 0.1f, .minimum = 0.01f, .enforce_bounds = true}}),
                     make_property_descriptor("rolloff", "Rolloff", &AudioSourceComponent::rolloff,
                         {.required = false,
-                            .numeric = {.speed = 0.05f, .minimum = 0, .enforce_bounds = true}})}));
+                            .numeric = {.speed = 0.05f, .minimum = 0, .enforce_bounds = true}}),
+                    make_property_descriptor("fade_in", "淡入时间（秒）",
+                        &AudioSourceComponent::fade_in,
+                        {.required = false,
+                            .numeric = {.speed = .01f,
+                                .minimum = 0.0f,
+                                .maximum = 60.0f,
+                                .enforce_bounds = true}}),
+                    make_property_descriptor("fade_out", "淡出时间（秒）",
+                        &AudioSourceComponent::fade_out,
+                        {.required = false,
+                            .numeric = {.speed = .01f,
+                                .minimum = 0.0f,
+                                .maximum = 60.0f,
+                                .enforce_bounds = true}}),
+                    make_property_descriptor("reverb_mix", "混响比例",
+                        &AudioSourceComponent::reverb_mix,
+                        {.required = false,
+                            .numeric = {.speed = .01f,
+                                .minimum = 0.0f,
+                                .maximum = 1.0f,
+                                .enforce_bounds = true}}),
+                    make_property_descriptor("reverb_decay", "混响衰减（秒）",
+                        &AudioSourceComponent::reverb_decay,
+                        {.required = false,
+                            .numeric = {.speed = .01f,
+                                .minimum = 0.1f,
+                                .maximum = 10.0f,
+                                .enforce_bounds = true}}),
+                    make_property_descriptor("occlusion_strength", "遮挡强度",
+                        &AudioSourceComponent::occlusion_strength,
+                        {.required = false,
+                            .numeric = {.speed = .01f,
+                                .minimum = 0.0f,
+                                .maximum = 1.0f,
+                                .enforce_bounds = true}}),
+                    make_property_descriptor("occlusion", "几何遮挡",
+                        &AudioSourceComponent::occlusion, {.required = false}),
+                    make_property_descriptor("occlusion_layers", "遮挡碰撞层",
+                        &AudioSourceComponent::occlusion_layers,
+                        {.required = false, .bitmask = true})}));
 
         register_component(make_component_descriptor<RigidBodyComponent>("rigid_body", "Rigid Body",
             {make_enum_property_descriptor<RigidBodyComponent, BodyMotion>("motion", "Motion",

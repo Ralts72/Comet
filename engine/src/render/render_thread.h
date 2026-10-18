@@ -36,6 +36,9 @@ namespace Comet {
         [[nodiscard]] Result<void, GraphicsError> complete();
         void stop();
 
+        [[nodiscard]] uint64_t gpu_bytes(const std::shared_ptr<Mesh>&) const override;
+        [[nodiscard]] uint64_t gpu_bytes(const std::shared_ptr<Texture>&) const override;
+
         // Owner 在帧交接边界同步创建资产；独立 CPU 产品在 Worker 消费后释放。
         [[nodiscard]] GpuResourceResult<std::shared_ptr<Mesh>> try_create_mesh(
             MeshData data) override;

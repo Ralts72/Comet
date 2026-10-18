@@ -1,3 +1,4 @@
+#include "support/demo_project.h"
 #include "asset/data/game_data.h"
 #include "gameplay/character_animation.h"
 #include "asset/serialization/animation_controller_serializer.h"
@@ -574,8 +575,8 @@ namespace Comet::Tests {
                 ASSERT_TRUE(clip) << clip.error().message;
                 ASSERT_TRUE(assets.register_asset(AssetHandle{handle}, std::move(clip).value()));
             }
-            auto loaded = serializer.load(
-                (project.value().paths().assets() / project.value().startup_scene()).string());
+            ASSERT_TRUE(prepare_demo_journey(assets));
+            auto loaded = load_demo_scene(components, project.value().startup_scene());
             ASSERT_TRUE(loaded) << loaded.error();
             edit_scene = std::move(loaded).value();
             auto clone = serializer.clone(*edit_scene);
@@ -820,9 +821,8 @@ namespace Comet::Tests {
             ASSERT_TRUE(tick(2));
             auto request = runtime.take_scene_request();
             ASSERT_TRUE(request);
-            auto prepared = game.prepare(*request, [&](std::string_view path) {
-                return serializer.load((project.value().paths().assets() / path).string());
-            });
+            auto prepared = game.prepare(
+                *request, [&](std::string_view path) { return load_demo_scene(components, path); });
             ASSERT_TRUE(prepared) << prepared.error();
             ASSERT_TRUE(runtime.stop());
             playing = std::move(prepared.value().scene);
@@ -870,7 +870,7 @@ namespace Comet::Tests {
         game.set_persistence(persistence(reopened));
         ASSERT_NO_FATAL_FAILURE(transition("character.continue"));
         EXPECT_EQ(game.scene_path(), "scenes/character_second.scene");
-        EXPECT_EQ(runtime.get_session().checkpoint(), "course_start");
+        EXPECT_EQ(runtime.get_session().checkpoint(), "journey_start");
         EXPECT_EQ(score(), 1);
         EXPECT_NEAR(position().x, 0, 0.01f);
         EXPECT_NEAR(position().z, 5, 0.01f);

@@ -284,4 +284,18 @@ namespace Comet::Tests {
         EXPECT_TRUE(reset.contains(AssetHandle(99)));
         EXPECT_TRUE(registry.take_removals().empty());
     }
+    TEST(AssetRegistryTest, ResidentBytesCountAliasesOnceAndTrackReplacementAndRelease) {
+        AssetRegistry registry;
+        auto first = std::make_shared<int>(7);
+        ASSERT_TRUE(registry.register_asset(AssetHandle(1), first, 128));
+        ASSERT_TRUE(registry.register_asset(AssetHandle(2), first, 128));
+        EXPECT_EQ(registry.resident_gpu_bytes(), 128u);
+        ASSERT_TRUE(registry.replace_asset(AssetHandle(1), std::make_shared<int>(8), 256));
+        EXPECT_EQ(registry.resident_gpu_bytes(), 384u);
+        ASSERT_TRUE(registry.unregister_asset(AssetHandle(2)));
+        EXPECT_EQ(registry.resident_gpu_bytes(), 256u);
+        registry.clear();
+        EXPECT_EQ(registry.resident_gpu_bytes(), 0u);
+    }
+
 }

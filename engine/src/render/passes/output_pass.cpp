@@ -72,6 +72,10 @@ namespace Comet {
             0, DescriptorType::CombinedImageSampler, Flags<ShaderStage>(ShaderStage::Fragment));
         bindings.add_binding(
             1, DescriptorType::CombinedImageSampler, Flags<ShaderStage>(ShaderStage::Fragment));
+        bindings.add_binding(
+            2, DescriptorType::CombinedImageSampler, Flags<ShaderStage>(ShaderStage::Fragment));
+        bindings.add_binding(
+            3, DescriptorType::CombinedImageSampler, Flags<ShaderStage>(ShaderStage::Fragment));
         auto descriptor_layout = DescriptorSetLayout::create(device, bindings);
         if(!descriptor_layout)
             return Creation::failure(descriptor_layout.error());
@@ -92,7 +96,7 @@ namespace Comet {
         ShaderLayout layout;
         layout.descriptor_set_layouts = {descriptor_layout.value()};
         layout.push_constants.push_back(
-            std::make_shared<PushConstantRange>(ShaderStage::Fragment, 0, 24));
+            std::make_shared<PushConstantRange>(ShaderStage::Fragment, 0, 80));
         PipelineConfig config;
         config.set_dynamic_state({DynamicState::Viewport, DynamicState::Scissor});
         PipelineManager pipelines(device, *pass.value());
@@ -119,10 +123,13 @@ namespace Comet {
 
     Result<void, GraphicsError> OutputPass::render(FrameScheduler& frames,
         const std::shared_ptr<RenderTarget>& output, const std::shared_ptr<ImageView>& hdr_color,
-        const PostProcessSettings& settings, const std::shared_ptr<ImageView>& bloom) {
+        const PostProcessSettings& settings, const std::shared_ptr<ImageView>& bloom,
+        const LensInputs& lens) {
         if(!frames.is_recording_frame() || &frames.get_device() != &m_device
             || frames.get_current_frame_slot_index() >= m_bindings.size() || !output || !hdr_color
-            || !settings.validate() || (settings.uses_bloom() && !bloom))
+            || !settings.validate() || (settings.uses_bloom() && !bloom)
+            || (settings.uses_lens() && !lens.depth)
+            || (settings.uses_motion_blur() && !lens.motion))
             return Result<void, GraphicsError>::failure(
                 {"Invalid output pass frame, input or settings"});
         if(&hdr_color->get_image()->get_device() != &m_device
@@ -137,10 +144,17 @@ namespace Comet {
         auto bloom_input = hdr_color;
         if(settings.uses_bloom())
             bloom_input = bloom;
+        const auto depth = settings.uses_lens() ? lens.depth : hdr_color;
+        const auto motion = settings.uses_motion_blur() ? lens.motion : hdr_color;
+        for(const auto& image : {depth, motion})
+            if(&image->get_image()->get_device() != &m_device
+                || !(image->get_image()->get_info().usage & ImageUsage::Sampled))
+                return Result<void, GraphicsError>::failure({"Invalid output pass lens image"});
         auto& binding = m_bindings[slot];
-        if(!binding || binding->images[0] != hdr_color || binding->images[1] != bloom_input) {
+        if(!binding || binding->images[0] != hdr_color || binding->images[1] != bloom_input
+            || binding->images[2] != depth || binding->images[3] != motion) {
             auto candidate = SampledImageBinding::create(
-                m_device, {hdr_color, bloom_input}, m_layout, m_sampler);
+                m_device, {hdr_color, bloom_input, depth, motion}, m_layout, m_sampler);
             if(!candidate)
                 return Result<void, GraphicsError>::failure(candidate.error());
             binding = std::move(candidate).value();
@@ -167,13 +181,21 @@ namespace Comet {
             float bloom_strength;
             uint32_t upsample_hdr;
             float white_level;
+            uint32_t depth_of_field;
+            uint32_t motion_blur;
+            Math::Vec4 projection;
+            Math::Vec4 focus;
+            Math::Vec4 motion;
         };
-        static_assert(sizeof(Parameters) == 24);
+        static_assert(sizeof(Parameters) == 80);
         const float strength = settings.uses_bloom() ? settings.bloom_strength : 0.0f;
         const auto source_size = hdr_color->get_image()->get_info().extent;
         const bool upsample = source_size.x != size.x || source_size.y != size.y;
         const Parameters parameters{settings.exposure, m_encode_srgb ? 1u : 0u, m_headroom,
-            strength, upsample ? 1u : 0u, m_white_level};
+            strength, upsample ? 1u : 0u, m_white_level, settings.uses_depth_of_field() ? 1u : 0u,
+            settings.uses_motion_blur() ? 1u : 0u, lens.projection,
+            {settings.lens.focus_distance, settings.lens.focus_range, settings.lens.aperture, 0},
+            {settings.lens.shutter, settings.lens.max_blur, 0, 0}};
         command.push_constants(*m_pipeline->get_layout(), Flags<ShaderStage>(ShaderStage::Fragment),
             0, &parameters, sizeof(parameters));
         command.draw(3);

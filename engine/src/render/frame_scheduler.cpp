@@ -1,4 +1,5 @@
 #include "render/frame_scheduler.h"
+#include "core/task_scheduler.h"
 
 #include "diagnostics/logger.h"
 #include "graphics/device.h"
@@ -9,6 +10,65 @@
 #include <utility>
 
 namespace Comet {
+    struct FrameScheduler::Pending {
+        struct Commands {
+            CommandPool pool;
+            CommandBuffer command;
+            Commands(Device& device, uint32_t family)
+                : pool(device, family), command(pool.allocate_command_buffer()) {}
+        };
+        std::shared_ptr<Commands> work;
+        std::optional<std::future<Result<void, GraphicsError>>> future;
+        std::optional<Result<void, GraphicsError>> immediate;
+    };
+    FrameScheduler::~FrameScheduler() {
+        for(auto& pending : m_pending)
+            if(pending->future)
+                pending->future->wait();
+        // 包括录制后未提交的帧；释放池前完成所有队列使用。
+        m_device.wait_idle_for_shutdown();
+    }
+    Result<void, GraphicsError> FrameScheduler::record_independent(RecordIndependent record) {
+        using R = Result<void, GraphicsError>;
+        if(!is_recording_frame() || !record)
+            return R::failure({"Independent recording requires an active frame"});
+        auto pending = std::make_unique<Pending>();
+        pending->work = std::make_shared<Pending::Commands>(m_device, get_queue_family_index());
+        auto task = [work = pending->work, record = std::move(record)]() -> R {
+            try {
+                work->command.begin(
+                    Flags<CommandBuffer::Usage>(CommandBuffer::Usage::OneTimeSubmit));
+                auto result = record(work->command);
+                if(result)
+                    work->command.end();
+                return result;
+            } catch(const std::exception& error) {
+                return R::failure({error.what()});
+            }
+        };
+        if(m_tasks)
+            pending->future = m_tasks->try_submit_result(task);
+        if(!pending->future)
+            pending->immediate = task();
+        retain_current_frame_resource(pending->work);
+        m_pending.push_back(std::move(pending));
+        return R::success();
+    }
+    Result<std::vector<CommandBuffer>, GraphicsError> FrameScheduler::finish_recordings() {
+        using R = Result<std::vector<CommandBuffer>, GraphicsError>;
+        std::optional<GraphicsError> failure;
+        std::vector<CommandBuffer> commands;
+        for(auto& pending : m_pending) {
+            const auto result = pending->future ? pending->future->get() : *pending->immediate;
+            if(!result)
+                failure = result.error();
+            commands.push_back(pending->work->command);
+        }
+        m_pending.clear();
+        if(failure)
+            return R::failure(*failure);
+        return R::success(std::move(commands));
+    }
     bool FrameScheduler::is_recording_frame() const {
         return m_frame_active && !m_submission_recorded;
     }
@@ -115,11 +175,29 @@ namespace Comet {
             LOG_FATAL("FrameScheduler requires one submission for the active frame");
         }
 
+        auto prepared = finish_recordings();
+        if(!prepared)
+            return GpuResourceResult<GpuCompletionPoint>::failure(
+                prepared.error().result.value_or(vk::Result::eErrorUnknown));
+        auto commands = std::move(prepared).value();
+        std::vector<QueueSemaphoreSubmit> merged(waits.begin(), waits.end());
+        if(auto* queue = m_device.get_async_compute_queue(); queue && !commands.empty()) {
+            const auto completion = queue->submit2({}, commands, {}, nullptr);
+            if(!completion) {
+                m_device.wait_idle_for_shutdown();
+                return GpuResourceResult<GpuCompletionPoint>::failure(completion.result());
+            }
+            merge_semaphore_wait(merged, QueueSemaphoreSubmit(completion.value(),
+                                             Flags<PipelineStage>(PipelineStage::AllCommands)));
+            commands.clear();
+        }
         auto& slot = get_current_frame_slot();
+        commands.push_back(slot.command_buffer);
         m_device.reset_fences(std::span(&slot.in_flight_fence, 1));
         const auto completion = m_device.get_graphics_queue(0).submit2(
-            waits, std::span(&slot.command_buffer, 1), signals, &slot.in_flight_fence);
+            merged, commands, signals, &slot.in_flight_fence);
         if(!completion) {
+            m_device.wait_idle_for_shutdown();
             slot.retained_resources.clear();
             m_frame_active = false;
             m_current_slot_ready = false;

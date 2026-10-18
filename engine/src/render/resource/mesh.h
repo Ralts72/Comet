@@ -19,6 +19,7 @@ namespace Comet {
     class COMET_API Mesh {
     public:
         ~Mesh() = default;
+        [[nodiscard]] uint64_t gpu_resident_bytes() const;
 
         [[nodiscard]] static GpuResourceResult<std::shared_ptr<Mesh>> try_create(Device& device,
             UploadManager& upload_manager, const MeshData& data, bool within_budget);
@@ -27,6 +28,10 @@ namespace Comet {
         // 当前 CommandBuffer 已绑定此 Mesh 的顶点／索引缓冲。
         void draw(const CommandBuffer& command_buffer, uint32_t instance_count = 1,
             uint32_t first_instance = 0) const;
+        void draw_indirect(const CommandBuffer&, const Buffer& commands, uint64_t offset) const;
+        [[nodiscard]] uint32_t element_count() const {
+            return m_index_count ? m_index_count : m_vertex_count;
+        }
         [[nodiscard]] const GpuCompletionPoint& get_ready_completion() const {
             return m_ready_completion;
         }

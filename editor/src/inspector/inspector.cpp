@@ -2,6 +2,8 @@
 #include "render/resource/mesh.h"
 #include "animation/animation_data.h"
 #include "inspector/inspector.h"
+#include <cctype>
+#include <tuple>
 #include "assets/reflection_bake.h"
 #include "assets/irradiance_bake.h"
 #include "assets/navigation_bake.h"
@@ -119,6 +121,56 @@ namespace CometEditor {
                     return;
                 }
             }
+        }
+
+        bool matches_filter(std::string_view text, std::string_view filter) {
+            return filter.empty()
+                   || std::search(text.begin(), text.end(), filter.begin(), filter.end(),
+                          [](unsigned char a, unsigned char b) {
+                              return std::tolower(a) == std::tolower(b);
+                          })
+                          != text.end();
+        }
+        std::string_view parameter_group(std::string_view component, std::string_view id) {
+            if(component == "particle_emitter") {
+                if(id.find("collision") != id.npos || id == "restitution" || id == "friction")
+                    return "碰撞";
+                if(id.find("color") != id.npos || id.find("size") != id.npos || id == "texture"
+                    || id == "blend" || id.find("atlas") != id.npos || id.find("soft") != id.npos)
+                    return "外观";
+                if(id.find("wind") != id.npos || id.find("vortex") != id.npos
+                    || id.find("turbulence") != id.npos || id.find("field") != id.npos
+                    || id == "acceleration" || id == "drag")
+                    return "运动与力场";
+                return "发射";
+            }
+            if(component == "irradiance_volume") {
+                if(id.find("budget") != id.npos || id.find("rays") != id.npos
+                    || id.find("history") != id.npos)
+                    return "更新与质量";
+                if(id.find("bias") != id.npos || id.find("visibility") != id.npos)
+                    return "防漏光";
+                return "区域与来源";
+            }
+            if(is_joint_component(component)) {
+                if(id.find("motor") != id.npos)
+                    return "驱动";
+                if(id.find("reference_axis") != id.npos || id.find("limit") != id.npos
+                    || id.starts_with("min_") || id.starts_with("max_"))
+                    return "限位";
+                if(id.starts_with("break_"))
+                    return "断裂";
+                return "连接与坐标";
+            }
+            if(component == "audio_source") {
+                if(id.find("distance") != id.npos || id == "spatial" || id == "rolloff"
+                    || id == "occlusion")
+                    return "空间与遮挡";
+                if(id.starts_with("fade") || id.starts_with("reverb"))
+                    return "淡入淡出与混响";
+                return "播放";
+            }
+            return {};
         }
 
         std::vector<Comet::ComponentDescriptor> make_component_descriptions(
@@ -239,7 +291,42 @@ namespace CometEditor {
                         set_caption(property.display_name, property.id, slider_properties);
                     for(auto& option : property.enum_options)
                         set_caption(option.display_name, option.id, enum_options);
+                    property.group = parameter_group(component.id, property.id);
+                    if(property.id == "history_weight")
+                        property.description = "历史权重越大越稳定，但光照变化响应越慢。";
+                    if(property.id == "update_budget")
+                        property.description =
+                            "每帧更新数量；与场景 GI 总预算共同限制 GPU 工作量。";
+                    if(property.id == "max_translation")
+                        property.description = "骨盆相对基础姿态允许的最大偏移，单位为米。";
+                    if(property.id == "query_budget")
+                        property.description =
+                            "单粒子遍历预算；超限会终止该视觉粒子，避免无界 GPU 工作。";
+                    if(property.id == "seed")
+                        property.description = "固定种子使相同初始配置可重复生成。";
+                    if(property.id == "wind_amplitude")
+                        property.description = "风动幅度；改变视觉形变，不回写刚体或角色碰撞体。";
                 }
+                const auto group_order = [](std::string_view group) {
+                    constexpr std::array groups{std::string_view{}, std::string_view("发射"),
+                        std::string_view("区域与来源"), std::string_view("播放"),
+                        std::string_view("连接与坐标"), std::string_view("外观"),
+                        std::string_view("运动与力场"), std::string_view("碰撞"),
+                        std::string_view("更新与质量"), std::string_view("防漏光"),
+                        std::string_view("限位"), std::string_view("驱动"),
+                        std::string_view("断裂"), std::string_view("淡入淡出与混响"),
+                        std::string_view("空间与遮挡")};
+                    return std::ranges::find(groups, group) - groups.begin();
+                };
+                std::stable_sort(component.properties.begin(), component.properties.end(),
+                    [&](const auto& a, const auto& b) {
+                        if(a.group != b.group)
+                            return group_order(a.group) < group_order(b.group);
+                        const auto toggle = [](const auto& p) {
+                            return p.id == "limits_enabled" || p.id == "motor_enabled";
+                        };
+                        return toggle(a) && !toggle(b);
+                    });
             }
             return result;
         }
@@ -434,6 +521,10 @@ namespace CometEditor {
 
     void InspectorPanel::render_entity(Comet::Entity entity) {
         bool active_property_visible = false;
+        ImGui::SetNextItemWidth(-1);
+        ImGui::InputTextWithHint("###Parameter filter", "搜索参数或组件", m_property_filter.data(),
+            m_property_filter.size());
+        const std::string_view filter(m_property_filter.data());
         const bool edit_structure =
             m_entities.size() == 1 && m_state.mode == EditorMode::Edit && m_history.get_scene()
             && m_history.get_scene()->find_entity(entity.get_uuid()) == entity;
@@ -445,6 +536,14 @@ namespace CometEditor {
                }))
                 continue;
 
+            const bool component_matches = matches_filter(component_descriptor.display_name, filter)
+                                           || matches_filter(component_descriptor.id, filter);
+            if(!component_matches
+                && std::ranges::none_of(component_descriptor.properties, [&](const auto& property) {
+                       return matches_filter(property.display_name, filter)
+                              || matches_filter(property.id, filter);
+                   }))
+                continue;
             ImGui::PushID(component_descriptor.id.c_str());
             if(component_descriptor.id == "name") {
                 ImGui::PopID();
@@ -475,7 +574,12 @@ namespace CometEditor {
                     ImGui::TextWrapped(
                         "凸包适合可移动刚体；三角网格仅支持静态刚体，三角形正面参与碰撞。"
                         "使用网格原点与绑定姿态，支持正非等比缩放，不随骨骼动画变形。");
+                std::string_view group;
+                bool group_open = true;
                 for(const Comet::PropertyDescriptor& property : component_descriptor.properties) {
+                    if(!component_matches && !matches_filter(property.display_name, filter)
+                        && !matches_filter(property.id, filter))
+                        continue;
                     if((component_descriptor.id == "reflection_probe"
                            || component_descriptor.id == "irradiance_volume")
                         && property.id == "bake_fingerprint")
@@ -484,6 +588,19 @@ namespace CometEditor {
                            return property_visible(m_selection.get_scene().find_entity(uuid),
                                component_descriptor.id, property.id);
                        }))
+                        continue;
+                    if(property.group != group) {
+                        if(!group.empty() && group_open)
+                            ImGui::Unindent();
+                        group = property.group;
+                        group_open = group.empty()
+                                     || ImGui::TreeNodeEx(
+                                         group.data(), ImGuiTreeNodeFlags_DefaultOpen
+                                                           | ImGuiTreeNodeFlags_NoTreePushOnOpen);
+                        if(!group.empty() && group_open)
+                            ImGui::Indent();
+                    }
+                    if(!group_open)
                         continue;
                     ImGui::PushID(property.id.c_str());
                     if(component_descriptor.id == "script"
@@ -494,10 +611,15 @@ namespace CometEditor {
                         render_animation_parameters(entity, component_descriptor, property);
                     else
                         render_property(entity, component_descriptor, property);
+                    if(!property.description.empty()
+                        && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+                        ImGui::SetTooltip("%s", property.description.c_str());
                     active_property_visible |= m_property_edit.targets_many(
                         property_targets(component_descriptor.id, property.id));
                     ImGui::PopID();
                 }
+                if(!group.empty() && group_open)
+                    ImGui::Unindent();
                 if(component_descriptor.id == "navigation_region")
                     render_navigation_bake(entity, edit_structure);
                 if(component_descriptor.id == "reflection_probe")
@@ -505,8 +627,8 @@ namespace CometEditor {
                 if(component_descriptor.id == "irradiance_volume") {
                     if(entity.get_component<Comet::IrradianceVolumeComponent>().realtime)
                         ImGui::TextWrapped(
-                            "实时模式按预算更新灯光与非蒙皮几何的间接光。移动网格可改变遮挡；"
-                            "关闭“参与 GI 几何”后仅采样。蒙皮角色只采样。预算越小、历史权重越大，响应越慢。");
+                            "实时模式按预算更新灯光与静态／蒙皮动态几何的间接光。移动网格可改变遮挡；"
+                            "关闭“参与 GI 几何”后仅采样。预算越小、历史权重越大，响应越慢。");
                     else
                         render_irradiance_bake(entity, edit_structure);
                 }
@@ -713,6 +835,8 @@ namespace CometEditor {
             result.include_item(ImGui::DragFloat("环境散射强度###Volume ambient", &volume.ambient,
                 .01f, 0, 16, "%.2f", ImGuiSliderFlags_AlwaysClamp));
         }
+        result.include_item(ImGui::DragFloat3("世界风（米／秒）###World wind", &environment.wind.x,
+            .1f, -50, 50, "%.2f", ImGuiSliderFlags_AlwaysClamp));
         apply_scene_edit(environment_target, environment, result, can_edit);
         ImGui::EndDisabled();
     }
@@ -772,6 +896,63 @@ namespace CometEditor {
                 .005f, .001f, 2, "%.3f m", ImGuiSliderFlags_AlwaysClamp));
             result.include_item(ImGui::DragFloat("最大粗糙度###SSR roughness",
                 &reflections.max_roughness, .01f, .05f, 1, "%.2f", ImGuiSliderFlags_AlwaysClamp));
+        }
+        if(ImGui::TreeNodeEx("镜头效果###Lens", ImGuiTreeNodeFlags_DefaultOpen)) {
+            auto& lens = settings.lens;
+            const bool focus_changed =
+                ImGui::Checkbox("景深###Depth of field", &lens.depth_of_field);
+            result.changed |= focus_changed;
+            result.finished |= focus_changed;
+            ImGui::BeginDisabled(!lens.depth_of_field);
+            result.include_item(ImGui::DragFloat("对焦距离###Focus distance", &lens.focus_distance,
+                .05f, .01f, 100000, "%.2f m", ImGuiSliderFlags_AlwaysClamp));
+            result.include_item(ImGui::DragFloat("清晰范围###Focus range", &lens.focus_range, .05f,
+                .01f, 100000, "%.2f m", ImGuiSliderFlags_AlwaysClamp));
+            result.include_item(
+                ImGui::SliderFloat("弥散半径###Aperture", &lens.aperture, 0, 32, "%.1f px"));
+            ImGui::EndDisabled();
+            const bool motion_changed =
+                ImGui::Checkbox("运动模糊###Motion blur", &lens.motion_blur);
+            result.changed |= motion_changed;
+            result.finished |= motion_changed;
+            ImGui::BeginDisabled(!lens.motion_blur);
+            result.include_item(
+                ImGui::SliderFloat("快门比例###Shutter", &lens.shutter, 0, 1, "%.2f"));
+            result.include_item(
+                ImGui::SliderFloat("最大拖影###Maximum blur", &lens.max_blur, 0, 64, "%.1f px"));
+            ImGui::EndDisabled();
+            ImGui::TextDisabled("景深使用相机距离；运动模糊包含相机与物体运动。UI 保持清晰。");
+            ImGui::TreePop();
+        }
+        if(ImGui::TreeNode("路径追踪（App／Play 共用）###Runtime trace")) {
+            auto& trace = settings.path_trace;
+            const auto toggle = [&](const char* label, bool& value) {
+                const bool changed = ImGui::Checkbox(label, &value);
+                result.changed |= changed;
+                result.finished |= changed;
+            };
+            toggle("场景使用路径追踪###Scene tracing", trace.enabled);
+            toggle("动态模式###Scene dynamic tracing", trace.dynamic);
+            toggle("GPU 时空降噪###Scene trace denoise", trace.denoise);
+            for(const auto& [label, target, minimum, maximum] :
+                {std::tuple{"样本上限###Trace samples", &trace.samples, 1, 4096},
+                    {"反弹上限###Trace bounces", &trace.bounces, 1, 8},
+                    {"最长边像素###Trace resolution", &trace.max_dimension, 32, 2048}}) {
+                int value = int(*target);
+                result.include_item(ImGui::SliderInt(label, &value, minimum, maximum));
+                *target = uint32_t(value);
+            }
+            result.include_item(
+                ImGui::SliderFloat("历史权重###Trace history", &trace.history_weight, 0, .98f));
+            result.include_item(
+                ImGui::SliderFloat("均匀介质密度###Medium density", &trace.medium_density, 0, 2));
+            result.include_item(
+                ImGui::ColorEdit3("散射反照率###Medium albedo", &trace.medium_color.x));
+            result.include_item(ImGui::SliderFloat(
+                "散射各向异性###Medium anisotropy", &trace.medium_anisotropy, -.9f, .9f));
+            ImGui::TextWrapped(
+                "动态模式每帧重新采样；软件 BVH 的实际帧率取决于场景和分辨率。静态模式逐帧累积。");
+            ImGui::TreePop();
         }
         apply_scene_edit(post_process_target, settings, result, can_edit);
         ImGui::EndDisabled();
@@ -899,6 +1080,32 @@ namespace CometEditor {
             return;
         const bool emitter = entity.has_component<Comet::ParticleEmitterComponent>();
         ImGui::SeparatorText(emitter ? "粒子预览" : "拖尾预览");
+        if(emitter && ImGui::BeginCombo("应用预设", "选择火花／烟雾／雨／雪")) {
+            using Comet::ParticlePreset;
+            for(const auto& [name, kind] : {std::pair{"火花", ParticlePreset::Sparks},
+                    std::pair{"烟雾", ParticlePreset::Smoke}, std::pair{"雨", ParticlePreset::Rain},
+                    std::pair{"雪", ParticlePreset::Snow}}) {
+                if(!ImGui::Selectable(name))
+                    continue;
+                const auto settings = Comet::ParticleEmitterComponent::preset(kind);
+                const auto component = m_component_registry.find_component("particle_emitter");
+                if(!component)
+                    continue;
+                std::vector<PropertyEditTransaction::Target> targets;
+                std::vector<Comet::PropertyValue> values;
+                for(const auto& property : component->properties) {
+                    auto value = property.copy_value(&settings);
+                    if(!value)
+                        continue;
+                    for(const auto uuid : m_entities) {
+                        targets.push_back({uuid, component->id, property.id});
+                        values.push_back(*value);
+                    }
+                }
+                apply_property_values(targets, values, {.changed = true, .finished = true});
+            }
+            ImGui::EndCombo();
+        }
         if(!bind_particle_preview(entity)) {
             ImGui::TextDisabled("粒子配置无效，请检查参数");
             return;

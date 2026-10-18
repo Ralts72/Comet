@@ -4,6 +4,7 @@
 #include "graphics/result.h"
 
 #include <memory>
+#include <cstdint>
 
 namespace Comet {
     class Mesh;
@@ -14,6 +15,11 @@ namespace Comet {
     class COMET_API RenderResourceFactory {
     public:
         virtual ~RenderResourceFactory() = default;
+        // 非 GPU 工厂不产生分配；实际工厂报告创建时保存的分配元数据。
+        [[nodiscard]] virtual uint64_t gpu_bytes(const std::shared_ptr<Mesh>&) const { return 0; }
+        [[nodiscard]] virtual uint64_t gpu_bytes(const std::shared_ptr<Texture>&) const {
+            return 0;
+        }
 
         // CPU 产品按值交付，线程工厂可直接移走存储；返回后候选可由调用方注册。
         [[nodiscard]] virtual GpuResourceResult<std::shared_ptr<Texture>> try_create_texture(

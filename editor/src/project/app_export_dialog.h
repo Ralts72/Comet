@@ -3,12 +3,14 @@
 #include "project/app_export.h"
 #include <optional>
 #include <string>
+#include <span>
 
 namespace CometEditor {
     class AppExportDialog {
     public:
         void open(const std::filesystem::path& project, const std::filesystem::path& startup,
-            std::vector<std::filesystem::path> scenes);
+            std::vector<std::filesystem::path> scenes,
+            std::span<const std::filesystem::path> included = {});
         void render(bool scene_modified, bool edit_mode);
         std::optional<AppExportRequest> take_request();
         void append_output(std::string_view output);
@@ -18,6 +20,7 @@ namespace CometEditor {
         struct SceneChoice {
             std::filesystem::path path;
             bool selected = false;
+            bool required = false;
         };
         std::filesystem::path m_project;
         std::filesystem::path m_startup;

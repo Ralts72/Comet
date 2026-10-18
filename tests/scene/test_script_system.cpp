@@ -1,3 +1,4 @@
+#include "support/demo_project.h"
 #include "scripting/script_instance.h"
 #include "asset/script.h"
 #include "scene/script_component.h"
@@ -2051,8 +2052,8 @@ namespace Comet::Tests {
             assets.register_asset(AssetHandle{8247160951280394421ULL}, std::move(cue).value()));
         const auto components = create_scene_component_registry();
         const SceneSerializer serializer(components);
-        auto edit_scene =
-            serializer.load((project.value().paths().assets() / "scenes/default.scene").string());
+        ASSERT_TRUE(prepare_demo_journey(assets));
+        auto edit_scene = load_demo_scene(components, "scenes/default.scene");
         ASSERT_TRUE(edit_scene) << edit_scene.error();
         const auto center_uuid = EntityUuid::parse("672cd0cc-501f-419e-af5e-a883a0cd3d02");
         const auto player_uuid = EntityUuid::parse("672cd0cc-501f-419e-af5e-a883a0cd3d05");
@@ -2109,9 +2110,11 @@ namespace Comet::Tests {
         EXPECT_EQ(player.get_component<TransformComponent>().translation, player_position_at_score);
 
         if(GetParam()) {
-            const auto camera_uuid = EntityUuid::parse("672cd0cc-501f-419e-af5e-a883a0cd3d01");
-            ASSERT_TRUE(camera_uuid);
-            const auto camera = playing.value()->find_entity(*camera_uuid);
+            Entity camera;
+            playing.value()->each<const CameraComponent>([&](Entity entity, const auto& settings) {
+                if(settings.primary)
+                    camera = entity;
+            });
             ASSERT_TRUE(camera);
             const float yaw = camera.get_component<TransformComponent>().rotation.y;
             pad.axes[static_cast<size_t>(Input::GamepadAxis::RightX)] = 1;

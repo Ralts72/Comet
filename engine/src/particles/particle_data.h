@@ -8,11 +8,21 @@
 #include <cstdint>
 #include <array>
 #include <vector>
+#include <memory>
 
 namespace Comet {
+    struct AnimationPlayback;
+    struct ParticleMeshCollisionComponent {
+        bool enabled = true;
+        AssetHandle mesh; // 缺省使用同实体 MeshRenderer；只影响视觉粒子。
+        uint32_t layers = 1;
+        bool deformed = true;
+        bool operator==(const ParticleMeshCollisionComponent&) const = default;
+    };
     enum class ParticleBlend { Additive, Alpha };
     enum class ParticleCollision { None, Bounce, Kill };
     enum class ParticleSimulation { CPU, GPU };
+    enum class ParticlePreset { Sparks, Smoke, Rain, Snow };
 
     struct COMET_API ParticleEmitterComponent {
         static constexpr uint32_t MAX_CAPACITY = 4096;
@@ -37,6 +47,7 @@ namespace Comet {
         float speed = 2;
         float spread = 45;
         Math::Vec3 acceleration{0, -2, 0};
+        Math::Vec3 spawn_extents{0}; // 发射器局部空间盒形半尺寸。
         Math::Vec4 start_color{1, 0.7f, 0.2f, 1};
         Math::Vec4 end_color{1, 0.2f, 0, 0};
         float start_size = 0.15f;
@@ -55,6 +66,8 @@ namespace Comet {
         float friction = 0.1f;
         uint32_t collision_layers = UINT32_MAX;
 
+        [[nodiscard]] static ParticleEmitterComponent preset(ParticlePreset);
+        [[nodiscard]] bool requires_restart(const ParticleEmitterComponent& previous) const;
         [[nodiscard]] Math::Vec4 texture_region(double age) const;
         [[nodiscard]] Result<void> validate() const;
         bool operator==(const ParticleEmitterComponent&) const = default;
@@ -98,6 +111,8 @@ namespace Comet {
         AssetHandle mesh;
         Math::Mat4 model{1};
         uint32_t layers = 1;
+        std::shared_ptr<const AnimationPlayback> animation;
+        Math::Vec4 bend{0};
     };
     struct ParticleWorldCollider {
         static constexpr uint32_t MAX_COLLIDERS = 64;

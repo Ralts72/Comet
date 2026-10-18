@@ -1,5 +1,6 @@
 #include "render/passes/volumetric_fog_pass.h"
 #include "render/material/material_renderer.h"
+#include "render/passes/gpu_mesh_visibility.h"
 #include "pbr_oit_frag.h"
 #include "unlit_oit_frag.h"
 #include "pbr_gbuffer_frag.h"
@@ -803,7 +804,8 @@ namespace Comet {
                    frustum ? &*frustum : nullptr, matrices.view);
                 !queue)
                 return queue;
-            if(auto instances = upload_instances(frames); !instances) {
+            if(auto instances = upload_instances(frames, matrices.projection * matrices.view);
+                !instances) {
                 m_draw_queue.clear();
                 return instances;
             }
@@ -841,7 +843,8 @@ namespace Comet {
             DrawPhase::Weighted, &depth);
     }
 
-    Result<void, GraphicsError> MaterialRenderer::upload_instances(FrameScheduler& frames) {
+    Result<void, GraphicsError> MaterialRenderer::upload_instances(
+        FrameScheduler& frames, const Math::Mat4& clip) {
         auto& instances = m_instances.at(frames.get_current_frame_slot_index());
         auto uploaded = instances.upload(m_device, m_instance_transforms);
         if(!uploaded)
@@ -849,6 +852,23 @@ namespace Comet {
         m_statistics.instance_upload_bytes = uploaded.value();
         if(!m_instance_transforms.empty()) {
             frames.retain_current_frame_resource(instances.get_buffer());
+        }
+        std::vector<GpuMeshVisibility::Batch> batches;
+        for(auto& draw : m_draw_queue) {
+            draw.gpu_command = UINT32_MAX;
+            if(draw.instance_count < GPU_CULL_MIN_INSTANCES || !can_cull(draw.item->material))
+                continue;
+            draw.gpu_command = uint32_t(batches.size());
+            batches.push_back({draw.item->mesh->get_local_bounds(), draw.first_instance,
+                draw.instance_count, draw.item->mesh->element_count()});
+            m_statistics.gpu_candidate_instances += draw.instance_count;
+        }
+        if(!batches.empty()) {
+            if(!m_gpu_visibility)
+                m_gpu_visibility =
+                    std::make_shared<GpuMeshVisibility>(m_device, uint32_t(m_instances.size()));
+            return m_gpu_visibility->prepare(frames, clip, instances.get_buffer(), batches,
+                uint32_t(m_instance_transforms.size()));
         }
         return Result<void, GraphicsError>::success();
     }
@@ -915,7 +935,18 @@ namespace Comet {
                 command.push_constants(*pipeline->get_layout(),
                     Flags<ShaderStage>(ShaderStage::Vertex), 0, &push, sizeof(push));
             }
-            draw.item->mesh->draw(command, draw.instance_count, draw.first_instance);
+            if(draw.gpu_command != UINT32_MAX) {
+                command.bind_vertex_buffer({*m_gpu_visibility->instances(slot),
+                                               size_t(draw.first_instance) * sizeof(PushConstant)},
+                    1);
+                draw.item->mesh->draw_indirect(command, *m_gpu_visibility->commands(slot),
+                    size_t(draw.gpu_command) * sizeof(vk::DrawIndexedIndirectCommand));
+                ++m_statistics.gpu_indirect_draws;
+            } else {
+                if(instanced)
+                    m_instances.at(slot).bind(command);
+                draw.item->mesh->draw(command, draw.instance_count, draw.first_instance);
+            }
             ++m_statistics.draw_calls;
             if(phase == DrawPhase::GBuffer)
                 ++m_statistics.gbuffer_draw_calls;

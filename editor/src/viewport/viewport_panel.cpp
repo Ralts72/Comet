@@ -145,7 +145,7 @@ namespace CometEditor {
             render_gizmo_settings();
         }
         render_view_options();
-        if(m_path_trace && !is_playing) {
+        if(m_path_trace) {
             toolbar_next(ImGui::CalcTextSize("路径追踪 4096/4096").x);
             if(m_path_trace_error.empty())
                 ImGui::TextDisabled(
@@ -347,15 +347,24 @@ namespace CometEditor {
         if(!begin_toolbar_menu("###View", "视图"))
             return;
         ImGui::SeparatorText("显示模式");
-        const bool editing = m_state.mode == EditorMode::Edit;
-        ImGui::BeginDisabled(!editing);
         ImGui::PushItemFlag(ImGuiItemFlags_AutoClosePopups, false);
-        if(ImGui::MenuItem("光栅###Raster", nullptr, !editing || !m_path_trace))
+        if(ImGui::MenuItem("跟随场景###Scene rendering", nullptr, !m_path_trace_override))
+            m_path_trace_override = false;
+        if(ImGui::MenuItem("光栅###Raster", nullptr, m_path_trace_override && !m_path_trace)) {
             m_path_trace = false;
-        if(ImGui::MenuItem("路径追踪###Path trace", nullptr, editing && m_path_trace))
+            m_path_trace_override = true;
+        }
+        if(ImGui::MenuItem(
+               "路径追踪###Path trace", nullptr, m_path_trace_override && m_path_trace)) {
             m_path_trace = true;
-        if(editing && m_path_trace) {
-            ImGui::TextDisabled("静态场景渐进预览 · 软件 BVH / Compute");
+            m_path_trace_override = true;
+        }
+        if(m_path_trace) {
+            ImGui::TextDisabled("静态累积／动态采样 · 软件 BVH / Compute");
+            const auto previous_settings = m_path_trace_settings;
+            ImGui::Checkbox(
+                "动态模式（每帧采样）###Dynamic tracing", &m_path_trace_settings.dynamic);
+            ImGui::Checkbox("GPU 时空降噪###Trace denoise", &m_path_trace_settings.denoise);
             int samples = int(m_path_trace_settings.samples);
             int bounces = int(m_path_trace_settings.bounces);
             int dimension = int(m_path_trace_settings.max_dimension);
@@ -366,8 +375,10 @@ namespace CometEditor {
             if(ImGui::SliderInt("最大反弹###Trace bounces", &bounces, 1, 8))
                 m_path_trace_settings.bounces = uint32_t(bounces);
             ImGui::SetNextItemWidth(140);
-            if(ImGui::SliderInt("最长边像素###Trace dimension", &dimension, 128, 1024))
+            if(ImGui::SliderInt("最长边像素###Trace dimension", &dimension, 128, 2048))
                 m_path_trace_settings.max_dimension = uint32_t(dimension);
+            if(m_path_trace_settings != previous_settings)
+                m_path_trace_override = true;
             if(ImGui::MenuItem("重新采样###Restart trace"))
                 m_path_trace_restart = true;
             if(ImGui::MenuItem("导出图像…###Export trace", nullptr, false,
@@ -377,9 +388,7 @@ namespace CometEditor {
                 ImGui::TextWrapped("%s\n当前显示光栅预览。", m_path_trace_error.c_str());
         }
         ImGui::PopItemFlag();
-        ImGui::EndDisabled();
-        if(!editing)
-            ImGui::TextDisabled("运行模式使用光栅渲染");
+
         if(m_game_ui_available) {
             ImGui::SeparatorText("项目界面");
             ImGui::PushItemFlag(ImGuiItemFlags_AutoClosePopups, false);

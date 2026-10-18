@@ -256,7 +256,7 @@ void main() {
     if(serial.x<birth.range.z) serial.y++;
     float age=max(0.0,birth.timing.x-float(local)*birth.timing.y);
     vec3 velocity=birth_velocity(birth,local,parameters);
-    vec3 position=birth.pose[3].xyz;
+    vec3 position=birth_position(birth,local,parameters);
     float elapsed=age;
     bool alive=true;
     low=0; high=history.x;

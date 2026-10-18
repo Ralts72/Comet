@@ -1,6 +1,7 @@
 #include "assets/system_text_editor.h"
 
 #include <string>
+#include "common/process.h"
 
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
@@ -9,29 +10,6 @@
 #include <string_view>
 
 namespace CometEditor::SystemTextEditor {
-    namespace {
-        std::wstring quote_argument(std::wstring_view argument) {
-            std::wstring quoted = L"\"";
-            size_t backslashes = 0;
-            for(const wchar_t character : argument) {
-                if(character == L'\\') {
-                    ++backslashes;
-                    continue;
-                }
-                if(character == L'"') {
-                    quoted.append(backslashes * 2 + 1, L'\\');
-                } else {
-                    quoted.append(backslashes, L'\\');
-                }
-                quoted.push_back(character);
-                backslashes = 0;
-            }
-            quoted.append(backslashes * 2, L'\\');
-            quoted.push_back(L'"');
-            return quoted;
-        }
-    }
-
     Comet::Result<void> open(const std::filesystem::path& path) {
         std::wstring directory(MAX_PATH, L'\0');
         UINT length = GetSystemDirectoryW(directory.data(), static_cast<UINT>(directory.size()));
@@ -43,7 +21,8 @@ namespace CometEditor::SystemTextEditor {
             return Comet::Result<void>::failure("Cannot locate the Windows system directory");
         directory.resize(length);
         const auto executable = std::filesystem::path(directory) / L"notepad.exe";
-        auto arguments = quote_argument(executable.native()) + L" " + quote_argument(path.native());
+        auto arguments = Comet::quote_windows_argument(executable.native()) + L" "
+                         + Comet::quote_windows_argument(path.native());
 
         STARTUPINFOW startup{};
         startup.cb = sizeof(startup);

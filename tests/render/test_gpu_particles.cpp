@@ -1,5 +1,6 @@
 #include "support/render_graph_gpu_fixture.h"
 #include "render/passes/gpu_particle_simulation.h"
+#include "render/passes/gpu_mesh_visibility.h"
 #include "render/material/material_programs.h"
 
 namespace Comet::Tests {
@@ -120,4 +121,47 @@ namespace Comet::Tests {
             }
         }
     }
+    TEST_F(RenderGraphGpuTest, GpuMeshVisibilityCompactsPerBatchAndPublishesIndirectCounts) {
+        auto& context = engine->get_renderer().get_render_context();
+        auto& device = context.get_device();
+        GpuMeshVisibility visibility(device, 2);
+        FrameScheduler frames(device, 2);
+        frames.initialize_swapchain_images(2);
+        FrameWait wait{device, frames};
+        std::vector<PushConstant> source;
+        for(int i = 0; i < 512; ++i)
+            source.push_back(
+                {Math::translate(Math::Mat4(1), {float(i % 8) - 4, 0, -2}), {0, 0, 0, 0}});
+        auto buffer =
+            Buffer::try_create_cpu_buffer(device, Flags<BufferUsage>(BufferUsage::Storage),
+                source.size() * sizeof(PushConstant), true, source.data());
+        ASSERT_TRUE(buffer);
+        const auto clip = Math::ortho(-1, 1, -1, 1, .1f, 10);
+        const GpuMeshVisibility::Batch batch{{{-.1f, -.1f, -.1f}, {.1f, .1f, .1f}}, 0, 512, 36};
+        for(int frame = 0; frame < 5; ++frame) {
+            begin_frame(frames);
+            auto prepared =
+                visibility.prepare(frames, clip, buffer.value(), std::span(&batch, 1), 512);
+            ASSERT_TRUE(prepared) << prepared.error();
+            auto readback =
+                std::make_shared<Readback>(device, context.get_context().get_physical_device(), 20);
+            const auto command = frames.get_current_command_buffer().get();
+            const vk::MemoryBarrier readable(
+                vk::AccessFlagBits::eShaderWrite, vk::AccessFlagBits::eTransferRead);
+            command.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
+                vk::PipelineStageFlagBits::eTransfer, {}, readable, {}, {});
+            command.copyBuffer(visibility.commands(frames.get_current_frame_slot_index())->get(),
+                readback->get(), vk::BufferCopy(0, 0, 20));
+            frames.retain_current_frame_resource(readback);
+            submit(device, frames, {});
+            frames.wait_for_all_slots();
+            const auto bytes = readback->read();
+            vk::DrawIndexedIndirectCommand draw;
+            std::memcpy(&draw, bytes.data(), 20);
+            EXPECT_EQ(draw.indexCount, 36u);
+            EXPECT_EQ(draw.instanceCount, 192u);
+            EXPECT_EQ(draw.firstInstance, 0u);
+        }
+    }
+
 }

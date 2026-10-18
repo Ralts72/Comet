@@ -80,7 +80,7 @@ namespace CometEditor::Tests {
         EXPECT_GT(viewport.get_layout().image_visible_rect.size().y, 0);
         activate_play_camera();
         choose("光栅###Raster");
-        EXPECT_TRUE(viewport.path_trace_enabled());
+        EXPECT_FALSE(viewport.path_trace_enabled());
         EXPECT_FALSE(viewport.take_play_command());
         ASSERT_TRUE(runtime.stop());
         state.mode = EditorMode::Edit;
@@ -88,6 +88,14 @@ namespace CometEditor::Tests {
         choose("光栅###Raster");
         EXPECT_FALSE(viewport.path_trace_enabled());
         EXPECT_EQ(history.undo_size(), 0u);
+        Comet::PathTraceSettings scene_settings;
+        scene_settings.enabled = true;
+        viewport.follow_scene_path_trace(scene_settings);
+        EXPECT_FALSE(viewport.path_trace_enabled()); // 显式光栅优先。
+        choose("跟随场景###Scene rendering");
+        viewport.follow_scene_path_trace(scene_settings);
+        EXPECT_TRUE(viewport.path_trace_enabled());
+        EXPECT_FALSE(viewport.path_trace_override());
     }
 
     TEST_F(ViewportPlayUiTest, PhysicsTogglesAreIndependentAndSurviveModeChangesWithoutProjectUi) {

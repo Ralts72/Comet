@@ -1,3 +1,4 @@
+#include "support/demo_project.h"
 #include "animation/animation_data.h"
 #include "animation/animation_system.h"
 #include "gameplay/character_animation.h"
@@ -134,13 +135,18 @@ namespace Comet::Tests {
         const auto root = std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY).parent_path();
         const auto mesh = MeshImporter{}.import(root / "engine/resources/characters/default.glb");
         ASSERT_TRUE(mesh) << mesh.error();
-        auto scene = SceneSerializer(create_scene_component_registry())
-                         .load((root / "demo/assets/scenes/motion_warp.scene").string());
+        auto scene = load_demo_scene(create_scene_component_registry(), "scenes/motion_warp.scene");
         ASSERT_TRUE(scene) << scene.error();
+        auto definition =
+            AnimationControllerSerializer{}.load(root / "demo/assets/animations/character.ani");
+        ASSERT_TRUE(definition) << definition.error();
+        const auto controller =
+            std::make_shared<AnimationController>(std::move(definition).value());
         PhysicsService physics;
         SceneRuntime runtime;
         ASSERT_TRUE(runtime.set_services({.physics = &physics}));
-        ASSERT_TRUE(runtime.add_system(root_system(mesh.value().animation)));
+        ASSERT_TRUE(runtime.add_system(
+            root_system(mesh.value().animation, [controller](AssetHandle) { return controller; })));
         ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         ASSERT_TRUE(runtime.start(*scene.value()));
         for(int i = 0; i < 120; ++i) {
@@ -424,8 +430,7 @@ namespace Comet::Tests {
         auto pose = sample_animation(clips.value(), &frame);
         ASSERT_TRUE(pose) << pose.error();
         const auto components = create_scene_component_registry();
-        auto scene =
-            SceneSerializer(components).load((assets / "scenes/root_motion.scene").string());
+        auto scene = load_demo_scene(components, "scenes/root_motion.scene");
         ASSERT_TRUE(scene) << scene.error();
         auto loaded_controller =
             AnimationControllerSerializer{}.load(assets / "animations/root_motion.ani");

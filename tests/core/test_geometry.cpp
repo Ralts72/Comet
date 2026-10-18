@@ -171,4 +171,36 @@ namespace Comet::Tests {
         EXPECT_FALSE(
             BoundingBox::from_point(Math::Vec3(std::numeric_limits<float>::infinity())).is_valid());
     }
+    TEST(SpatialIndexTest, RefitAndStructuralEditsMatchLinearCullingAndKeepUnboundedSlots) {
+        std::vector<std::optional<BoundingBox>> bounds;
+        for(int i = 0; i < 4096; ++i) {
+            const Math::Vec3 center(float(i % 64) * 4 - 128, 0, -float(i / 64) * 4 - 1);
+            bounds.push_back(BoundingBox{center - Math::Vec3(.4f), center + Math::Vec3(.4f)});
+        }
+        bounds.push_back(std::nullopt);
+        SpatialIndex index;
+        const auto frustum = Frustum::from_view_projection(Math::ortho(-8, 8, -8, 8, .1f, 30));
+        ASSERT_TRUE(frustum);
+        for(int edit = 0; edit < 4; ++edit) {
+            if(edit == 1)
+                bounds[32] = BoundingBox{{-.5f, -.5f, -3}, {.5f, .5f, -2}};
+            if(edit == 2)
+                bounds.erase(bounds.begin() + 17);
+            if(edit == 3)
+                bounds[32].reset();
+            index.update(bounds);
+            std::vector<uint32_t> actual, expected;
+            const auto tests = index.query(*frustum, actual);
+            for(uint32_t i = 0; i < bounds.size(); ++i)
+                if(!bounds[i] || frustum->intersects(*bounds[i]))
+                    expected.push_back(i);
+            EXPECT_EQ(actual, expected);
+            EXPECT_LT(tests, bounds.size() / 2);
+        }
+        index.clear();
+        std::vector<uint32_t> empty;
+        EXPECT_EQ(index.query(*frustum, empty), 0u);
+        EXPECT_TRUE(empty.empty());
+    }
+
 }

@@ -4,7 +4,66 @@
 #include <algorithm>
 
 namespace Comet {
+    bool ParticleEmitterComponent::requires_restart(
+        const ParticleEmitterComponent& previous) const {
+        if(simulation != previous.simulation)
+            return true;
+        if(simulation == ParticleSimulation::CPU)
+            return false;
+        auto comparable = previous;
+        comparable.enabled = enabled;
+        comparable.rate = rate;
+        if(gpu_dynamics && previous.gpu_dynamics) {
+            comparable.wind = wind;
+            comparable.acceleration = acceleration;
+        }
+        return comparable != *this;
+    }
+    ParticleEmitterComponent ParticleEmitterComponent::preset(ParticlePreset kind) {
+        ParticleEmitterComponent result;
+        result.simulation = ParticleSimulation::GPU;
+        result.gpu_dynamics = true;
+        result.capacity = 8192;
+        result.soft_distance = .2f;
+        if(kind == ParticlePreset::Sparks) {
+            result.rate = 800;
+            result.lifetime = 1.2f;
+            result.speed = 8;
+            result.acceleration = {0, -9.8f, 0};
+            result.collision = ParticleCollision::Bounce;
+        } else if(kind == ParticlePreset::Smoke) {
+            result.rate = 80;
+            result.lifetime = 5;
+            result.speed = .6f;
+            result.acceleration = {0, .15f, 0};
+            result.turbulence = .3f;
+            result.start_color = {.25f, .25f, .25f, .3f};
+            result.end_color = {.5f, .5f, .5f, 0};
+            result.start_size = .3f;
+            result.end_size = 2;
+            result.blend = ParticleBlend::Alpha;
+        } else {
+            const bool rain = kind == ParticlePreset::Rain;
+            result.spawn_extents = {12, .5f, 12};
+            result.rate = rain ? 2000 : 500;
+            result.lifetime = rain ? 2 : 8;
+            result.speed = 0;
+            result.acceleration = rain ? Math::Vec3(0, -20, 0) : Math::Vec3(0, -.6f, 0);
+            result.turbulence = rain ? 0 : .5f;
+            result.start_color = rain ? Math::Vec4(.6f, .75f, 1, .7f) : Math::Vec4(1);
+            result.end_color = result.start_color;
+            result.end_color.w = 0;
+            result.start_size = rain ? .025f : .08f;
+            result.end_size = result.start_size;
+            result.blend = ParticleBlend::Alpha;
+            result.collision = ParticleCollision::Kill;
+        }
+        return result;
+    }
     Result<void> ParticleEmitterComponent::validate() const {
+        if(!Math::is_finite(spawn_extents) || Math::any_less(spawn_extents, Math::Vec3(0))
+            || Math::any_greater(spawn_extents, Math::Vec3(10000)))
+            return Result<void>::failure("粒子发射范围须为 0～10000 米");
         if(blend != ParticleBlend::Additive && blend != ParticleBlend::Alpha)
             return Result<void>::failure("Invalid particle blend mode");
         if(simulation != ParticleSimulation::CPU && simulation != ParticleSimulation::GPU)

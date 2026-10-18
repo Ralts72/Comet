@@ -1,0 +1,246 @@
+{
+  "version": 2,
+  "entities": [
+    {
+      "uuid": "4c2e9a48-6dc8-504b-bd43-cacfb397bfad",
+      "components": {
+        "name": "地形单元 4",
+        "transform": {
+          "translation": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      },
+      "children": [
+        {
+          "uuid": "f02e8afb-a804-5254-8905-a02df2dc3d31",
+          "components": {
+            "name": "地形块 32/32",
+            "transform": {
+              "translation": [
+                -16,
+                0,
+                -16
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "mesh_renderer": {
+              "mesh": 16010326088359380694,
+              "material": 4773159269961137638
+            },
+            "mesh_lod": {
+              "level1": 11959657027235177416,
+              "level2": 15214034754356632191
+            },
+            "rigid_body": {
+              "motion": "static",
+              "mass_mode": "mass",
+              "mass": 1,
+              "density": 1000,
+              "continuous_collision": false
+            },
+            "collider": {
+              "shape": "triangle_mesh",
+              "mesh": 16010326088359380694,
+              "collision_layer": 1,
+              "collision_mask": 4294967295,
+              "half_extents": [
+                0.5,
+                0.5,
+                0.5
+              ],
+              "radius": 0.5,
+              "height": 2,
+              "is_trigger": false,
+              "friction": 0.2,
+              "restitution": 0
+            }
+          }
+        },
+        {
+          "uuid": "99bc96c9-e72e-5d4d-a023-90881f935f8a",
+          "components": {
+            "name": "地形块 32/48",
+            "transform": {
+              "translation": [
+                -16,
+                0,
+                -16
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "mesh_renderer": {
+              "mesh": 1897380142941380393,
+              "material": 4773159269961137638
+            },
+            "mesh_lod": {
+              "level1": 11247007391260040867,
+              "level2": 8902744154809198779
+            },
+            "rigid_body": {
+              "motion": "static",
+              "mass_mode": "mass",
+              "mass": 1,
+              "density": 1000,
+              "continuous_collision": false
+            },
+            "collider": {
+              "shape": "triangle_mesh",
+              "mesh": 1897380142941380393,
+              "collision_layer": 1,
+              "collision_mask": 4294967295,
+              "half_extents": [
+                0.5,
+                0.5,
+                0.5
+              ],
+              "radius": 0.5,
+              "height": 2,
+              "is_trigger": false,
+              "friction": 0.2,
+              "restitution": 0
+            }
+          }
+        },
+        {
+          "uuid": "9884f482-8c69-59a6-9198-60672192f668",
+          "components": {
+            "name": "地形块 48/32",
+            "transform": {
+              "translation": [
+                -16,
+                0,
+                -16
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "mesh_renderer": {
+              "mesh": 4984341064819268625,
+              "material": 4773159269961137638
+            },
+            "mesh_lod": {
+              "level1": 1894877869366396064,
+              "level2": 11102096594845639568
+            },
+            "rigid_body": {
+              "motion": "static",
+              "mass_mode": "mass",
+              "mass": 1,
+              "density": 1000,
+              "continuous_collision": false
+            },
+            "collider": {
+              "shape": "triangle_mesh",
+              "mesh": 4984341064819268625,
+              "collision_layer": 1,
+              "collision_mask": 4294967295,
+              "half_extents": [
+                0.5,
+                0.5,
+                0.5
+              ],
+              "radius": 0.5,
+              "height": 2,
+              "is_trigger": false,
+              "friction": 0.2,
+              "restitution": 0
+            }
+          }
+        },
+        {
+          "uuid": "ea1c599b-bac3-5eb7-b46f-ef4a9c6f2b87",
+          "components": {
+            "name": "地形块 48/48",
+            "transform": {
+              "translation": [
+                -16,
+                0,
+                -16
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "mesh_renderer": {
+              "mesh": 12077734239783368849,
+              "material": 4773159269961137638
+            },
+            "mesh_lod": {
+              "level1": 3376067917267724107,
+              "level2": 9525283294882200890
+            },
+            "rigid_body": {
+              "motion": "static",
+              "mass_mode": "mass",
+              "mass": 1,
+              "density": 1000,
+              "continuous_collision": false
+            },
+            "collider": {
+              "shape": "triangle_mesh",
+              "mesh": 12077734239783368849,
+              "collision_layer": 1,
+              "collision_mask": 4294967295,
+              "half_extents": [
+                0.5,
+                0.5,
+                0.5
+              ],
+              "radius": 0.5,
+              "height": 2,
+              "is_trigger": false,
+              "friction": 0.2,
+              "restitution": 0
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

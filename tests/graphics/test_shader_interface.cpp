@@ -162,8 +162,8 @@ namespace Comet::Tests {
         const auto& parameters = *parameter_binding;
         EXPECT_EQ(parameters.set, 1u);
         EXPECT_EQ(parameters.binding, 0u);
-        EXPECT_EQ(parameters.block_size, 64u);
-        ASSERT_EQ(parameters.members.size(), 9u);
+        EXPECT_EQ(parameters.block_size, 96u);
+        ASSERT_EQ(parameters.members.size(), 12u);
         EXPECT_EQ(parameters.members[0].name, "base_color");
         EXPECT_EQ(parameters.members[0].offset, 0u);
         EXPECT_EQ(parameters.members[0].format, Format::R32G32B32A32_SFLOAT);

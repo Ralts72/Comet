@@ -23,6 +23,39 @@
         <button id="course-continue" data-event-click="command('course_continue')">继续存档</button>
         <div class="hint">收集后自动保存；继续时从保存关卡起点出发，保留收集进度。</div>
     </div>
+    <div id="tour-guide" data-if="tour_visible">
+        <div class="eyebrow">COMET · {{ tour_section }}</div>
+        <div class="tour-progress">{{ tour_progress }}</div>
+        <h1>{{ tour_title }}</h1>
+        <div>{{ tour_description }}</div>
+        <div class="tour-task">体验目标：{{ tour_task }}</div>
+        <div class="tour-task" data-if="tour_collection">{{ character_status }}</div>
+        <div class="tour-complete" data-if="tour_done">本关体验已完成</div>
+        <button id="tour-complete" data-if="!tour_done" data-event-click="command('tour_complete')">标记体验完成</button>
+        <button id="tour-reference" data-if="tour_has_reference" data-event-click="command('tour_reference')">{{ tour_reference_label }}</button>
+        <button id="tour-deferred" data-if="tour_needs_deferred" data-event-click="command('tour_deferred')">启用 Deferred（本关反射需要）</button>
+    </div>
+    <div id="tour-actions" data-if="tour_actions">
+        <button id="tour-previous" data-event-click="command('tour_previous')">上一关</button>
+        <button id="tour-next" data-event-click="command('tour_next')">下一关</button>
+        <button id="tour-open" data-event-click="command('tour_menu')">章节 / F2</button>
+        <div class="tour-controls">WASD 移动 · 空格 跳跃 · Shift 跑步 · 右键转向 · 滚轮缩放 · R 重开</div>
+        <div class="tour-controls">PageUp / PageDown 切关 · V 参考镜头 · 完成标记由你确认体验结果</div>
+    </div>
+    <div id="tour-menu" style="display: none;">
+        <div id="tour-panel">
+            <div class="eyebrow">COMET · 探索旅程</div>
+            <h1>选择下一站</h1>
+            <p>{{ tour_progress }}</p>
+            <div id="tour-chapters"></div>
+            <div class="tour-footer">
+                <button id="tour-save" data-event-click="command('tour_save')">保存旅程</button>
+                <button id="tour-continue" data-event-click="command('tour_continue')">继续存档</button>
+                <button id="tour-close" class="primary" data-event-click="command('tour_close')">返回游戏 / Esc</button>
+                <p class="hint">{{ tour_save_status }}</p>
+            </div>
+        </div>
+    </div>
     <div id="hud">
         <span id="fps">{{ fps_text }}</span>
         <button id="settings" data-event-click="command('open')" data-attrif-disabled="!menu_available"><img class="icon" src="comet://ui/icons/settings.png" />设置 / F1</button>

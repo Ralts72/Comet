@@ -528,6 +528,13 @@ namespace Comet::Tests {
         std::filesystem::create_directories(source.root());
         std::filesystem::copy(
             demo / "assets", source.assets(), std::filesystem::copy_options::recursive);
+        // 和干净检出一样，不借用开发机额外下载的环境图。
+        for(const auto size : {1, 2, 4, 8}) {
+            const auto optional = source.assets() / "environments"
+                                  / ("small_hangar_01_" + std::to_string(size) + "k.hdr");
+            std::filesystem::remove(optional);
+            std::filesystem::remove(metadata_path(optional));
+        }
         std::filesystem::copy_file(demo / "project.json", source.root() / "project.json");
         auto project = Project::load(source.root());
         ASSERT_TRUE(project) << project.error();
@@ -537,6 +544,9 @@ namespace Comet::Tests {
             "scenes/character_second.scene", "scenes/terrain.scene"};
         const auto exported = export_project_assets(project.value(), target, scenes);
         ASSERT_TRUE(exported) << exported.error();
+        for(const auto& required : project.value().included_scenes())
+            EXPECT_TRUE(std::filesystem::is_regular_file(target / "assets" / required))
+                << required.string();
         const auto components = create_scene_component_registry();
         const SceneSerializer serializer(components);
         AssetDatabase source_database(source);

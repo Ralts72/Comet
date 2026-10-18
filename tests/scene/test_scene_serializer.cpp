@@ -777,7 +777,20 @@ namespace Comet::Tests {
                 .strength = .7f,
                 .max_distance = 18,
                 .thickness = .2f,
-                .max_roughness = .8f}};
+                .max_roughness = .8f},
+            .lens = {.depth_of_field = true,
+                .focus_distance = 12,
+                .focus_range = 3,
+                .aperture = 8,
+                .motion_blur = true,
+                .shutter = .4f,
+                .max_blur = 32},
+            .path_trace = {.enabled = true,
+                .dynamic = true,
+                .denoise = true,
+                .medium_density = .1f,
+                .medium_color = {.9f, .8f, .7f},
+                .medium_anisotropy = .3f}};
         ASSERT_TRUE(scene.set_post_process(settings));
         scene.create_entity("Camera").add_component<CameraComponent>(
             CameraComponent{.primary = true});
@@ -817,6 +830,13 @@ namespace Comet::Tests {
         EXPECT_FALSE(scene.get_post_process().uses_bloom());
         EXPECT_FALSE(scene.get_post_process().uses_ao());
         EXPECT_FALSE(scene.get_post_process().uses_reflections());
+        EXPECT_FALSE(scene.get_post_process().uses_lens());
+        for(auto field : {&LensSettings::focus_distance, &LensSettings::focus_range,
+                &LensSettings::aperture, &LensSettings::shutter, &LensSettings::max_blur}) {
+            auto value = scene.get_post_process();
+            value.lens.*field = std::numeric_limits<float>::quiet_NaN();
+            EXPECT_FALSE(scene.set_post_process(value));
+        }
         for(const auto field :
             {&ScreenSpaceReflectionSettings::strength, &ScreenSpaceReflectionSettings::max_distance,
                 &ScreenSpaceReflectionSettings::thickness,

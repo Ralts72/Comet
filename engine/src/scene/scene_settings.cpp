@@ -1,6 +1,7 @@
 #include "scene/scene_settings.h"
 
 #include <cmath>
+#include <algorithm>
 
 namespace Comet {
     Result<void> VolumetricFogSettings::validate() const {
@@ -17,6 +18,8 @@ namespace Comet {
     }
 
     Result<void> SceneEnvironment::validate() const {
+        if(!Math::is_finite(wind) || Math::length(wind) > 100)
+            return Result<void>::failure("World wind must be finite and <= 100 m/s");
         if(!realtime_gi_budget || realtime_gi_budget > 16384)
             return Result<void>::failure("实时 GI 总预算须为 1～16384 个探针");
         if(auto valid = volumetric_fog.validate(); !valid)
@@ -55,7 +58,41 @@ namespace Comet {
         return Result<void>::success();
     }
 
+    Result<void> LensSettings::validate() const {
+        if(!std::isfinite(focus_distance) || focus_distance < .01f || focus_distance > 100000
+            || !std::isfinite(focus_range) || focus_range < .01f || focus_range > 100000
+            || !std::isfinite(aperture) || aperture < 0 || aperture > 32 || !std::isfinite(shutter)
+            || shutter < 0 || shutter > 1 || !std::isfinite(max_blur) || max_blur < 0
+            || max_blur > 64)
+            return Result<void>::failure("Invalid lens focus, aperture or shutter settings");
+        return Result<void>::success();
+    }
+
+    Result<void> PathTraceSettings::validate() const {
+        if(samples == 0 || samples > 4096 || bounces == 0 || bounces > 8 || max_dimension < 32
+            || max_dimension > 2048)
+            return Result<void>::failure(
+                "路径追踪参数超出范围（采样 1～4096，反弹 1～8，尺寸 32～2048）");
+        if(!std::isfinite(history_weight) || history_weight < 0 || history_weight > .98f
+            || !std::isfinite(medium_density) || medium_density < 0 || medium_density > 2
+            || !Math::is_finite(medium_color) || Math::any_less(medium_color, Math::Vec3(0))
+            || Math::any_greater(medium_color, Math::Vec3(1)) || !std::isfinite(medium_anisotropy)
+            || std::abs(medium_anisotropy) > .9f)
+            return Result<void>::failure("Invalid path trace history or participating medium");
+        return Result<void>::success();
+    }
+
+    Math::Vec2u PathTraceSettings::image_size(Math::Vec2u output) const {
+        const float scale =
+            std::min(1.f, float(max_dimension) / std::max({output.x, output.y, 1u}));
+        return {std::max(1u, uint32_t(output.x * scale)), std::max(1u, uint32_t(output.y * scale))};
+    }
+
     Result<void> PostProcessSettings::validate() const {
+        if(auto valid = path_trace.validate(); !valid)
+            return valid;
+        if(auto valid = lens.validate(); !valid)
+            return valid;
         if(auto valid = reflections.validate(); !valid)
             return valid;
         if(!std::isfinite(ao_radius) || ao_radius < 0.01f || ao_radius > 10)

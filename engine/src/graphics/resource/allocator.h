@@ -28,16 +28,19 @@ namespace Comet {
         Allocation& operator=(const Allocation&) = delete;
 
         Allocation(Allocation&& other) noexcept
-            : m_handle(std::exchange(other.m_handle, VK_NULL_HANDLE)) {}
+            : m_handle(std::exchange(other.m_handle, VK_NULL_HANDLE)),
+              m_bytes(std::exchange(other.m_bytes, 0)) {}
 
         Allocation& operator=(Allocation&& other) noexcept;
 
+        [[nodiscard]] uint64_t bytes() const { return m_bytes; }
         [[nodiscard]] explicit operator bool() const noexcept { return m_handle != VK_NULL_HANDLE; }
 
     private:
         friend class Allocator;
 
         VmaAllocation m_handle = VK_NULL_HANDLE;
+        uint64_t m_bytes = 0;
     };
 
     class COMET_API Allocator final {

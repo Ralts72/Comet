@@ -52,9 +52,9 @@ namespace Comet::Tests {
         ASSERT_EQ(bloom.value().get_push_constants().size(), 1u);
         ASSERT_EQ(display.value().get_push_constants().size(), 1u);
         EXPECT_EQ(bloom.value().get_push_constants()[0].size, 8u);
-        EXPECT_EQ(display.value().get_push_constants()[0].size, 24u);
+        EXPECT_EQ(display.value().get_push_constants()[0].size, 80u);
         EXPECT_EQ(bloom.value().get_bindings().size(), 1u);
-        EXPECT_EQ(display.value().get_bindings().size(), 2u);
+        EXPECT_EQ(display.value().get_bindings().size(), 4u);
     }
 
     class BloomGpuTest: public RenderGpuTest {
@@ -438,9 +438,12 @@ namespace Comet::Tests {
         frames.initialize_swapchain_images(2);
         FrameWait wait{device, frames};
         std::vector<std::shared_ptr<Readback>> outputs;
-        const std::array settings{PostProcessSettings{1, true, 0.5f, 1},
+        std::array settings{PostProcessSettings{1, true, 0.5f, 1},
             PostProcessSettings{1, false, 0.5f, 1}, PostProcessSettings{0.25f, true, 1, 0},
             PostProcessSettings{1, true, 1, 65504}};
+        settings[1].lens.depth_of_field = true;
+        settings[2].lens.motion_blur = true;
+        settings[3].lens = {.depth_of_field = true, .motion_blur = true};
         const std::array sizes{
             Math::Vec2u(17, 9), Math::Vec2u(33, 25), Math::Vec2u(33, 25), Math::Vec2u(1, 1)};
         const std::array colors{Math::Vec3(4, 2, 0.5f), Math::Vec3(0.1f, 0.2f, 0.3f),

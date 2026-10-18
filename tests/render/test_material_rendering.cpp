@@ -256,6 +256,43 @@ namespace Comet::Tests {
         }
     }
 
+    TEST_F(MaterialRenderingTest, SmallBatchesKeepCpuCullingWhenLargeScenesUseGpuVisibility) {
+        constexpr AssetHandle mesh_handle{9180};
+        auto& assets = engine->get_asset_registry();
+        const auto mesh = engine->get_render_resources().try_create_mesh(
+            {.vertices = {{{-.5f, -.5f, -2}}, {{.5f, -.5f, -2}}, {{0, .5f, -2}}},
+                .indices = {0, 1, 2}});
+        ASSERT_TRUE(mesh);
+        ASSERT_TRUE(assets.register_asset(mesh_handle, mesh.value()));
+        for(uint64_t i = 0; i < 4; ++i)
+            ASSERT_TRUE(assets.register_asset(
+                AssetHandle(9181 + i), std::make_shared<Material>("batch", "unlit_color")));
+        RenderScene scene;
+        scene.cameras.push_back({.primary = true});
+        for(uint32_t i = 0; i < 256; ++i)
+            scene.render_items.push_back(
+                {.model_matrix = Math::translate(Math::Mat4(1), {i ? 20.f : 0.f, 0, 0}),
+                    .mesh_handle = mesh_handle,
+                    .material_handle = AssetHandle(9181 + i % 4)});
+        ASSERT_TRUE(draw(scene));
+        auto statistics = engine->get_renderer().get_scene_renderer().get_material_statistics();
+        EXPECT_EQ(statistics.culled_items, 255u);
+        EXPECT_EQ(statistics.drawn_instances, 1u);
+        EXPECT_EQ(statistics.gpu_candidate_instances, 0u);
+        for(auto& item : scene.render_items)
+            item.material_handle = AssetHandle(9181);
+        ASSERT_TRUE(draw(scene));
+        statistics = engine->get_renderer().get_scene_renderer().get_material_statistics();
+        EXPECT_EQ(statistics.gpu_candidate_instances, 256u);
+        EXPECT_EQ(statistics.gpu_indirect_draws, 1u);
+        scene.render_items.resize(96);
+        ASSERT_TRUE(draw(scene));
+        statistics = engine->get_renderer().get_scene_renderer().get_material_statistics();
+        EXPECT_EQ(statistics.culled_items, 95u);
+        EXPECT_EQ(statistics.drawn_instances, 1u);
+        EXPECT_EQ(statistics.gpu_candidate_instances, 0u);
+    }
+
     TEST_F(MaterialRenderingTest, CullingKeepsResidentMaterialsAndUsesReloadedMeshBounds) {
         constexpr AssetHandle visible_mesh(9190), hidden_mesh(9191);
         constexpr AssetHandle visible_material(9192), hidden_material(9193);
@@ -1586,8 +1623,9 @@ namespace Comet::Tests {
                         EXPECT_EQ(layout, MaterialLayout::find_builtin(layout->get_name()));
                         continue;
                     }
-                    EXPECT_EQ(
-                        layout->get_parameter_size(), layout->get_name() == "pbr" ? 96u : 48u);
+                    EXPECT_EQ(layout->get_parameter_size(),
+                        MaterialLayout::find_builtin(layout->get_name())->get_parameter_size()
+                            + (layout->get_name() == "pbr" ? 32u : 16u));
                     if(layout->get_name() == "pbr") {
                         ASSERT_EQ(layout->get_textures().size(), 5u);
                         EXPECT_EQ(layout->get_textures()[0].name, "base_color_texture");
@@ -1709,7 +1747,9 @@ namespace Comet::Tests {
         ASSERT_TRUE(rebuilt) << rebuilt.error();
         for(const auto& layout : rebuilt.value()->get_material_layouts()) {
             if(layout->get_name() == "pbr" || layout->get_name() == "unlit_color")
-                EXPECT_EQ(layout->get_parameter_size(), layout->get_name() == "pbr" ? 96u : 48u);
+                EXPECT_EQ(layout->get_parameter_size(),
+                    MaterialLayout::find_builtin(layout->get_name())->get_parameter_size()
+                        + (layout->get_name() == "pbr" ? 32u : 16u));
             else
                 EXPECT_EQ(layout, MaterialLayout::find_builtin(layout->get_name()));
         }

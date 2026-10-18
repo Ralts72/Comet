@@ -62,6 +62,12 @@ namespace Comet {
         DrawOrder::sort_indices(m_material_order, items, [](const auto& a, const auto& b) {
             return DrawOrder::by_material(*a.source, *b.source);
         });
+        if(frustum) {
+            geometry.visible_indices(*frustum, m_visible_slots);
+            m_visibility.assign(items.size(), 0);
+            for(const auto slot : m_visible_slots)
+                m_visibility[slot] = 1;
+        }
         const MaterialBinding* previous_material = nullptr;
         bool cull = false;
         bool marked_hidden = false;
@@ -73,10 +79,15 @@ namespace Comet {
                     || !DrawOrder::same_material_input(*previous_material, item.material))) {
                 previous_material = &item.material;
                 cull = can_cull(item.material);
+                if(cull && items.size() >= 256) {
+                    const auto& pipeline = find_pipeline(*item.material.resource);
+                    if(pipeline && pipeline->instanced_pipeline
+                        && item.material.resource->get_surface().alpha_mode != AlphaMode::Blend)
+                        cull = false;
+                }
                 marked_hidden = false;
             }
-            if(frustum && cull && prepared.world_bounds
-                && !frustum->intersects(*prepared.world_bounds)) {
+            if(frustum && cull && !m_visibility[index]) {
                 ++m_statistics.culled_items;
                 if(!marked_hidden) {
                     const auto key = DrawOrder::material_key(item.material);
@@ -87,7 +98,8 @@ namespace Comet {
                 }
                 continue;
             }
-            candidates.push_back({prepared.source, DrawOrder::reverses_winding(item)});
+            candidates.push_back({prepared.source, DrawOrder::reverses_winding(item),
+                !frustum || m_visibility[index] != 0});
         }
     }
 
@@ -178,12 +190,27 @@ namespace Comet {
                       && items[end].mirrored == mirrored)
                     ++end;
             }
+            size_t visible_end = end;
+            if((!instanced || end - first < GPU_CULL_MIN_INSTANCES
+                   || material->prepared->surface.alpha_mode == AlphaMode::Blend)
+                && can_cull(items[first].item->material)) {
+                // 大场景仍可能拆成许多小批次；未走 GPU 的批次继续复用 CPU 可见结果。
+                const auto group = items.subspan(first, end - first);
+                const auto boundary = std::partition(group.begin(), group.end(),
+                    [](const auto& candidate) { return candidate.visible; });
+                visible_end = first + size_t(boundary - group.begin());
+                m_statistics.culled_items += uint32_t(end - visible_end);
+            }
+            if(visible_end == first) {
+                first = end;
+                continue;
+            }
             DrawItem draw{items[first].item, material};
             draw.mirrored = mirrored;
-            draw.instance_count = static_cast<uint32_t>(end - first);
+            draw.instance_count = static_cast<uint32_t>(visible_end - first);
             if(draw.instance_count > 1) {
                 draw.first_instance = static_cast<uint32_t>(m_instance_transforms.size());
-                for(size_t index = first; index < end; ++index)
+                for(size_t index = first; index < visible_end; ++index)
                     m_instance_transforms.push_back(
                         {items[index].item->model_matrix, items[index].item->vertex_bend});
             }

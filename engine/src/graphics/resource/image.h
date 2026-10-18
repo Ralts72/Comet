@@ -36,6 +36,7 @@ namespace Comet {
 
         static std::shared_ptr<Image> wrap(Device& device, vk::Image image, const ImageInfo& info);
 
+        [[nodiscard]] uint64_t allocation_bytes() const { return m_allocated_bytes; }
         [[nodiscard]] ImageInfo get_info() const { return m_info; }
         [[nodiscard]] Device& get_device() const { return m_device; }
         [[nodiscard]] vk::Image get() const { return m_image; }
@@ -46,6 +47,7 @@ namespace Comet {
         vk::Image m_image = VK_NULL_HANDLE;
         Device& m_device;
         ImageInfo m_info;
+        uint64_t m_allocated_bytes = 0;
     };
 
 }

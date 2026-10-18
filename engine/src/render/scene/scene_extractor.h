@@ -3,7 +3,6 @@
 #include "common/export.h"
 #include "common/version.h"
 #include "render/scene/render_scene.h"
-#include <entt.hpp>
 #include <memory>
 
 namespace Comet {
@@ -30,6 +29,6 @@ namespace Comet {
         VersionStamp<uint64_t> m_scene_version;
         bool m_matches_storage_order = false;
         std::vector<std::size_t> m_slots_by_entity;
-        std::vector<entt::entity> m_entities_by_slot;
+        std::vector<std::size_t> m_entity_indices_by_slot;
     };
 }

@@ -1,3 +1,4 @@
+#include "support/demo_project.h"
 #include "animation/animation_system.h"
 #include "asset/data/game_data.h"
 #include "asset/data/navigation_data.h"
@@ -75,7 +76,8 @@ namespace Comet::Tests {
             auto mesh = MeshImporter{}.import(
                 root.parent_path().parent_path() / "engine/resources/characters/default.glb");
             ASSERT_TRUE(mesh) << mesh.error();
-            auto loaded = serializer.load((root / "scenes/combat.scene").string());
+            ASSERT_TRUE(prepare_demo_journey(assets));
+            auto loaded = load_demo_scene(components, "scenes/combat.scene");
             ASSERT_TRUE(loaded) << loaded.error();
             authored = std::move(loaded).value();
             authored->each<const NavigationRegionComponent>([&](Entity, const auto& region) {

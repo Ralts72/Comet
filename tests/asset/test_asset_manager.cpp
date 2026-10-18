@@ -2,8 +2,67 @@
 #include "support/asset_manager_fixture.h"
 #include "asset/import/import_service.h"
 #include "scene/component_registry.h"
+#include "scene/prefab.h"
+#include "scene/scene_runtime.h"
+#include "gameplay/world_streaming.h"
 
 namespace Comet::Tests {
+    TEST(AssetManagerTest, StreamingCellReleasesExclusiveResourcesAfterLeavingItsDemand) {
+        const TemporaryProject project;
+        const AssetHandle mesh{41}, source{42};
+        project.add_mesh(mesh);
+        const auto components = create_scene_component_registry();
+        Scene content;
+        auto root = content.create_entity("streamed mesh");
+        root.add_component<MeshRendererComponent>(mesh, DEFAULT_PBR_MATERIAL);
+        const auto prefab = Prefab::capture(content, components, root);
+        ASSERT_TRUE(prefab);
+        const auto path = project.paths().assets() / "cell.prefab";
+        ASSERT_TRUE(prefab.value().save(path, components));
+        ASSERT_TRUE(MetadataSerializer{}.save(
+            {.handle = source, .type = AssetType::Prefab}, metadata_path(path)));
+        AssetRegistry registry;
+        FakeRenderResourceFactory factory;
+        TaskScheduler scheduler(1);
+        AssetManager manager(project.paths(), registry, factory, scheduler);
+        ASSERT_TRUE(manager.scan().succeeded());
+        Scene scene;
+        auto camera = scene.create_entity("camera");
+        camera.add_component<CameraComponent>();
+        scene.create_entity("marker").add_component<StreamCellComponent>(
+            StreamCellComponent{.prefab = source, .load_distance = 10, .unload_distance = 15});
+        auto streaming = std::make_unique<Gameplay::WorldStreamingSystem>(
+            Gameplay::WorldStreamingSystem::Sources{
+                .load = [sources = manager.scene_sources(components)](
+                            AssetHandle handle) { return sources(handle, AssetType::Prefab); },
+                .prepare = [&](Scene& cell) { return manager.prepare_scene(cell, components); },
+                .ready =
+                    [&](auto references) {
+                        return manager.references_ready(
+                            references, AssetManager::MissingAssetPolicy::FailRequired);
+                    }});
+        auto* demand = streaming.get();
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.add_system(std::move(streaming)));
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.advance(.01));
+        ASSERT_EQ(demand->statistics().active, 1u);
+        const auto submitted_mesh = registry.resolve<Mesh>(mesh);
+        ASSERT_TRUE(submitted_mesh);
+        EXPECT_EQ(manager.release_unused(demand->references()).registry_assets, 0u);
+        camera.edit_transform([](auto& transform) { transform.translation = {100, 0, 0}; });
+        ASSERT_TRUE(runtime.advance(.01));
+        EXPECT_TRUE(demand->references().empty());
+        const auto remaining = manager.collect_scene_references(
+            scene, components, AssetManager::MissingAssetPolicy::FailRequired);
+        ASSERT_TRUE(remaining);
+        static_cast<void>(manager.release_unused(remaining.value()));
+        EXPECT_FALSE(registry.contains(mesh));
+        EXPECT_FALSE(registry.contains(source));
+        EXPECT_TRUE(submitted_mesh); // 在途帧保活不受注册表需求释放影响。
+        ASSERT_TRUE(runtime.stop());
+    }
+
     TEST(AssetManagerTest,
         SuccessfulSceneDemandCommitReleasesPreviousSceneButFailedCandidateDoesNot) {
         const TemporaryProject project;

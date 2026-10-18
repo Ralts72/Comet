@@ -1,3 +1,4 @@
+#include "render/resource/texture.h"
 #include "render/resource/vector_field.h"
 #include "render/resource/resource_factory.h"
 #include "asset/data/texture_data.h"
@@ -26,4 +27,5 @@ namespace Comet {
         result->texture = std::move(uploaded).value();
         return Created::success(std::move(result));
     }
+
 }

@@ -63,12 +63,16 @@ end
 
 function script:next_level()
     if self.parameters.level == 1 and comet.session_get("character.finished") then
-        comet.load_scene("scenes/character_second.scene")
+        if comet.session_get("tour.active") then comet.emit("tour.next")
+        else comet.load_scene("scenes/character_second.scene") end
     end
 end
 
 function script:return_to_first()
-    if self.parameters.level == 2 then comet.load_scene("scenes/character.scene") end
+    if self.parameters.level == 2 then
+        if comet.session_get("tour.active") then comet.emit("tour.goto", 1)
+        else comet.load_scene("scenes/character.scene") end
+    end
 end
 
 function script:save_progress()

@@ -1,4 +1,5 @@
 #include "asset/project_prepare.h"
+#include "asset/runtime/prefab_loader.h"
 #include "scene/systems/audio_system.h"
 #include "scene/systems/physics_system.h"
 #include "core/engine.h"
@@ -71,8 +72,10 @@ namespace Comet::Tests {
             ASSERT_TRUE(imported) << imported.error();
         }
         const auto components = create_scene_component_registry();
+        AssetDatabase level_database(project.value().paths());
+        ASSERT_TRUE(level_database.scan().succeeded());
         auto loaded =
-            SceneSerializer(components)
+            SceneSerializer(components, project_scene_sources(level_database, components))
                 .load(
                     (project.value().paths().assets() / project.value().startup_scene()).string());
         ASSERT_TRUE(loaded) << loaded.error();

@@ -1,57 +1,120 @@
 {
-  "version": 2,
+  "version": 3,
   "environment": {
-    "asset": 11764928350182740632,
+    "asset": 6729301842000000104,
     "background": true,
     "intensity": 1,
     "rotation": 0,
     "lighting": true,
     "lighting_intensity": 1,
-    "background_color": [
-      0,
-      0,
-      0
-    ]
+    "background_color": [0, 0, 0],
+    "fog_enabled": false,
+    "fog_color": [0.5, 0.5, 0.5],
+    "fog_start": 10,
+    "fog_end": 100,
+    "realtime_gi_budget": 32
   },
   "post_process": {
     "exposure": 1,
     "bloom_enabled": true,
     "bloom_strength": 0.15,
-    "bloom_threshold": 1
+    "bloom_threshold": 1,
+    "ao_enabled": false,
+    "weighted_oit": false,
+    "ao_radius": 0.5,
+    "ao_strength": 1
   },
   "entities": [
+    {
+      "uuid": "3a3b6b9d-86f7-4a27-848d-96496676c62d",
+      "components": {
+        "name": "Hinge_Pendulum",
+        "transform": {
+          "translation": [-0.6, 0.65, 0.25],
+          "rotation": [0, 0, 35],
+          "scale": [0.2, 0.6, 0.2]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 6482638524486200214,
+          "contributes_to_gi": true
+        },
+        "rigid_body": {
+          "motion": "dynamic",
+          "mass_mode": "mass",
+          "mass": 1,
+          "density": 1000,
+          "continuous_collision": false
+        },
+        "collider": {
+          "shape": "box",
+          "mesh": 0,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
+          "half_extents": [0.5, 0.5, 0.5],
+          "radius": 0.5,
+          "height": 2,
+          "is_trigger": false,
+          "friction": 0.2,
+          "restitution": 0
+        },
+        "hinge_joint": {
+          "enabled": true,
+          "connected_body": {
+            "entity": "00000000-0000-0000-0000-000000000000"
+          },
+          "anchor": [0, 0.5, 0],
+          "connected_anchor": [-0.7720729, 0.89574564, 0.25],
+          "break_force": 0,
+          "break_torque": 0,
+          "axis": [0, 0, 1],
+          "connected_axis": [0, 0, 1],
+          "limits_enabled": true,
+          "reference_axis": [1, 0, 0],
+          "connected_reference_axis": [1, 0, 0],
+          "min_angle": -60,
+          "max_angle": 60,
+          "limits_frequency": 0,
+          "limits_damping": 1,
+          "motor_enabled": true,
+          "motor_mode": "position",
+          "motor_target": 0,
+          "motor_speed": 90,
+          "motor_max_torque": 10,
+          "motor_frequency": 2,
+          "motor_damping": 1
+        }
+      }
+    },
     {
       "uuid": "672cd0cc-501f-419e-af5e-a883a0cd3d01",
       "components": {
         "name": "Main Camera",
         "transform": {
-          "translation": [
-            0,
-            0,
-            3
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            1,
-            1,
-            1
-          ]
+          "translation": [0, 0, 3],
+          "rotation": [0, 0, 0],
+          "scale": [1, 1, 1]
         },
         "camera": {
-          "primary": true,
+          "primary": false,
+          "projection": "perspective",
           "fov": 45,
+          "orthographic_height": 10,
           "near_clip": 0.1,
           "far_clip": 1000
         },
         "camera_controller": {
-          "enabled": true,
+          "enabled": false,
+          "mode": "free",
           "move_speed": 3,
           "look_sensitivity": 0.2,
-          "look_speed": 120
+          "look_speed": 120,
+          "orbit_distance": 6,
+          "orbit_height": 1.2,
+          "orbit_min_distance": 1.5,
+          "orbit_max_distance": 12,
+          "orbit_zoom_step": 0.5,
+          "collision_radius": 0.15
         }
       }
     },
@@ -64,37 +127,33 @@
           "parameters": {}
         },
         "transform": {
-          "translation": [
-            0,
-            0,
-            -1
-          ],
-          "rotation": [
-            -20,
-            30,
-            0
-          ],
-          "scale": [
-            1,
-            1,
-            1
-          ]
+          "translation": [0, 0, -1],
+          "rotation": [-20, 30, 0],
+          "scale": [1, 1, 1]
         },
         "mesh_renderer": {
           "mesh": 7535385251553858160,
-          "material": 6482638524486200214
+          "material": 6482638524486200214,
+          "contributes_to_gi": true
         },
         "rigid_body": {
-          "motion": "static"
+          "motion": "static",
+          "mass_mode": "mass",
+          "mass": 1,
+          "density": 1000,
+          "continuous_collision": false
         },
         "collider": {
           "shape": "box",
-          "half_extents": [
-            0.5,
-            0.5,
-            0.5
-          ],
-          "radius": 0.5
+          "mesh": 0,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
+          "half_extents": [0.5, 0.5, 0.5],
+          "radius": 0.5,
+          "height": 2,
+          "is_trigger": false,
+          "friction": 0.2,
+          "restitution": 0
         }
       }
     },
@@ -103,31 +162,16 @@
       "components": {
         "name": "Key Light",
         "transform": {
-          "translation": [
-            0,
-            0,
-            0
-          ],
-          "rotation": [
-            -30,
-            -35,
-            0
-          ],
-          "scale": [
-            1,
-            1,
-            1
-          ]
+          "translation": [0, 0, 0],
+          "rotation": [-30, -35, 0],
+          "scale": [1, 1, 1]
         },
         "light": {
           "type": "directional",
           "enabled": true,
           "casts_shadow": true,
-          "color": [
-            1,
-            1,
-            1
-          ],
+          "shadow_distance": 100,
+          "color": [1, 1, 1],
           "intensity": 4,
           "range": 10,
           "inner_angle": 20,
@@ -140,37 +184,33 @@
       "components": {
         "name": "Ground",
         "transform": {
-          "translation": [
-            0,
-            -0.8,
-            0
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            4,
-            0.1,
-            4
-          ]
+          "translation": [0, -0.8, 0],
+          "rotation": [0, 0, 0],
+          "scale": [4, 0.1, 4]
         },
         "mesh_renderer": {
           "mesh": 7535385251553858160,
-          "material": 9429603817048603172
+          "material": 9429603817048603172,
+          "contributes_to_gi": true
         },
         "rigid_body": {
-          "motion": "static"
+          "motion": "static",
+          "mass_mode": "mass",
+          "mass": 1,
+          "density": 1000,
+          "continuous_collision": false
         },
         "collider": {
           "shape": "box",
-          "half_extents": [
-            0.5,
-            0.5,
-            0.5
-          ],
-          "radius": 0.5
+          "mesh": 0,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
+          "half_extents": [0.5, 0.5, 0.5],
+          "radius": 0.5,
+          "height": 2,
+          "is_trigger": false,
+          "friction": 0.2,
+          "restitution": 0
         }
       }
     },
@@ -183,37 +223,68 @@
           "parameters": {}
         },
         "transform": {
-          "translation": [
-            -0.7,
-            -0.56,
-            0.46558404
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            0.35,
-            0.35,
-            0.35
-          ]
+          "translation": [-0.7, -0.56, 0.46558404],
+          "rotation": [0, 0, 0],
+          "scale": [0.35, 0.35, 0.35]
         },
         "mesh_renderer": {
           "mesh": 7535385251553858160,
-          "material": 6482638524486200214
+          "material": 6482638524486200214,
+          "contributes_to_gi": true
         },
         "rigid_body": {
-          "motion": "kinematic"
+          "motion": "kinematic",
+          "mass_mode": "mass",
+          "mass": 1,
+          "density": 1000,
+          "continuous_collision": false
         },
         "collider": {
           "shape": "box",
-          "half_extents": [
-            0.5,
-            0.5,
-            0.5
-          ],
-          "radius": 0.5
+          "mesh": 0,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
+          "half_extents": [0.5, 0.5, 0.5],
+          "radius": 0.5,
+          "height": 2,
+          "is_trigger": false,
+          "friction": 0.2,
+          "restitution": 0
+        }
+      }
+    },
+    {
+      "uuid": "672cd0cc-501f-419e-af5e-a883a0cd3d06",
+      "components": {
+        "name": "Project Shader Cube",
+        "transform": {
+          "translation": [1, 0.1, 0],
+          "rotation": [0, 0, 0],
+          "scale": [0.55, 0.55, 0.55]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 1749083215601001004,
+          "contributes_to_gi": true
+        },
+        "rigid_body": {
+          "motion": "static",
+          "mass_mode": "mass",
+          "mass": 1,
+          "density": 1000,
+          "continuous_collision": false
+        },
+        "collider": {
+          "shape": "box",
+          "mesh": 0,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
+          "half_extents": [0.5, 0.5, 0.5],
+          "radius": 0.5,
+          "height": 2,
+          "is_trigger": false,
+          "friction": 0.2,
+          "restitution": 0
         }
       }
     },
@@ -221,23 +292,12 @@
       "uuid": "672cd0cc-501f-419e-af5e-a883a0cd3d07",
       "components": {
         "name": "Collectible_Goal",
-        "particle_emitter": {
-          "capacity": 64,
-          "seed": 7,
-          "rate": 0,
-          "lifetime": 0.8,
-          "speed": 3,
-          "spread": 65,
-          "acceleration": [0, -3, 0],
-          "start_color": [1, 0.75, 0.1, 1],
-          "end_color": [1, 0.15, 0, 0],
-          "start_size": 0.2,
-          "end_size": 0.02
-        },
         "script": {
           "asset": 14309634625000312002,
           "parameters": {
-            "player": {"entity": "672cd0cc-501f-419e-af5e-a883a0cd3d05"}
+            "player": {
+              "entity": "672cd0cc-501f-419e-af5e-a883a0cd3d05"
+            }
           }
         },
         "transform": {
@@ -247,22 +307,87 @@
         },
         "mesh_renderer": {
           "mesh": 7535385251553858160,
-          "material": 1749083215601001004
+          "material": 1749083215601001004,
+          "contributes_to_gi": true
+        },
+        "particle_emitter": {
+          "simulation": "cpu",
+          "gpu_dynamics": false,
+          "gpu_world_collision": false,
+          "mesh_collision_budget": 256,
+          "vector_field": 0,
+          "vector_field_strength": 1,
+          "wind": [0, 0, 0],
+          "vortex_center": [0, 0, 0],
+          "vortex_axis": [0, 1, 0],
+          "vortex_strength": 0,
+          "vortex_radius": 5,
+          "turbulence": 0,
+          "turbulence_frequency": 1,
+          "texture": 0,
+          "blend": "additive",
+          "soft_distance": 0,
+          "atlas_columns": 1,
+          "atlas_rows": 1,
+          "frame_count": 1,
+          "frame_rate": 0,
+          "loop_animation": false,
+          "collision": "none",
+          "collision_radius": 0.025,
+          "restitution": 0.5,
+          "friction": 0.1,
+          "collision_layers": 4294967295,
+          "enabled": true,
+          "capacity": 64,
+          "seed": 7,
+          "burst": 0,
+          "rate": 0,
+          "lifetime": 0.8,
+          "speed": 3,
+          "spread": 65,
+          "acceleration": [0, -3, 0],
+          "start_color": [1, 0.75, 0.1, 1],
+          "end_color": [1, 0.15, 0, 0],
+          "spawn_extents": [0, 0, 0],
+          "start_size": 0.2,
+          "end_size": 0.02
         },
         "audio_source": {
           "clip": 8247160951280394421,
           "play_on_start": false,
           "loop": false,
-          "volume": 0.5
+          "category": "effects",
+          "volume": 0.5,
+          "spatial": false,
+          "min_distance": 1,
+          "max_distance": 30,
+          "rolloff": 1,
+          "fade_in": 0,
+          "fade_out": 0,
+          "reverb_mix": 0,
+          "reverb_decay": 1.2,
+          "occlusion_strength": 0.75,
+          "occlusion": false,
+          "occlusion_layers": 4294967295
         },
         "rigid_body": {
-          "motion": "static"
+          "motion": "static",
+          "mass_mode": "mass",
+          "mass": 1,
+          "density": 1000,
+          "continuous_collision": false
         },
         "collider": {
           "shape": "box",
+          "mesh": 0,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
           "half_extents": [0.5, 0.5, 0.5],
           "radius": 0.5,
-          "is_trigger": true
+          "height": 2,
+          "is_trigger": true,
+          "friction": 0.2,
+          "restitution": 0
         }
       }
     },
@@ -281,33 +406,27 @@
         },
         "mesh_renderer": {
           "mesh": 7535385251553858160,
-          "material": 1749083215601001004
+          "material": 1749083215601001004,
+          "contributes_to_gi": true
         },
         "rigid_body": {
           "motion": "dynamic",
+          "mass_mode": "mass",
           "mass": 1,
+          "density": 1000,
           "continuous_collision": true
         },
         "collider": {
           "shape": "box",
+          "mesh": 0,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
           "half_extents": [0.5, 0.5, 0.5],
           "radius": 0.5,
+          "height": 2,
+          "is_trigger": false,
+          "friction": 0.2,
           "restitution": 0.45
-        }
-      }
-    },
-    {
-      "uuid": "672cd0cc-501f-419e-af5e-a883a0cd3d06",
-      "components": {
-        "name": "Project Shader Cube",
-        "transform": {
-          "translation": [1, 0.1, 0],
-          "rotation": [0, 0, 0],
-          "scale": [0.55, 0.55, 0.55]
-        },
-        "mesh_renderer": {
-          "mesh": 7535385251553858160,
-          "material": 1749083215601001004
         }
       }
     },
@@ -322,17 +441,33 @@
         },
         "mesh_renderer": {
           "mesh": 7535385251553858160,
-          "material": 6482638524486200214
+          "material": 6482638524486200214,
+          "contributes_to_gi": true
         },
-        "rigid_body": { "motion": "dynamic" },
+        "rigid_body": {
+          "motion": "dynamic",
+          "mass_mode": "mass",
+          "mass": 1,
+          "density": 1000,
+          "continuous_collision": false
+        },
         "collider": {
           "shape": "box",
+          "mesh": 0,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
           "half_extents": [0.5, 0.5, 0.5],
-          "radius": 0.5
+          "radius": 0.5,
+          "height": 2,
+          "is_trigger": false,
+          "friction": 0.2,
+          "restitution": 0
         },
         "point_joint": {
           "enabled": true,
-          "connected_body": { "entity": "00000000-0000-0000-0000-000000000000" },
+          "connected_body": {
+            "entity": "00000000-0000-0000-0000-000000000000"
+          },
           "anchor": [0, 0.5, 0],
           "connected_anchor": [0.4279271, 0.89574564, 0.25],
           "break_force": 20
@@ -340,37 +475,30 @@
       }
     },
     {
-      "uuid": "3a3b6b9d-86f7-4a27-848d-96496676c62d",
+      "uuid": "c1504575-0ac1-5cb6-a532-eaa338c68e71",
       "components": {
-        "name": "Hinge_Pendulum",
+        "name": "旅程 · 03 物理实验庭院",
+        "script": {
+          "asset": 6729301842000001201,
+          "parameters": {
+            "camera": {
+              "entity": "e42b96e3-90d5-4340-8924-570ccc259f68"
+            },
+            "catalog": "6729301842000001200",
+            "chapter": 3,
+            "intro": false,
+            "player": {
+              "entity": "d2295afc-24bb-4f67-b8ff-889a91e665dc"
+            },
+            "reference_camera": {
+              "entity": "672cd0cc-501f-419e-af5e-a883a0cd3d01"
+            }
+          }
+        },
         "transform": {
-          "translation": [-0.6, 0.65, 0.25],
-          "rotation": [0, 0, 35],
-          "scale": [0.2, 0.6, 0.2]
-        },
-        "mesh_renderer": {
-          "mesh": 7535385251553858160,
-          "material": 6482638524486200214
-        },
-        "rigid_body": { "motion": "dynamic" },
-        "collider": {
-          "shape": "box",
-          "half_extents": [0.5, 0.5, 0.5],
-          "radius": 0.5
-        },
-        "hinge_joint": {
-          "enabled": true,
-          "connected_body": { "entity": "00000000-0000-0000-0000-000000000000" },
-          "anchor": [0, 0.5, 0],
-          "connected_anchor": [-0.7720729, 0.89574564, 0.25],
-          "axis": [0, 0, 1],
-          "connected_axis": [0, 0, 1],
-          "limits_enabled": true,
-          "min_angle": -60,
-          "max_angle": 60,
-          "motor_enabled": true,
-          "motor_mode": "position",
-          "motor_target": 0
+          "translation": [0, -0.74, 1.2],
+          "rotation": [0, 0, 0],
+          "scale": [1, 1, 1]
         }
       }
     },
@@ -379,70 +507,203 @@
       "components": {
         "name": "Slider_Lift",
         "transform": {
-          "translation": [
-            0,
-            0.1,
-            0.5
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            0.35,
-            0.12,
-            0.35
-          ]
+          "translation": [0, 0.1, 0.5],
+          "rotation": [0, 0, 0],
+          "scale": [0.35, 0.12, 0.35]
         },
         "mesh_renderer": {
           "mesh": 7535385251553858160,
-          "material": 9429603817048603172
+          "material": 9429603817048603172,
+          "contributes_to_gi": true
         },
         "rigid_body": {
-          "motion": "dynamic"
+          "motion": "dynamic",
+          "mass_mode": "mass",
+          "mass": 1,
+          "density": 1000,
+          "continuous_collision": false
         },
         "collider": {
           "shape": "box",
-          "half_extents": [
-            0.5,
-            0.5,
-            0.5
-          ],
-          "radius": 0.5
+          "mesh": 0,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
+          "half_extents": [0.5, 0.5, 0.5],
+          "radius": 0.5,
+          "height": 2,
+          "is_trigger": false,
+          "friction": 0.2,
+          "restitution": 0
         },
         "slider_joint": {
           "enabled": true,
           "connected_body": {
             "entity": "00000000-0000-0000-0000-000000000000"
           },
-          "anchor": [
-            0,
-            0,
-            0
-          ],
-          "connected_anchor": [
-            0,
-            0.1,
-            0.5
-          ],
-          "axis": [
-            0,
-            1,
-            0
-          ],
-          "connected_axis": [
-            0,
-            1,
-            0
-          ],
+          "anchor": [0, 0, 0],
+          "connected_anchor": [0, 0.1, 0.5],
+          "break_force": 0,
+          "break_torque": 0,
+          "axis": [0, 1, 0],
+          "connected_axis": [0, 1, 0],
+          "reference_axis": [1, 0, 0],
+          "connected_reference_axis": [1, 0, 0],
           "limits_enabled": true,
           "min_distance": 0,
           "max_distance": 0.6,
+          "limits_frequency": 0,
+          "limits_damping": 1,
           "motor_enabled": true,
+          "motor_mode": "velocity",
+          "motor_target": 0,
           "motor_speed": 0.3,
-          "motor_max_force": 20
+          "motor_max_force": 20,
+          "motor_frequency": 2,
+          "motor_damping": 1
         }
+      }
+    },
+    {
+      "uuid": "d2295afc-24bb-4f67-b8ff-889a91e665dc",
+      "components": {
+        "name": "旅人"
+      },
+      "prefab": {
+        "asset": 6729301842000001202,
+        "entities": {
+          "3078a5ce-543c-4df2-90d1-d8c7b1e2769c": "428d2298-6954-4f44-9cc4-0e056fb9c1c3",
+          "8c7518af-a8a2-472c-8f21-d63fc11b2b33": "d8b05ebf-2b11-43d1-9309-80c2e14bc3f9",
+          "d3bb4700-17b7-4112-b03d-44d354eabaae": "d2295afc-24bb-4f67-b8ff-889a91e665dc",
+          "dd8d0ac8-87a1-485b-96f6-84a127b948a0": "e42b96e3-90d5-4340-8924-570ccc259f68"
+        },
+        "changes": [
+          {
+            "base": {
+              "parent": "00000000-0000-0000-0000-000000000000",
+              "entity": {
+                "uuid": "d3bb4700-17b7-4112-b03d-44d354eabaae",
+                "components": {
+                  "name": "旅人",
+                  "script": {
+                    "asset": 6729301842000000023,
+                    "parameters": {
+                      "camera": {
+                        "entity": "dd8d0ac8-87a1-485b-96f6-84a127b948a0"
+                      },
+                      "visual": {
+                        "entity": "3078a5ce-543c-4df2-90d1-d8c7b1e2769c"
+                      }
+                    }
+                  },
+                  "transform": {
+                    "translation": [0, 0, 0],
+                    "rotation": [0, 0, 0],
+                    "scale": [1, 1, 1]
+                  },
+                  "audio_source": {
+                    "clip": 8247160951280394421,
+                    "play_on_start": false,
+                    "loop": false,
+                    "category": "effects",
+                    "volume": 0.2,
+                    "spatial": false,
+                    "min_distance": 1,
+                    "max_distance": 30,
+                    "rolloff": 1,
+                    "fade_in": 0,
+                    "fade_out": 0,
+                    "reverb_mix": 0,
+                    "reverb_decay": 1.2,
+                    "occlusion_strength": 0.75,
+                    "occlusion": false,
+                    "occlusion_layers": 4294967295
+                  },
+                  "character_controller": {
+                    "enabled": true,
+                    "radius": 0.3,
+                    "height": 1.8,
+                    "move_speed": 4,
+                    "run_speed": 6,
+                    "crouch_speed": 2,
+                    "crouch_height_ratio": 0.6,
+                    "air_control": 1,
+                    "push_force": 100,
+                    "jump_speed": 5,
+                    "max_slope_angle": 45,
+                    "step_height": 0.3,
+                    "ground_snap_distance": 0.3,
+                    "collision_layer": 1,
+                    "collision_mask": 4294967295,
+                    "gravity_scale": 1
+                  }
+                }
+              }
+            },
+            "value": {
+              "parent": "00000000-0000-0000-0000-000000000000",
+              "entity": {
+                "uuid": "d2295afc-24bb-4f67-b8ff-889a91e665dc",
+                "components": {
+                  "name": "旅人",
+                  "script": {
+                    "asset": 6729301842000000023,
+                    "parameters": {
+                      "camera": {
+                        "entity": "e42b96e3-90d5-4340-8924-570ccc259f68"
+                      },
+                      "visual": {
+                        "entity": "428d2298-6954-4f44-9cc4-0e056fb9c1c3"
+                      }
+                    }
+                  },
+                  "transform": {
+                    "translation": [0, -0.74, 1.2],
+                    "rotation": [0, 0, 0],
+                    "scale": [1, 1, 1]
+                  },
+                  "audio_source": {
+                    "clip": 8247160951280394421,
+                    "play_on_start": false,
+                    "loop": false,
+                    "category": "effects",
+                    "volume": 0.2,
+                    "spatial": false,
+                    "min_distance": 1,
+                    "max_distance": 30,
+                    "rolloff": 1,
+                    "fade_in": 0,
+                    "fade_out": 0,
+                    "reverb_mix": 0,
+                    "reverb_decay": 1.2,
+                    "occlusion_strength": 0.75,
+                    "occlusion": false,
+                    "occlusion_layers": 4294967295
+                  },
+                  "character_controller": {
+                    "enabled": true,
+                    "radius": 0.3,
+                    "height": 1.8,
+                    "move_speed": 4,
+                    "run_speed": 6,
+                    "crouch_speed": 2,
+                    "crouch_height_ratio": 0.6,
+                    "air_control": 1,
+                    "push_force": 100,
+                    "jump_speed": 5,
+                    "max_slope_angle": 45,
+                    "step_height": 0.3,
+                    "ground_snap_distance": 0.3,
+                    "collision_layer": 1,
+                    "collision_mask": 4294967295,
+                    "gravity_scale": 1
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "removed": [],
+        "added": []
       }
     }
   ]

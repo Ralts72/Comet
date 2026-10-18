@@ -50,6 +50,9 @@ namespace Comet {
         std::shared_ptr<ScreenSpaceReflectionPass::Resources> reflection_resources;
         std::optional<RenderGraph::PassId> reflection_pass;
         TemporalPass::Camera temporal_camera;
+        std::optional<ViewProjectMatrix> previous_camera;
+        uint64_t previous_camera_serial = 0;
+        uint64_t previous_scene_lifetime = 0;
         std::unique_ptr<SkyboxPass> skybox_pass;
         std::shared_ptr<RenderTarget> hdr_target;
         std::shared_ptr<RenderTarget> output_target;
@@ -294,7 +297,7 @@ namespace Comet {
             view_depth_resource = graph.import_image("view depth", shadow_initial);
             RenderGraph::Pass depth_pass{"view depth",
                 {{*view_depth_resource, ResourceUsage::DepthStencilAttachmentWrite, {}}}};
-            if(state.temporal) {
+            if(state.temporal || settings.uses_motion_blur()) {
                 auto access = *resolve_resource_state(ResourceUsage::ColorAttachmentWrite);
                 access.stages |= PipelineStage::FragmentShader;
                 motion_resource = graph.import_image("motion vectors",
@@ -491,6 +494,12 @@ namespace Comet {
             display.uses.push_back({bloom_passes->output, ResourceUsage::SampledRead,
                 Flags<PipelineStage>(PipelineStage::FragmentShader)});
         }
+        if(settings.uses_lens())
+            display.uses.push_back({*view_depth_resource, ResourceUsage::SampledRead,
+                Flags<PipelineStage>(PipelineStage::FragmentShader)});
+        if(settings.uses_motion_blur())
+            display.uses.push_back({*motion_resource, ResourceUsage::SampledRead,
+                Flags<PipelineStage>(PipelineStage::FragmentShader)});
         const auto output_pass_id = graph.add_pass(std::move(display));
         auto compiled = graph.compile();
         if(!compiled)
@@ -570,7 +579,9 @@ namespace Comet {
         const auto size = m_state->output_target->get_size();
         if(settings.uses_bloom() == m_post_process.uses_bloom()
             && settings.uses_ao() == m_post_process.uses_ao()
-            && settings.uses_reflections() == m_post_process.uses_reflections()) {
+            && settings.uses_reflections() == m_post_process.uses_reflections()
+            && settings.uses_depth_of_field() == m_post_process.uses_depth_of_field()
+            && settings.uses_motion_blur() == m_post_process.uses_motion_blur()) {
             m_post_process_failure.reset();
             m_post_process = settings;
             return Result<void, GraphicsError>::success();
@@ -658,10 +669,13 @@ namespace Comet {
         std::unique_ptr<DepthPass> depth_candidate;
         if(requirements.needs_depth(settings, bool(m_state->temporal))) {
             auto* depth = m_state->view_depth.get();
-            if(!depth) {
+            if(!depth
+                || bool(m_state->motion_resource)
+                       != (bool(m_state->temporal) || settings.uses_motion_blur())) {
                 auto created = DepthPass::create(m_device, m_frame_slot_count,
                     m_state->hdr_target->get_size(), 1,
-                    m_state->temporal ? DepthPass::Output::Motion : DepthPass::Output::Depth);
+                    (m_state->temporal || settings.uses_motion_blur()) ? DepthPass::Output::Motion
+                                                                       : DepthPass::Output::Depth);
                 if(!created)
                     return Result<void, GraphicsError>::failure(created.error());
                 depth_candidate = std::move(created).value();
@@ -674,8 +688,8 @@ namespace Comet {
                                      const ViewRequirements& view) {
             return std::tuple(view.shadows, view.needs_depth(post, bool(m_state->temporal)),
                 view.fog, view.outline, view.gpu_particles, view.weighted_transparency,
-                view.gpu_dynamics, post.uses_bloom(),
-                bool(m_state->deferred) && post.uses_reflections());
+                view.gpu_dynamics, post.uses_bloom(), post.uses_depth_of_field(),
+                post.uses_motion_blur(), bool(m_state->deferred) && post.uses_reflections());
         };
         if(graph_needs(settings, requirements)
             != graph_needs(m_post_process, m_state->requirements)) {
@@ -744,9 +758,10 @@ namespace Comet {
         }
         std::unique_ptr<DepthPass> view_depth;
         if(state.requirements.needs_depth(m_post_process, bool(state.temporal))) {
-            auto candidate =
-                DepthPass::create(m_device, m_frame_slot_count, state.quality.scene_size(size), 1,
-                    state.temporal ? DepthPass::Output::Motion : DepthPass::Output::Depth);
+            auto candidate = DepthPass::create(m_device, m_frame_slot_count,
+                state.quality.scene_size(size), 1,
+                (state.temporal || m_post_process.uses_motion_blur()) ? DepthPass::Output::Motion
+                                                                      : DepthPass::Output::Depth);
             if(!candidate)
                 return Result<void, GraphicsError>::failure(candidate.error());
             view_depth = std::move(candidate).value();
@@ -955,6 +970,17 @@ namespace Comet {
             if(submission.view_project_matrix)
                 submission.view_project_matrix = camera.value().current;
         }
+        if(!m_state->temporal) {
+            m_state->temporal_camera = {};
+            if(submission.view_project_matrix && m_state->previous_camera
+                && m_state->previous_camera_serial + 1 == frames.get_current_frame_serial()
+                && m_state->previous_scene_lifetime == submission.world.scene_lifetime
+                && !submission.view_project_matrix->is_cut_from(*m_state->previous_camera)) {
+                const auto& previous = *m_state->previous_camera;
+                m_state->temporal_camera.previous = previous.projection * previous.view;
+                m_state->temporal_camera.previous_projection = previous.depth_parameters();
+            }
+        }
         const auto image = frames.get_current_frame_slot_index();
         frames.retain_current_frame_resource(m_shadow);
         auto lighting = RenderDiagnostics::measure_preparation(diagnostics,
@@ -1031,9 +1057,10 @@ namespace Comet {
         if(m_state->view_depth_resource)
             bindings[m_state->view_depth_resource->index] =
                 m_state->view_depth->get_depth_view(image)->get_image();
-        if(m_state->temporal) {
+        if(m_state->motion_resource)
             bindings[m_state->motion_resource->index] =
                 m_state->view_depth->get_motion_view(image)->get_image();
+        if(m_state->temporal) {
             bindings[m_state->temporal_output->index] = m_state->temporal->output()->get_image();
             bindings[m_state->temporal_history->index] = m_state->temporal->history()->get_image();
         }
@@ -1067,6 +1094,9 @@ namespace Comet {
                 shadow.drawn_triangles, shadow.spot_lights, shadow.excess_spot_lights,
                 shadow.point_lights, shadow.excess_point_lights);
         }
+        m_state->previous_camera = source.view_project_matrix;
+        m_state->previous_camera_serial = frames.get_current_frame_serial();
+        m_state->previous_scene_lifetime = source.world.scene_lifetime;
         return RenderResult::success(std::move(waits));
     }
 
@@ -1131,8 +1161,17 @@ namespace Comet {
             std::shared_ptr<ImageView> bloom;
             if(m_state->bloom_passes)
                 bloom = m_state->bloom->get_output(slot);
+            OutputPass::LensInputs lens;
+            if(m_post_process.uses_lens()) {
+                lens.depth = m_state->view_depth->get_depth_view(slot);
+                lens.projection = submission.view_project_matrix
+                                      .value_or(ViewProjectMatrix{Math::Mat4(1), Math::Mat4(1)})
+                                      .depth_parameters();
+            }
+            if(m_post_process.uses_motion_blur())
+                lens.motion = m_state->view_depth->get_motion_view(slot);
             return m_state->output_pass->render(
-                frames, m_state->output_target, hdr, m_post_process, bloom);
+                frames, m_state->output_target, hdr, m_post_process, bloom, lens);
         }
         if(m_state->temporal_pass && pass == *m_state->temporal_pass)
             return m_state->temporal->render(frames, reflected_hdr,
@@ -1147,7 +1186,7 @@ namespace Comet {
             if(view.enabled)
                 view.view_projection = submission.view_project_matrix->projection
                                        * submission.view_project_matrix->view;
-            if(m_state->temporal) {
+            if(m_state->motion_resource) {
                 view.previous_view_projection = m_state->temporal_camera.previous;
                 view.previous_projection = m_state->temporal_camera.previous_projection;
             }

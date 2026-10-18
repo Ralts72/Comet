@@ -33,6 +33,7 @@ namespace Comet {
         struct ViewStatistics {
             uint32_t culled_items = 0;
             uint32_t lod_selections = 0;
+            uint32_t spatial_tests = 0;
         };
         [[nodiscard]] ViewStatistics get_view_statistics() const { return m_view_statistics; }
         [[nodiscard]] static float projected_height(
@@ -45,6 +46,7 @@ namespace Comet {
         void reset();
         // 列表和界限只借用到下一次 prepare／clear_frame／reset。
         [[nodiscard]] std::span<const Item> get_items() const { return m_items; }
+        uint32_t visible_indices(const Frustum&, std::vector<uint32_t>& output) const;
         [[nodiscard]] const std::optional<BoundingBox>& get_scene_bounds() const {
             return m_scene_bounds;
         }
@@ -74,5 +76,9 @@ namespace Comet {
         std::optional<BoundingBox> m_cached_scene_bounds;
         VersionStamp<uint64_t> m_scene_version;
         ViewStatistics m_view_statistics;
+        mutable SpatialIndex m_spatial;
+        mutable std::vector<std::optional<BoundingBox>> m_spatial_bounds;
+        mutable bool m_spatial_dirty = true;
+        std::vector<uint32_t> m_visible;
     };
 }

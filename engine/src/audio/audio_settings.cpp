@@ -12,6 +12,14 @@ namespace Comet {
         return Result<void>::success();
     }
 
+    Result<void> AudioEffectSettings::validate() const {
+        if(!std::isfinite(reverb_mix) || reverb_mix < 0 || reverb_mix > 1
+            || !std::isfinite(reverb_decay) || reverb_decay < .1f || reverb_decay > 10
+            || !std::isfinite(occlusion) || occlusion < 0 || occlusion > 1)
+            return Result<void>::failure("Invalid audio reverb or occlusion settings");
+        return Result<void>::success();
+    }
+
     Result<void> AudioSettings::validate() const {
         for(const auto volume : {master_volume, effects_volume, music_volume}) {
             if(!std::isfinite(volume) || volume < 0 || volume > 1)

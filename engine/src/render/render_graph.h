@@ -74,6 +74,7 @@ namespace Comet {
         };
         using Binding = std::variant<std::shared_ptr<Image>, std::shared_ptr<Buffer>>;
         // 回调同步执行，不保存；命令缓冲来自当前 FrameScheduler。
+        enum class Execution { Inline, IndependentCompute };
         using RecordPass = std::function<Result<void, GraphicsError>(PassId, CommandBuffer&)>;
 
         struct Lifetime {
@@ -114,7 +115,8 @@ namespace Comet {
             // 按 ResourceId.index 绑定；调用方仍负责提交及 imported 资源的外部依赖。
             // 回调失败后可能已有部分录制；调用方必须中止该帧，不能继续提交。
             [[nodiscard]] Result<void, GraphicsError> record(FrameScheduler& frames,
-                std::span<const Binding> bindings, const RecordPass& record_pass) const;
+                std::span<const Binding> bindings, const RecordPass& record_pass,
+                Execution execution = Execution::Inline) const;
 
         private:
             friend class RenderGraph;

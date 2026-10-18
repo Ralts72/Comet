@@ -1,3 +1,4 @@
+#include "render/resource/texture.h"
 #include "render/resource/irradiance.h"
 
 #include "asset/data/irradiance_data.h"
@@ -40,4 +41,5 @@ namespace Comet {
         result->probes = std::move(texture).value();
         return Created::success(std::move(result));
     }
+
 }

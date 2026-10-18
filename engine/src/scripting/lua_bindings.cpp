@@ -303,6 +303,21 @@ namespace Comet::LuaBindings {
             }
             return push_entity_reference(state, entity, context.scene_generation);
         }
+        int set_primary_camera(lua_State* state) {
+            if(lua_gettop(state) != 1)
+                return luaL_error(state, "set_primary_camera expects one camera entity");
+            const auto camera = require_entity(state);
+            if(!camera.has_component<CameraComponent>())
+                return luaL_error(state, "Primary camera entity needs a Camera component");
+            current(state).scene->each<const CameraComponent>(
+                [&](Entity entity, const CameraComponent& value) {
+                    const bool primary = entity == camera;
+                    if(value.primary != primary)
+                        entity.edit_component<CameraComponent>(
+                            [primary](auto& component) { component.primary = primary; });
+                });
+            return 0;
+        }
         Math::Vec3 read_vector3(lua_State* state, int index) {
             luaL_checktype(state, index, LUA_TTABLE);
             index = lua_absindex(state, index);
@@ -1308,8 +1323,9 @@ namespace Comet::LuaBindings {
         lua_newtable(state);
         lua_pushlightuserdata(state, &context);
         const luaL_Reg api[]{{"log", log_message}, {"rotate", rotate}, {"translate", translate},
-            {"position", position}, {"self_entity", self_entity}, {"find_entity", find_entity},
-            {"data_get", data_get}, {"data_ids", data_ids}, {"create_entity", create_entity},
+            {"set_primary_camera", set_primary_camera}, {"position", position},
+            {"self_entity", self_entity}, {"find_entity", find_entity}, {"data_get", data_get},
+            {"data_ids", data_ids}, {"create_entity", create_entity},
             {"instantiate_prefab", instantiate_prefab}, {"destroy_entity", destroy_entity},
             {"has_rigid_body", has_rigid_body}, {"remove_rigid_body", remove_rigid_body},
             {"restart_scene", restart_scene}, {"load_scene", load_scene},

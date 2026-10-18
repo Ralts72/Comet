@@ -76,6 +76,9 @@ namespace Comet {
 
         [[nodiscard]] Result<void, Error> start();
         void stop() noexcept;
+        [[nodiscard]] Result<void, Error> fade_in(float seconds);
+        [[nodiscard]] Result<void, Error> fade_out(float seconds);
+        [[nodiscard]] Result<void, Error> set_effects(const AudioEffectSettings& effects);
         void set_volume(float volume);
         void set_looping(bool looping);
         [[nodiscard]] Result<void, Error> set_category(AudioCategory category);

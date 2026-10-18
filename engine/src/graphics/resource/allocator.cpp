@@ -16,6 +16,7 @@ namespace Comet {
         }
 
         m_handle = std::exchange(other.m_handle, VK_NULL_HANDLE);
+        m_bytes = std::exchange(other.m_bytes, 0);
         return *this;
     }
 
@@ -112,6 +113,7 @@ namespace Comet {
 
         Allocation wrapped_allocation;
         wrapped_allocation.m_handle = allocation;
+        wrapped_allocation.m_bytes = created_info.size;
         return GpuResourceResult<BufferAllocation>::success(BufferAllocation{
             vk::Buffer(buffer), std::move(wrapped_allocation), created_info.pMappedData});
     }
@@ -146,6 +148,7 @@ namespace Comet {
 
         Allocation wrapped_allocation;
         wrapped_allocation.m_handle = allocation;
+        wrapped_allocation.m_bytes = created_info.size;
         return GpuResourceResult<ImageAllocation>::success(ImageAllocation{
             vk::Image(image), std::move(wrapped_allocation), created_info.pMappedData});
     }

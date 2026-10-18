@@ -1,81 +1,51 @@
 {
-  "version": 2,
+  "version": 3,
+  "environment": {
+    "asset": 0,
+    "background": false,
+    "intensity": 1,
+    "rotation": 0,
+    "lighting": false,
+    "lighting_intensity": 1,
+    "background_color": [0, 0, 0],
+    "fog_enabled": false,
+    "fog_color": [0.5, 0.5, 0.5],
+    "fog_start": 10,
+    "fog_end": 100,
+    "realtime_gi_budget": 32
+  },
   "post_process": {
     "exposure": 1,
     "bloom_enabled": true,
     "bloom_strength": 0.15,
-    "bloom_threshold": 1
+    "bloom_threshold": 1,
+    "ao_enabled": false,
+    "weighted_oit": false,
+    "ao_radius": 0.5,
+    "ao_strength": 1
   },
   "entities": [
     {
-      "uuid": "61e9f12a-77da-5790-85f7-f0ab713801c9",
+      "uuid": "210cfed8-ca33-470a-80d3-259a442ba8a4",
       "components": {
-        "name": "主相机",
+        "name": "LOD 球体 0 / -32",
+        "mesh_lod": {
+          "level1": 6729301842000000031,
+          "level2": 6729301842000000032,
+          "level1_height": 0.18,
+          "level2_height": 0.06,
+          "hysteresis": 0.1,
+          "preview": "auto"
+        },
         "transform": {
-          "translation": [
-            0,
-            4,
-            12
-          ],
-          "rotation": [
-            -15,
-            0,
-            0
-          ],
-          "scale": [
-            1,
-            1,
-            1
-          ]
+          "translation": [0, 1, -32],
+          "rotation": [0, 0, 0],
+          "scale": [1, 1, 1]
         },
-        "camera": {
-          "primary": true,
-          "fov": 45,
-          "near_clip": 0.1,
-          "far_clip": 150
-        },
-        "camera_controller": {
-          "enabled": true,
-          "move_speed": 8,
-          "look_sensitivity": 0.2,
-          "look_speed": 120
-        }
-      }
-    },
-    {
-      "uuid": "84cb3994-9cb0-5ba9-b9db-d1223f1a01a1",
-      "components": {
-        "name": "主光",
-        "transform": {
-          "translation": [
-            0,
-            0,
-            0
-          ],
-          "rotation": [
-            -30,
-            -35,
-            0
-          ],
-          "scale": [
-            1,
-            1,
-            1
-          ]
-        },
-        "light": {
-          "type": "directional",
-          "enabled": true,
-          "casts_shadow": true,
-          "color": [
-            1,
-            1,
-            1
-          ],
-          "intensity": 4,
-          "range": 10,
-          "inner_angle": 20,
-          "outer_angle": 30
+        "mesh_renderer": {
+          "mesh": 6729301842000000030,
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
         }
       }
     },
@@ -83,27 +53,6 @@
       "uuid": "23d497a3-a841-4fc4-8055-b74fe8362ef5",
       "components": {
         "name": "LOD 球体 -4 / 0",
-        "transform": {
-          "translation": [
-            -4,
-            1,
-            0
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            1,
-            1,
-            1
-          ]
-        },
-        "mesh_renderer": {
-          "mesh": 6729301842000000030,
-          "material": 13857136248767905794
-        },
         "mesh_lod": {
           "level1": 6729301842000000031,
           "level2": 6729301842000000032,
@@ -111,111 +60,16 @@
           "level2_height": 0.06,
           "hysteresis": 0.1,
           "preview": "auto"
-        }
-      }
-    },
-    {
-      "uuid": "c4040de6-b89f-45f1-ad6b-edb08e5aaff7",
-      "components": {
-        "name": "LOD 球体 0 / 0",
+        },
         "transform": {
-          "translation": [
-            0,
-            1,
-            0
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            1,
-            1,
-            1
-          ]
+          "translation": [-4, 1, 0],
+          "rotation": [0, 0, 0],
+          "scale": [1, 1, 1]
         },
         "mesh_renderer": {
           "mesh": 6729301842000000030,
-          "material": 13857136248767905794
-        },
-        "mesh_lod": {
-          "level1": 6729301842000000031,
-          "level2": 6729301842000000032,
-          "level1_height": 0.18,
-          "level2_height": 0.06,
-          "hysteresis": 0.1,
-          "preview": "auto"
-        }
-      }
-    },
-    {
-      "uuid": "b2048f87-8a30-4d4f-85fe-d9866d420bae",
-      "components": {
-        "name": "LOD 球体 4 / 0",
-        "transform": {
-          "translation": [
-            4,
-            1,
-            0
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            1,
-            1,
-            1
-          ]
-        },
-        "mesh_renderer": {
-          "mesh": 6729301842000000030,
-          "material": 13857136248767905794
-        },
-        "mesh_lod": {
-          "level1": 6729301842000000031,
-          "level2": 6729301842000000032,
-          "level1_height": 0.18,
-          "level2_height": 0.06,
-          "hysteresis": 0.1,
-          "preview": "auto"
-        }
-      }
-    },
-    {
-      "uuid": "dbad3d99-dc0f-4b09-aa24-4880087d2208",
-      "components": {
-        "name": "LOD 球体 -4 / -12",
-        "transform": {
-          "translation": [
-            -4,
-            1,
-            -12
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            1,
-            1,
-            1
-          ]
-        },
-        "mesh_renderer": {
-          "mesh": 6729301842000000030,
-          "material": 13857136248767905794
-        },
-        "mesh_lod": {
-          "level1": 6729301842000000031,
-          "level2": 6729301842000000032,
-          "level1_height": 0.18,
-          "level2_height": 0.06,
-          "hysteresis": 0.1,
-          "preview": "auto"
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
         }
       }
     },
@@ -223,27 +77,6 @@
       "uuid": "262e7acc-4241-4450-9aef-187a05eff918",
       "components": {
         "name": "LOD 球体 0 / -12",
-        "transform": {
-          "translation": [
-            0,
-            1,
-            -12
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            1,
-            1,
-            1
-          ]
-        },
-        "mesh_renderer": {
-          "mesh": 6729301842000000030,
-          "material": 13857136248767905794
-        },
         "mesh_lod": {
           "level1": 6729301842000000031,
           "level2": 6729301842000000032,
@@ -251,251 +84,16 @@
           "level2_height": 0.06,
           "hysteresis": 0.1,
           "preview": "auto"
-        }
-      }
-    },
-    {
-      "uuid": "f1790bc7-8209-4cf0-b213-5dab104fd578",
-      "components": {
-        "name": "LOD 球体 4 / -12",
+        },
         "transform": {
-          "translation": [
-            4,
-            1,
-            -12
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            1,
-            1,
-            1
-          ]
+          "translation": [0, 1, -12],
+          "rotation": [0, 0, 0],
+          "scale": [1, 1, 1]
         },
         "mesh_renderer": {
           "mesh": 6729301842000000030,
-          "material": 13857136248767905794
-        },
-        "mesh_lod": {
-          "level1": 6729301842000000031,
-          "level2": 6729301842000000032,
-          "level1_height": 0.18,
-          "level2_height": 0.06,
-          "hysteresis": 0.1,
-          "preview": "auto"
-        }
-      }
-    },
-    {
-      "uuid": "beaec63f-7822-4faf-a6b8-885fbb43f56a",
-      "components": {
-        "name": "LOD 球体 -4 / -32",
-        "transform": {
-          "translation": [
-            -4,
-            1,
-            -32
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            1,
-            1,
-            1
-          ]
-        },
-        "mesh_renderer": {
-          "mesh": 6729301842000000030,
-          "material": 13857136248767905794
-        },
-        "mesh_lod": {
-          "level1": 6729301842000000031,
-          "level2": 6729301842000000032,
-          "level1_height": 0.18,
-          "level2_height": 0.06,
-          "hysteresis": 0.1,
-          "preview": "auto"
-        }
-      }
-    },
-    {
-      "uuid": "210cfed8-ca33-470a-80d3-259a442ba8a4",
-      "components": {
-        "name": "LOD 球体 0 / -32",
-        "transform": {
-          "translation": [
-            0,
-            1,
-            -32
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            1,
-            1,
-            1
-          ]
-        },
-        "mesh_renderer": {
-          "mesh": 6729301842000000030,
-          "material": 13857136248767905794
-        },
-        "mesh_lod": {
-          "level1": 6729301842000000031,
-          "level2": 6729301842000000032,
-          "level1_height": 0.18,
-          "level2_height": 0.06,
-          "hysteresis": 0.1,
-          "preview": "auto"
-        }
-      }
-    },
-    {
-      "uuid": "67770591-8fe7-4ecb-b0ce-ecd7099ab7ff",
-      "components": {
-        "name": "LOD 球体 4 / -32",
-        "transform": {
-          "translation": [
-            4,
-            1,
-            -32
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            1,
-            1,
-            1
-          ]
-        },
-        "mesh_renderer": {
-          "mesh": 6729301842000000030,
-          "material": 13857136248767905794
-        },
-        "mesh_lod": {
-          "level1": 6729301842000000031,
-          "level2": 6729301842000000032,
-          "level1_height": 0.18,
-          "level2_height": 0.06,
-          "hysteresis": 0.1,
-          "preview": "auto"
-        }
-      }
-    },
-    {
-      "uuid": "e43d3ee9-42a5-4b14-bd08-012a6a79aa45",
-      "components": {
-        "name": "LOD 球体 -4 / -64",
-        "transform": {
-          "translation": [
-            -4,
-            1,
-            -64
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            1,
-            1,
-            1
-          ]
-        },
-        "mesh_renderer": {
-          "mesh": 6729301842000000030,
-          "material": 13857136248767905794
-        },
-        "mesh_lod": {
-          "level1": 6729301842000000031,
-          "level2": 6729301842000000032,
-          "level1_height": 0.18,
-          "level2_height": 0.06,
-          "hysteresis": 0.1,
-          "preview": "auto"
-        }
-      }
-    },
-    {
-      "uuid": "79990436-8012-4c44-a7f4-5a15cb5638da",
-      "components": {
-        "name": "LOD 球体 0 / -64",
-        "transform": {
-          "translation": [
-            0,
-            1,
-            -64
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            1,
-            1,
-            1
-          ]
-        },
-        "mesh_renderer": {
-          "mesh": 6729301842000000030,
-          "material": 13857136248767905794
-        },
-        "mesh_lod": {
-          "level1": 6729301842000000031,
-          "level2": 6729301842000000032,
-          "level1_height": 0.18,
-          "level2_height": 0.06,
-          "hysteresis": 0.1,
-          "preview": "auto"
-        }
-      }
-    },
-    {
-      "uuid": "ea2f5817-b4cd-4a56-bd69-8eb129cd44f9",
-      "components": {
-        "name": "LOD 球体 4 / -64",
-        "transform": {
-          "translation": [
-            4,
-            1,
-            -64
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            1,
-            1,
-            1
-          ]
-        },
-        "mesh_renderer": {
-          "mesh": 6729301842000000030,
-          "material": 13857136248767905794
-        },
-        "mesh_lod": {
-          "level1": 6729301842000000031,
-          "level2": 6729301842000000032,
-          "level1_height": 0.18,
-          "level2_height": 0.06,
-          "hysteresis": 0.1,
-          "preview": "auto"
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
         }
       }
     },
@@ -504,25 +102,474 @@
       "components": {
         "name": "地面",
         "transform": {
-          "translation": [
-            0,
-            -0.25,
-            -28
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            16,
-            0.5,
-            90
-          ]
+          "translation": [0, -0.25, -28],
+          "rotation": [0, 0, 0],
+          "scale": [16, 0.5, 90]
         },
         "mesh_renderer": {
           "mesh": 7535385251553858160,
-          "material": 5783275031450616070
+          "material": 5783275031450616070,
+          "contributes_to_gi": true
+        },
+        "rigid_body": {
+          "motion": "static",
+          "mass_mode": "mass",
+          "mass": 1,
+          "density": 1000,
+          "continuous_collision": false
+        },
+        "collider": {
+          "shape": "box",
+          "mesh": 0,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
+          "half_extents": [0.5, 0.5, 0.5],
+          "radius": 0.5,
+          "height": 2,
+          "is_trigger": false,
+          "friction": 0.2,
+          "restitution": 0
+        }
+      }
+    },
+    {
+      "uuid": "61e9f12a-77da-5790-85f7-f0ab713801c9",
+      "components": {
+        "name": "主相机",
+        "transform": {
+          "translation": [0, 4, 12],
+          "rotation": [-15, 0, 0],
+          "scale": [1, 1, 1]
+        },
+        "camera": {
+          "primary": false,
+          "projection": "perspective",
+          "fov": 45,
+          "orthographic_height": 10,
+          "near_clip": 0.1,
+          "far_clip": 150
+        },
+        "camera_controller": {
+          "enabled": false,
+          "mode": "free",
+          "move_speed": 8,
+          "look_sensitivity": 0.2,
+          "look_speed": 120,
+          "orbit_distance": 6,
+          "orbit_height": 1.2,
+          "orbit_min_distance": 1.5,
+          "orbit_max_distance": 12,
+          "orbit_zoom_step": 0.5,
+          "collision_radius": 0.15
+        }
+      }
+    },
+    {
+      "uuid": "67770591-8fe7-4ecb-b0ce-ecd7099ab7ff",
+      "components": {
+        "name": "LOD 球体 4 / -32",
+        "mesh_lod": {
+          "level1": 6729301842000000031,
+          "level2": 6729301842000000032,
+          "level1_height": 0.18,
+          "level2_height": 0.06,
+          "hysteresis": 0.1,
+          "preview": "auto"
+        },
+        "transform": {
+          "translation": [4, 1, -32],
+          "rotation": [0, 0, 0],
+          "scale": [1, 1, 1]
+        },
+        "mesh_renderer": {
+          "mesh": 6729301842000000030,
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
+        }
+      }
+    },
+    {
+      "uuid": "79990436-8012-4c44-a7f4-5a15cb5638da",
+      "components": {
+        "name": "LOD 球体 0 / -64",
+        "mesh_lod": {
+          "level1": 6729301842000000031,
+          "level2": 6729301842000000032,
+          "level1_height": 0.18,
+          "level2_height": 0.06,
+          "hysteresis": 0.1,
+          "preview": "auto"
+        },
+        "transform": {
+          "translation": [0, 1, -64],
+          "rotation": [0, 0, 0],
+          "scale": [1, 1, 1]
+        },
+        "mesh_renderer": {
+          "mesh": 6729301842000000030,
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
+        }
+      }
+    },
+    {
+      "uuid": "84cb3994-9cb0-5ba9-b9db-d1223f1a01a1",
+      "components": {
+        "name": "主光",
+        "transform": {
+          "translation": [0, 0, 0],
+          "rotation": [-30, -35, 0],
+          "scale": [1, 1, 1]
+        },
+        "light": {
+          "type": "directional",
+          "enabled": true,
+          "casts_shadow": true,
+          "shadow_distance": 100,
+          "color": [1, 1, 1],
+          "intensity": 4,
+          "range": 10,
+          "inner_angle": 20,
+          "outer_angle": 30
+        }
+      }
+    },
+    {
+      "uuid": "b2048f87-8a30-4d4f-85fe-d9866d420bae",
+      "components": {
+        "name": "LOD 球体 4 / 0",
+        "mesh_lod": {
+          "level1": 6729301842000000031,
+          "level2": 6729301842000000032,
+          "level1_height": 0.18,
+          "level2_height": 0.06,
+          "hysteresis": 0.1,
+          "preview": "auto"
+        },
+        "transform": {
+          "translation": [4, 1, 0],
+          "rotation": [0, 0, 0],
+          "scale": [1, 1, 1]
+        },
+        "mesh_renderer": {
+          "mesh": 6729301842000000030,
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
+        }
+      }
+    },
+    {
+      "uuid": "beaec63f-7822-4faf-a6b8-885fbb43f56a",
+      "components": {
+        "name": "LOD 球体 -4 / -32",
+        "mesh_lod": {
+          "level1": 6729301842000000031,
+          "level2": 6729301842000000032,
+          "level1_height": 0.18,
+          "level2_height": 0.06,
+          "hysteresis": 0.1,
+          "preview": "auto"
+        },
+        "transform": {
+          "translation": [-4, 1, -32],
+          "rotation": [0, 0, 0],
+          "scale": [1, 1, 1]
+        },
+        "mesh_renderer": {
+          "mesh": 6729301842000000030,
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
+        }
+      }
+    },
+    {
+      "uuid": "c4040de6-b89f-45f1-ad6b-edb08e5aaff7",
+      "components": {
+        "name": "LOD 球体 0 / 0",
+        "mesh_lod": {
+          "level1": 6729301842000000031,
+          "level2": 6729301842000000032,
+          "level1_height": 0.18,
+          "level2_height": 0.06,
+          "hysteresis": 0.1,
+          "preview": "auto"
+        },
+        "transform": {
+          "translation": [0, 1, 0],
+          "rotation": [0, 0, 0],
+          "scale": [1, 1, 1]
+        },
+        "mesh_renderer": {
+          "mesh": 6729301842000000030,
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
+        }
+      }
+    },
+    {
+      "uuid": "cb196382-43a9-46f1-a1c2-983f4ae17eeb",
+      "components": {
+        "name": "旅人"
+      },
+      "prefab": {
+        "asset": 6729301842000001202,
+        "entities": {
+          "3078a5ce-543c-4df2-90d1-d8c7b1e2769c": "7165e066-0b0c-454b-b7aa-6ae714aeba1d",
+          "8c7518af-a8a2-472c-8f21-d63fc11b2b33": "4f29cd46-f4ae-429f-89f4-36d9b99c1009",
+          "d3bb4700-17b7-4112-b03d-44d354eabaae": "cb196382-43a9-46f1-a1c2-983f4ae17eeb",
+          "dd8d0ac8-87a1-485b-96f6-84a127b948a0": "72bd0aad-2cd2-44a5-922a-d469609240b4"
+        },
+        "changes": [
+          {
+            "base": {
+              "parent": "00000000-0000-0000-0000-000000000000",
+              "entity": {
+                "uuid": "d3bb4700-17b7-4112-b03d-44d354eabaae",
+                "components": {
+                  "name": "旅人",
+                  "script": {
+                    "asset": 6729301842000000023,
+                    "parameters": {
+                      "camera": {
+                        "entity": "dd8d0ac8-87a1-485b-96f6-84a127b948a0"
+                      },
+                      "visual": {
+                        "entity": "3078a5ce-543c-4df2-90d1-d8c7b1e2769c"
+                      }
+                    }
+                  },
+                  "transform": {
+                    "translation": [0, 0, 0],
+                    "rotation": [0, 0, 0],
+                    "scale": [1, 1, 1]
+                  },
+                  "audio_source": {
+                    "clip": 8247160951280394421,
+                    "play_on_start": false,
+                    "loop": false,
+                    "category": "effects",
+                    "volume": 0.2,
+                    "spatial": false,
+                    "min_distance": 1,
+                    "max_distance": 30,
+                    "rolloff": 1,
+                    "fade_in": 0,
+                    "fade_out": 0,
+                    "reverb_mix": 0,
+                    "reverb_decay": 1.2,
+                    "occlusion_strength": 0.75,
+                    "occlusion": false,
+                    "occlusion_layers": 4294967295
+                  },
+                  "character_controller": {
+                    "enabled": true,
+                    "radius": 0.3,
+                    "height": 1.8,
+                    "move_speed": 4,
+                    "run_speed": 6,
+                    "crouch_speed": 2,
+                    "crouch_height_ratio": 0.6,
+                    "air_control": 1,
+                    "push_force": 100,
+                    "jump_speed": 5,
+                    "max_slope_angle": 45,
+                    "step_height": 0.3,
+                    "ground_snap_distance": 0.3,
+                    "collision_layer": 1,
+                    "collision_mask": 4294967295,
+                    "gravity_scale": 1
+                  }
+                }
+              }
+            },
+            "value": {
+              "parent": "00000000-0000-0000-0000-000000000000",
+              "entity": {
+                "uuid": "cb196382-43a9-46f1-a1c2-983f4ae17eeb",
+                "components": {
+                  "name": "旅人",
+                  "script": {
+                    "asset": 6729301842000000023,
+                    "parameters": {
+                      "camera": {
+                        "entity": "72bd0aad-2cd2-44a5-922a-d469609240b4"
+                      },
+                      "visual": {
+                        "entity": "7165e066-0b0c-454b-b7aa-6ae714aeba1d"
+                      }
+                    }
+                  },
+                  "transform": {
+                    "translation": [0, 0, 5],
+                    "rotation": [0, 0, 0],
+                    "scale": [1, 1, 1]
+                  },
+                  "audio_source": {
+                    "clip": 8247160951280394421,
+                    "play_on_start": false,
+                    "loop": false,
+                    "category": "effects",
+                    "volume": 0.2,
+                    "spatial": false,
+                    "min_distance": 1,
+                    "max_distance": 30,
+                    "rolloff": 1,
+                    "fade_in": 0,
+                    "fade_out": 0,
+                    "reverb_mix": 0,
+                    "reverb_decay": 1.2,
+                    "occlusion_strength": 0.75,
+                    "occlusion": false,
+                    "occlusion_layers": 4294967295
+                  },
+                  "character_controller": {
+                    "enabled": true,
+                    "radius": 0.3,
+                    "height": 1.8,
+                    "move_speed": 4,
+                    "run_speed": 6,
+                    "crouch_speed": 2,
+                    "crouch_height_ratio": 0.6,
+                    "air_control": 1,
+                    "push_force": 100,
+                    "jump_speed": 5,
+                    "max_slope_angle": 45,
+                    "step_height": 0.3,
+                    "ground_snap_distance": 0.3,
+                    "collision_layer": 1,
+                    "collision_mask": 4294967295,
+                    "gravity_scale": 1
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "removed": [],
+        "added": []
+      }
+    },
+    {
+      "uuid": "d7973e5c-f734-5dfd-afee-289554e0f268",
+      "components": {
+        "name": "旅程 · 36 细节的距离",
+        "script": {
+          "asset": 6729301842000001201,
+          "parameters": {
+            "camera": {
+              "entity": "72bd0aad-2cd2-44a5-922a-d469609240b4"
+            },
+            "catalog": "6729301842000001200",
+            "chapter": 36,
+            "intro": false,
+            "player": {
+              "entity": "cb196382-43a9-46f1-a1c2-983f4ae17eeb"
+            },
+            "reference_camera": {
+              "entity": "61e9f12a-77da-5790-85f7-f0ab713801c9"
+            }
+          }
+        },
+        "transform": {
+          "translation": [0, 0, 5],
+          "rotation": [0, 0, 0],
+          "scale": [1, 1, 1]
+        }
+      }
+    },
+    {
+      "uuid": "dbad3d99-dc0f-4b09-aa24-4880087d2208",
+      "components": {
+        "name": "LOD 球体 -4 / -12",
+        "mesh_lod": {
+          "level1": 6729301842000000031,
+          "level2": 6729301842000000032,
+          "level1_height": 0.18,
+          "level2_height": 0.06,
+          "hysteresis": 0.1,
+          "preview": "auto"
+        },
+        "transform": {
+          "translation": [-4, 1, -12],
+          "rotation": [0, 0, 0],
+          "scale": [1, 1, 1]
+        },
+        "mesh_renderer": {
+          "mesh": 6729301842000000030,
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
+        }
+      }
+    },
+    {
+      "uuid": "e43d3ee9-42a5-4b14-bd08-012a6a79aa45",
+      "components": {
+        "name": "LOD 球体 -4 / -64",
+        "mesh_lod": {
+          "level1": 6729301842000000031,
+          "level2": 6729301842000000032,
+          "level1_height": 0.18,
+          "level2_height": 0.06,
+          "hysteresis": 0.1,
+          "preview": "auto"
+        },
+        "transform": {
+          "translation": [-4, 1, -64],
+          "rotation": [0, 0, 0],
+          "scale": [1, 1, 1]
+        },
+        "mesh_renderer": {
+          "mesh": 6729301842000000030,
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
+        }
+      }
+    },
+    {
+      "uuid": "ea2f5817-b4cd-4a56-bd69-8eb129cd44f9",
+      "components": {
+        "name": "LOD 球体 4 / -64",
+        "mesh_lod": {
+          "level1": 6729301842000000031,
+          "level2": 6729301842000000032,
+          "level1_height": 0.18,
+          "level2_height": 0.06,
+          "hysteresis": 0.1,
+          "preview": "auto"
+        },
+        "transform": {
+          "translation": [4, 1, -64],
+          "rotation": [0, 0, 0],
+          "scale": [1, 1, 1]
+        },
+        "mesh_renderer": {
+          "mesh": 6729301842000000030,
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
+        }
+      }
+    },
+    {
+      "uuid": "f1790bc7-8209-4cf0-b213-5dab104fd578",
+      "components": {
+        "name": "LOD 球体 4 / -12",
+        "mesh_lod": {
+          "level1": 6729301842000000031,
+          "level2": 6729301842000000032,
+          "level1_height": 0.18,
+          "level2_height": 0.06,
+          "hysteresis": 0.1,
+          "preview": "auto"
+        },
+        "transform": {
+          "translation": [4, 1, -12],
+          "rotation": [0, 0, 0],
+          "scale": [1, 1, 1]
+        },
+        "mesh_renderer": {
+          "mesh": 6729301842000000030,
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
         }
       }
     }

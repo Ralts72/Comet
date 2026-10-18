@@ -33,11 +33,17 @@ namespace Comet {
         [[nodiscard]] RenderPass& get_render_pass() const { return *m_render_pass; }
         [[nodiscard]] Result<void, GraphicsError> configure_calibration(
             float headroom, float white_level);
+        struct LensInputs {
+            std::shared_ptr<ImageView> depth;
+            std::shared_ptr<ImageView> motion;
+            Math::Vec4 projection;
+            LensInputs() : projection(0) {}
+        };
         // 输入须为单采样 SampledRead；output 由本 pass 创建，Device 存活至 GPU 完成。
         [[nodiscard]] Result<void, GraphicsError> render(FrameScheduler& frames,
             const std::shared_ptr<RenderTarget>& output,
             const std::shared_ptr<ImageView>& hdr_color, const PostProcessSettings& settings = {},
-            const std::shared_ptr<ImageView>& bloom = {});
+            const std::shared_ptr<ImageView>& bloom = {}, const LensInputs& lens = {});
 
     private:
         OutputPass(Device& device, std::shared_ptr<RenderPass> pass,

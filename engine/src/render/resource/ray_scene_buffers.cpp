@@ -13,7 +13,7 @@ namespace Comet {
         const std::shared_ptr<RaySceneBuffers>& prior) {
         using Prepared = Result<std::shared_ptr<RaySceneBuffers>, GraphicsError>;
         if(!scene || !scene->geometry || !scene->materials || !scene->lighting || !scene->emitters
-            || !scene->environment_map)
+            || !scene->environment_map || !scene->materials->images)
             return Prepared::failure({"Invalid ray scene"});
         auto next = std::make_shared<RaySceneBuffers>();
         next->source = scene;
@@ -27,10 +27,12 @@ namespace Comet {
         const auto* previous = prior ? prior->source.get() : nullptr;
         const bool same_geometry = previous && previous->geometry == scene->geometry;
         const bool same_materials = previous && previous->materials == scene->materials;
+        const bool same_images =
+            previous && previous->materials->images == scene->materials->images;
         const std::array<bool, 8> reused{same_geometry, same_geometry,
-            previous && previous->lighting == scene->lighting, same_geometry && same_materials,
-            same_materials, same_materials, same_materials,
-            previous && previous->environment_map == scene->environment_map};
+            previous && previous->lighting == scene->lighting,
+            previous && previous->emitters == scene->emitters, same_materials, same_images,
+            same_images, previous && previous->environment_map == scene->environment_map};
         const auto& geometry = *scene->geometry;
         const auto& materials = *scene->materials;
         const auto& environment = *scene->environment_map;
@@ -49,16 +51,16 @@ namespace Comet {
             scene->lighting.get(),
             scene->emitters->empty() ? &empty_emitter : scene->emitters->data(),
             materials.surfaces.empty() ? &empty_surface : materials.surfaces.data(),
-            materials.textures.empty() ? &empty_texture : materials.textures.data(),
-            materials.texels.empty() ? &empty_texel : materials.texels.data(),
+            materials.images->textures.empty() ? &empty_texture : materials.images->textures.data(),
+            materials.images->texels.empty() ? &empty_texel : materials.images->texels.data(),
             environment_bytes.data()};
         const std::array<size_t, 8> sizes{
             std::max(size_t(1), geometry.nodes.size()) * sizeof(empty_node),
             std::max(size_t(1), geometry.triangles.size()) * sizeof(empty_triangle),
             sizeof(LightingData), std::max(size_t(1), scene->emitters->size()) * sizeof(uint32_t),
             std::max(size_t(1), materials.surfaces.size()) * sizeof(empty_surface),
-            std::max(size_t(1), materials.textures.size()) * sizeof(empty_texture),
-            std::max(size_t(1), materials.texels.size()) * sizeof(empty_texel),
+            std::max(size_t(1), materials.images->textures.size()) * sizeof(empty_texture),
+            std::max(size_t(1), materials.images->texels.size()) * sizeof(empty_texel),
             16 + environment.texels.size() * sizeof(Math::Vec4)};
         for(size_t i = 0; i < sources.size(); ++i) {
             if(reused[i]) {

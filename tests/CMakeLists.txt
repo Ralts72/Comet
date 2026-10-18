@@ -16,6 +16,7 @@ add_test(NAME compiler_cache_contract COMMAND "${CMAKE_COMMAND}"
 set_tests_properties(compiler_cache_contract PROPERTIES LABELS "cpu")
 # 按运行依赖显式分组；扫描只检查遗漏，不替新测试猜测执行环境。
 set(UNIT_TEST_SOURCES
+        gameplay/test_world_effects.cpp
         audio/test_audio.cpp
         audio/test_audio_service.cpp
         asset/test_asset_manager.cpp
@@ -44,6 +45,7 @@ set(UNIT_TEST_SOURCES
         asset/test_texture_importer.cpp
         asset/test_texture_artifact.cpp
         common/test_file_io.cpp
+        common/test_process.cpp
         common/test_result.cpp
         common/test_parameters_json.cpp
         common/test_retry_backoff.cpp
@@ -397,3 +399,8 @@ if(APPLE AND COMET_BUILD_APP)
     set_tests_properties(packaged_app PROPERTIES LABELS "integration;gpu"
         RESOURCE_LOCK comet_gpu TIMEOUT 180)
 endif()
+
+find_package(Python3 3.9 REQUIRED COMPONENTS Interpreter)
+add_test(NAME desktop_export_contract COMMAND "${Python3_EXECUTABLE}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_desktop_export.py")
+set_tests_properties(desktop_export_contract PROPERTIES LABELS "cpu")

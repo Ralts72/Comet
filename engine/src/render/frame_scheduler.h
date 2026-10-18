@@ -7,6 +7,7 @@
 #include "graphics/synchronization/semaphore.h"
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <memory_resource>
 #include <optional>
@@ -15,6 +16,7 @@
 
 namespace Comet {
     struct QueueSemaphoreSubmit;
+    class TaskScheduler;
 
     struct FrameSlot {
         Fence in_flight_fence;
@@ -49,6 +51,11 @@ namespace Comet {
     class COMET_API FrameScheduler {
     public:
         explicit FrameScheduler(Device& device, uint32_t frame_slot_count);
+        ~FrameScheduler();
+        void set_task_scheduler(TaskScheduler* scheduler) { m_tasks = scheduler; }
+        // 回调拥有全部捕获数据；仅录制独立工作，不访问 Scene 或共享 CommandPool。
+        using RecordIndependent = std::function<Result<void, GraphicsError>(CommandBuffer&)>;
+        Result<void, GraphicsError> record_independent(RecordIndependent record);
 
         FrameScheduler(const FrameScheduler&) = delete;
         FrameScheduler& operator=(const FrameScheduler&) = delete;
@@ -85,6 +92,10 @@ namespace Comet {
 
     private:
         void wait_for_slot(uint32_t frame_slot_index);
+        struct Pending;
+        Result<std::vector<CommandBuffer>, GraphicsError> finish_recordings();
+        std::vector<std::unique_ptr<Pending>> m_pending;
+        TaskScheduler* m_tasks = nullptr;
 
         Device& m_device;
         std::vector<FrameSlot> m_frame_slots;

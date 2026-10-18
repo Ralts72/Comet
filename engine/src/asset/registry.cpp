@@ -4,6 +4,7 @@
 #include "diagnostics/logger.h"
 
 #include <algorithm>
+#include <unordered_set>
 
 namespace Comet {
     namespace {
@@ -31,8 +32,8 @@ namespace Comet {
         return *this;
     }
 
-    bool AssetRegistry::register_asset_impl(
-        const AssetHandle handle, std::shared_ptr<void> asset, const std::type_index type) {
+    bool AssetRegistry::register_asset_impl(const AssetHandle handle, std::shared_ptr<void> asset,
+        const std::type_index type, uint64_t gpu_bytes) {
         if(!handle) {
             LOG_ERROR("Cannot register an asset with an invalid handle");
             return false;
@@ -43,8 +44,11 @@ namespace Comet {
             return false;
         }
 
-        const auto [entry, inserted] = m_assets.emplace(handle,
-            AssetEntry{.asset = std::move(asset), .type = type, .revision = next_revision()});
+        const auto [entry, inserted] =
+            m_assets.emplace(handle, AssetEntry{.asset = std::move(asset),
+                                         .type = type,
+                                         .revision = next_revision(),
+                                         .gpu_bytes = gpu_bytes});
         if(!inserted) {
             LOG_ERROR("Asset handle {} is already registered", handle.value());
             return false;
@@ -54,8 +58,8 @@ namespace Comet {
         return true;
     }
 
-    bool AssetRegistry::replace_asset_impl(
-        const AssetHandle handle, std::shared_ptr<void> asset, const std::type_index type) {
+    bool AssetRegistry::replace_asset_impl(const AssetHandle handle, std::shared_ptr<void> asset,
+        const std::type_index type, uint64_t gpu_bytes) {
         if(!handle) {
             LOG_ERROR("Cannot replace an asset with an invalid handle");
             return false;
@@ -76,6 +80,7 @@ namespace Comet {
         }
 
         existing->second.asset = std::move(asset);
+        existing->second.gpu_bytes = gpu_bytes;
         m_revision = next_revision();
         existing->second.revision = m_revision;
         return true;
@@ -151,4 +156,13 @@ namespace Comet {
         m_removed.clear();
         return result;
     }
+    uint64_t AssetRegistry::resident_gpu_bytes() const {
+        uint64_t total = 0;
+        std::unordered_set<const void*> counted;
+        for(const auto& [handle, entry] : m_assets)
+            if(counted.insert(entry.asset.get()).second)
+                total += entry.gpu_bytes;
+        return total;
+    }
+
 }

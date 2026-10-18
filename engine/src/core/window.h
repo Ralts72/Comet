@@ -13,6 +13,7 @@
 #include <vector>
 
 struct GLFWwindow;
+struct GLFWmonitor;
 
 namespace Comet {
     class COMET_API Window {
@@ -87,6 +88,7 @@ namespace Comet {
         // 普通窗口的逻辑尺寸；最大化、最小化和全屏不覆盖它。
         [[nodiscard]] Math::Vec2u get_restore_size() const { return m_restore_size; }
         [[nodiscard]] Math::Vec2 get_content_scale() const;
+        [[nodiscard]] uint64_t get_display_revision() const { return m_display_revision; }
         [[nodiscard]] WindowMode get_mode() const { return m_mode; }
         [[nodiscard]] Result<void> set_display_settings(WindowMode mode, Math::Vec2u windowed_size);
 
@@ -108,6 +110,8 @@ namespace Comet {
         void install_input_callbacks();
         void append_ui_event(const UiEvent& event);
         void update_restore_state();
+        [[nodiscard]] GLFWmonitor* current_monitor() const;
+        void update_display_state();
 
         struct WindowDeleter {
             void operator()(GLFWwindow* window) const noexcept;
@@ -124,6 +128,9 @@ namespace Comet {
         Math::Vec2u m_restore_size{};
         std::array<int, 2> m_windowed_position{};
         WindowMode m_mode = WindowMode::Windowed;
+        GLFWmonitor* m_display_monitor = nullptr;
+        Math::Vec2 m_display_scale{1};
+        uint64_t m_display_revision = 1;
         uint8_t m_ui_modifiers = 0;
         bool m_ui_focused = false;
         bool m_ui_events_overflowed = false;

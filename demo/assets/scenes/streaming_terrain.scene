@@ -1,0 +1,357 @@
+{
+  "version": 3,
+  "environment": {
+    "asset": 0,
+    "background": false,
+    "intensity": 1,
+    "rotation": 0,
+    "lighting": false,
+    "lighting_intensity": 1,
+    "background_color": [0.35, 0.45, 0.6],
+    "fog_enabled": false,
+    "fog_color": [0.5, 0.5, 0.5],
+    "fog_start": 10,
+    "fog_end": 100,
+    "realtime_gi_budget": 32
+  },
+  "post_process": {
+    "exposure": 1,
+    "bloom_enabled": false,
+    "bloom_strength": 0.15,
+    "bloom_threshold": 1,
+    "ao_enabled": false,
+    "weighted_oit": false,
+    "ao_radius": 0.5,
+    "ao_strength": 1
+  },
+  "entities": [
+    {
+      "uuid": "67c987d1-eb20-5f33-a7a2-ce1f85aab3da",
+      "components": {
+        "name": "太阳",
+        "transform": {
+          "translation": [0, 0, 0],
+          "rotation": [-50, 35, 0],
+          "scale": [1, 1, 1]
+        },
+        "light": {
+          "type": "directional",
+          "enabled": true,
+          "casts_shadow": true,
+          "shadow_distance": 90,
+          "color": [1, 0.94, 0.86],
+          "intensity": 3,
+          "range": 10,
+          "inner_angle": 20,
+          "outer_angle": 30
+        }
+      }
+    },
+    {
+      "uuid": "6d7683c1-c48d-506e-a6d8-1af621f380b3",
+      "components": {
+        "name": "旅程起点平台",
+        "transform": {
+          "translation": [0, 12, 24],
+          "rotation": [0, 0, 0],
+          "scale": [6, 0.5, 6]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
+        },
+        "rigid_body": {
+          "motion": "static",
+          "mass_mode": "mass",
+          "mass": 1,
+          "density": 1000,
+          "continuous_collision": false
+        },
+        "collider": {
+          "shape": "box",
+          "mesh": 0,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
+          "half_extents": [0.5, 0.5, 0.5],
+          "radius": 0.5,
+          "height": 2,
+          "is_trigger": false,
+          "friction": 0.2,
+          "restitution": 0
+        }
+      }
+    },
+    {
+      "uuid": "805d5918-e7aa-5e82-b044-3d5a89cfd17b",
+      "components": {
+        "name": "流式单元 2",
+        "transform": {
+          "translation": [16, 0, -16],
+          "rotation": [0, 0, 0],
+          "scale": [1, 1, 1]
+        },
+        "stream_cell": {
+          "enabled": true,
+          "prefab": 6729301842000001101,
+          "load_distance": 45,
+          "unload_distance": 60
+        }
+      }
+    },
+    {
+      "uuid": "928f9c08-81df-4e41-84ba-913194309e97",
+      "components": {
+        "name": "旅人"
+      },
+      "prefab": {
+        "asset": 6729301842000001202,
+        "entities": {
+          "3078a5ce-543c-4df2-90d1-d8c7b1e2769c": "6488d7fd-a07f-4a52-b9a0-61460b1deeae",
+          "8c7518af-a8a2-472c-8f21-d63fc11b2b33": "92b66786-da40-4ad6-aacf-57cff9f18825",
+          "d3bb4700-17b7-4112-b03d-44d354eabaae": "928f9c08-81df-4e41-84ba-913194309e97",
+          "dd8d0ac8-87a1-485b-96f6-84a127b948a0": "d5b82752-2fd0-4188-941d-2940eaea3831"
+        },
+        "changes": [
+          {
+            "base": {
+              "parent": "00000000-0000-0000-0000-000000000000",
+              "entity": {
+                "uuid": "d3bb4700-17b7-4112-b03d-44d354eabaae",
+                "components": {
+                  "name": "旅人",
+                  "script": {
+                    "asset": 6729301842000000023,
+                    "parameters": {
+                      "camera": {
+                        "entity": "dd8d0ac8-87a1-485b-96f6-84a127b948a0"
+                      },
+                      "visual": {
+                        "entity": "3078a5ce-543c-4df2-90d1-d8c7b1e2769c"
+                      }
+                    }
+                  },
+                  "transform": {
+                    "translation": [0, 0, 0],
+                    "rotation": [0, 0, 0],
+                    "scale": [1, 1, 1]
+                  },
+                  "audio_source": {
+                    "clip": 8247160951280394421,
+                    "play_on_start": false,
+                    "loop": false,
+                    "category": "effects",
+                    "volume": 0.2,
+                    "spatial": false,
+                    "min_distance": 1,
+                    "max_distance": 30,
+                    "rolloff": 1,
+                    "fade_in": 0,
+                    "fade_out": 0,
+                    "reverb_mix": 0,
+                    "reverb_decay": 1.2,
+                    "occlusion_strength": 0.75,
+                    "occlusion": false,
+                    "occlusion_layers": 4294967295
+                  },
+                  "character_controller": {
+                    "enabled": true,
+                    "radius": 0.3,
+                    "height": 1.8,
+                    "move_speed": 4,
+                    "run_speed": 6,
+                    "crouch_speed": 2,
+                    "crouch_height_ratio": 0.6,
+                    "air_control": 1,
+                    "push_force": 100,
+                    "jump_speed": 5,
+                    "max_slope_angle": 45,
+                    "step_height": 0.3,
+                    "ground_snap_distance": 0.3,
+                    "collision_layer": 1,
+                    "collision_mask": 4294967295,
+                    "gravity_scale": 1
+                  }
+                }
+              }
+            },
+            "value": {
+              "parent": "00000000-0000-0000-0000-000000000000",
+              "entity": {
+                "uuid": "928f9c08-81df-4e41-84ba-913194309e97",
+                "components": {
+                  "name": "旅人",
+                  "script": {
+                    "asset": 6729301842000000023,
+                    "parameters": {
+                      "camera": {
+                        "entity": "d5b82752-2fd0-4188-941d-2940eaea3831"
+                      },
+                      "visual": {
+                        "entity": "6488d7fd-a07f-4a52-b9a0-61460b1deeae"
+                      }
+                    }
+                  },
+                  "transform": {
+                    "translation": [0, 12.3, 24],
+                    "rotation": [0, 0, 0],
+                    "scale": [1, 1, 1]
+                  },
+                  "audio_source": {
+                    "clip": 8247160951280394421,
+                    "play_on_start": false,
+                    "loop": false,
+                    "category": "effects",
+                    "volume": 0.2,
+                    "spatial": false,
+                    "min_distance": 1,
+                    "max_distance": 30,
+                    "rolloff": 1,
+                    "fade_in": 0,
+                    "fade_out": 0,
+                    "reverb_mix": 0,
+                    "reverb_decay": 1.2,
+                    "occlusion_strength": 0.75,
+                    "occlusion": false,
+                    "occlusion_layers": 4294967295
+                  },
+                  "character_controller": {
+                    "enabled": true,
+                    "radius": 0.3,
+                    "height": 1.8,
+                    "move_speed": 4,
+                    "run_speed": 6,
+                    "crouch_speed": 2,
+                    "crouch_height_ratio": 0.6,
+                    "air_control": 1,
+                    "push_force": 100,
+                    "jump_speed": 5,
+                    "max_slope_angle": 45,
+                    "step_height": 0.3,
+                    "ground_snap_distance": 0.3,
+                    "collision_layer": 1,
+                    "collision_mask": 4294967295,
+                    "gravity_scale": 1
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "removed": [],
+        "added": []
+      }
+    },
+    {
+      "uuid": "990ae173-9ceb-5459-993e-019915d6edd5",
+      "components": {
+        "name": "旅程 · 34 边走边加载",
+        "script": {
+          "asset": 6729301842000001201,
+          "parameters": {
+            "camera": {
+              "entity": "d5b82752-2fd0-4188-941d-2940eaea3831"
+            },
+            "catalog": "6729301842000001200",
+            "chapter": 34,
+            "intro": false,
+            "player": {
+              "entity": "928f9c08-81df-4e41-84ba-913194309e97"
+            },
+            "reference_camera": {
+              "entity": "c960430e-d47e-58d4-a219-ee116bbbad4a"
+            }
+          }
+        },
+        "transform": {
+          "translation": [0, 12.3, 24],
+          "rotation": [0, 0, 0],
+          "scale": [1, 1, 1]
+        }
+      }
+    },
+    {
+      "uuid": "bb95f691-7037-505a-b4a3-d70a3db1cfce",
+      "components": {
+        "name": "流式单元 4",
+        "transform": {
+          "translation": [16, 0, 16],
+          "rotation": [0, 0, 0],
+          "scale": [1, 1, 1]
+        },
+        "stream_cell": {
+          "enabled": true,
+          "prefab": 6729301842000001103,
+          "load_distance": 45,
+          "unload_distance": 60
+        }
+      }
+    },
+    {
+      "uuid": "bf41a9d0-f333-500e-b21e-291f3c05b338",
+      "components": {
+        "name": "流式单元 1",
+        "transform": {
+          "translation": [-16, 0, -16],
+          "rotation": [0, 0, 0],
+          "scale": [1, 1, 1]
+        },
+        "stream_cell": {
+          "enabled": true,
+          "prefab": 6729301842000001100,
+          "load_distance": 45,
+          "unload_distance": 60
+        }
+      }
+    },
+    {
+      "uuid": "c02a84fa-71cf-57cf-999f-43660706fab3",
+      "components": {
+        "name": "流式单元 3",
+        "transform": {
+          "translation": [-16, 0, 16],
+          "rotation": [0, 0, 0],
+          "scale": [1, 1, 1]
+        },
+        "stream_cell": {
+          "enabled": true,
+          "prefab": 6729301842000001102,
+          "load_distance": 45,
+          "unload_distance": 60
+        }
+      }
+    },
+    {
+      "uuid": "c960430e-d47e-58d4-a219-ee116bbbad4a",
+      "components": {
+        "name": "主相机",
+        "transform": {
+          "translation": [0, 26, 42],
+          "rotation": [-30, 0, 0],
+          "scale": [1, 1, 1]
+        },
+        "camera": {
+          "primary": false,
+          "projection": "perspective",
+          "fov": 55,
+          "orthographic_height": 10,
+          "near_clip": 0.1,
+          "far_clip": 200
+        },
+        "camera_controller": {
+          "enabled": false,
+          "mode": "free",
+          "move_speed": 12,
+          "look_sensitivity": 0.2,
+          "look_speed": 120,
+          "orbit_distance": 6,
+          "orbit_height": 1.2,
+          "orbit_min_distance": 1.5,
+          "orbit_max_distance": 12,
+          "orbit_zoom_step": 0.5,
+          "collision_radius": 0.15
+        }
+      }
+    }
+  ]
+}

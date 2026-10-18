@@ -126,6 +126,16 @@ namespace Comet {
         }
 
         const auto physical_device = context.get_physical_device();
+        const auto family =
+            physical_device.getQueueFamilyProperties().at(graphics_queue_family_index.value());
+        const bool async_compute =
+            graphics_queue_counts > create_info.graphics_queue_count
+            && static_cast<bool>(family.queueFlags & vk::QueueFlagBits::eCompute);
+        if(async_compute)
+            queue_create_infos.front().queueCount = std::max(
+                queue_create_infos.front().queueCount, create_info.graphics_queue_count + 1);
+        graphics_queue_priorities.resize(queue_create_infos.front().queueCount, .5f);
+        queue_create_infos.front().pQueuePriorities = graphics_queue_priorities.data();
         m_capability = context.get_device_capability();
 
         vk::DeviceCreateInfo device_create_info = {};
@@ -155,6 +165,10 @@ namespace Comet {
             m_present_queues.emplace_back(*this, vk_queue);
         }
 
+        if(async_compute)
+            m_async_compute = std::make_unique<Queue>(
+                *this, m_device.getQueue(
+                           graphics_queue_family_index.value(), create_info.graphics_queue_count));
         create_pipeline_cache();
         create_default_command_pool();
         cleanup.release();
@@ -169,6 +183,7 @@ namespace Comet {
 
     void Device::destroy() noexcept {
         m_default_command_pool.reset();
+        m_async_compute.reset();
         m_present_queues.clear();
         m_graphics_queues.clear();
         m_pipeline_cache.reset();

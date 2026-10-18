@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <limits>
 #include <string>
@@ -65,6 +66,96 @@ namespace Comet {
             std::shared_ptr<AudioClip>(new AudioClip(std::move(samples), channels, rate)));
     }
 
+    namespace {
+        // 音频线程独占延迟线；Main 只发布原子参数，回调中不分配内存或访问 Scene。
+        struct VoiceEffects {
+            ma_node_base node{};
+            struct Delay {
+                std::vector<std::array<float, 2>> samples;
+                size_t cursor = 0;
+                std::array<float, 2> damped{};
+            };
+            std::array<Delay, 4> delays;
+            std::array<float, 2> filtered{};
+            std::atomic<float> wet{0}, decay{1.2f}, occlusion{0};
+            std::atomic<uint32_t> tail{0};
+            float sample_rate = 48000;
+            bool active = false;
+
+            static void process(ma_node* node, const float** input, ma_uint32* input_count,
+                float** output, ma_uint32* output_count) {
+                auto& effect = *reinterpret_cast<VoiceEffects*>(node);
+                const auto count = *output_count;
+                const float* source = input ? input[0] : nullptr;
+                const auto available = source ? *input_count : 0;
+                const float wet = effect.wet.load(std::memory_order_relaxed);
+                const float occlusion = effect.occlusion.load(std::memory_order_relaxed);
+                const bool active = wet > 0 || occlusion > 0;
+                if(active && !effect.active) {
+                    for(auto& delay : effect.delays) {
+                        std::ranges::fill(delay.samples, std::array<float, 2>{});
+                        delay.damped = {};
+                    }
+                    effect.filtered = {};
+                }
+                effect.active = active;
+                if(!active) {
+                    if(available)
+                        std::copy_n(source, available * 2, output[0]);
+                    std::fill(output[0] + available * 2, output[0] + count * 2, 0);
+                    effect.tail.store(0, std::memory_order_relaxed);
+                    *input_count = available;
+                    return;
+                }
+                std::array<float, 4> feedback{};
+                const float decay = effect.decay.load(std::memory_order_relaxed);
+                for(size_t i = 0; i < feedback.size(); ++i)
+                    feedback[i] = std::pow(
+                        .001f, float(effect.delays[i].samples.size()) / effect.sample_rate / decay);
+                const float cutoff = 18000 * std::pow(600.0f / 18000, occlusion);
+                const float coefficient = 1 - std::exp(-2 * Math::PI * cutoff / effect.sample_rate);
+                const float gain = 1 - occlusion * .8f;
+                auto tail = effect.tail.load(std::memory_order_relaxed);
+                for(ma_uint32 frame = 0; frame < count; ++frame) {
+                    std::array<float, 2> dry{};
+                    for(size_t channel = 0; channel < 2; ++channel) {
+                        const float sample = frame < available ? source[frame * 2 + channel] : 0;
+                        effect.filtered[channel] +=
+                            coefficient * (sample - effect.filtered[channel]);
+                        dry[channel] = occlusion > 0 ? effect.filtered[channel] * gain : sample;
+                        output[0][frame * 2 + channel] = dry[channel];
+                        if(std::abs(sample) > 1e-5f && wet > 0)
+                            tail = uint32_t((decay * 2 + .1f) * effect.sample_rate);
+                    }
+                    if(wet > 0) {
+                        std::array<float, 2> reverberated{};
+                        for(size_t i = 0; i < effect.delays.size(); ++i) {
+                            auto& delay = effect.delays[i];
+                            auto& sample = delay.samples[delay.cursor];
+                            for(size_t channel = 0; channel < 2; ++channel) {
+                                delay.damped[channel] +=
+                                    .35f * (sample[channel] - delay.damped[channel]);
+                                reverberated[channel] += sample[channel] * .25f;
+                                sample[channel] =
+                                    dry[channel] + delay.damped[channel] * feedback[i];
+                            }
+                            delay.cursor = (delay.cursor + 1) % delay.samples.size();
+                        }
+                        for(size_t channel = 0; channel < 2; ++channel)
+                            output[0][frame * 2 + channel] =
+                                dry[channel] * (1 - wet * .5f) + reverberated[channel] * wet;
+                    }
+                    if(tail)
+                        --tail;
+                }
+                effect.tail.store(wet > 0 ? tail : 0, std::memory_order_relaxed);
+                *input_count = available;
+            }
+        };
+        const ma_node_vtable voice_effects_vtable{VoiceEffects::process, nullptr, 1, 1,
+            MA_NODE_FLAG_CONTINUOUS_PROCESSING | MA_NODE_FLAG_ALLOW_NULL_INPUT};
+    }
+
     struct AudioPlayback::Impl {
         ma_engine engine{};
         ma_resource_manager resource_manager{};
@@ -111,6 +202,8 @@ namespace Comet {
         std::shared_ptr<const AudioClip> clip;
         ma_audio_buffer buffer{};
         ma_sound sound{};
+        VoiceEffects effects;
+        bool effects_initialized = false;
         AudioCategory category = AudioCategory::Effects;
         bool buffer_initialized = false;
         bool sound_initialized = false;
@@ -118,6 +211,8 @@ namespace Comet {
         ~Impl() {
             if(sound_initialized)
                 ma_sound_uninit(&sound);
+            if(effects_initialized)
+                ma_node_uninit(&effects.node, nullptr);
             if(buffer_initialized)
                 ma_audio_buffer_uninit(&buffer);
         }
@@ -134,6 +229,8 @@ namespace Comet {
         impl->paused = start_paused;
         auto config = ma_engine_config_init();
         config.noAutoStart = start_paused ? MA_TRUE : MA_FALSE;
+        config.channels = 2;
+        config.sampleRate = 48000;
         if(mode == Mode::Offline) {
             config.noDevice = MA_TRUE;
             config.channels = 2;
@@ -209,6 +306,25 @@ namespace Comet {
         if(created != MA_SUCCESS)
             return Creation::failure(audio_error("Cannot create audio voice", created));
         impl->sound_initialized = true;
+        impl->effects.sample_rate = float(ma_engine_get_sample_rate(&m_impl->engine));
+        constexpr std::array delays{.0297f, .0371f, .0411f, .0437f};
+        for(size_t i = 0; i < delays.size(); ++i)
+            impl->effects.delays[i].samples.resize(size_t(delays[i] * impl->effects.sample_rate));
+        const ma_uint32 channels = 2;
+        auto effect_config = ma_node_config_init();
+        effect_config.vtable = &voice_effects_vtable;
+        effect_config.pInputChannels = &channels;
+        effect_config.pOutputChannels = &channels;
+        auto effect_result = ma_node_init(ma_engine_get_node_graph(&m_impl->engine), &effect_config,
+            nullptr, &impl->effects.node);
+        if(effect_result != MA_SUCCESS)
+            return Creation::failure(audio_error("Cannot initialize voice effects", effect_result));
+        impl->effects_initialized = true;
+        effect_result = ma_node_attach_output_bus(&impl->effects.node, 0, group, 0);
+        if(effect_result == MA_SUCCESS)
+            effect_result = ma_node_attach_output_bus(&impl->sound, 0, &impl->effects.node, 0);
+        if(effect_result != MA_SUCCESS)
+            return Creation::failure(audio_error("Cannot connect voice effects", effect_result));
         ma_sound_set_volume(&impl->sound, volume);
         ma_sound_set_looping(&impl->sound, looping ? MA_TRUE : MA_FALSE);
         auto voice = std::unique_ptr<Voice>(new Voice(std::move(impl)));
@@ -262,8 +378,8 @@ namespace Comet {
             return Result<void, Error>::failure({"Invalid audio category"});
         if(category == m_impl->category)
             return Result<void, Error>::success();
-        const auto attached = ma_node_attach_output_bus(
-            &m_impl->sound, 0, &m_impl->playback->groups[static_cast<std::size_t>(category)], 0);
+        const auto attached = ma_node_attach_output_bus(&m_impl->effects.node, 0,
+            &m_impl->playback->groups[static_cast<std::size_t>(category)], 0);
         if(attached != MA_SUCCESS)
             return Result<void, Error>::failure(
                 audio_error("Cannot change audio category", attached));
@@ -349,7 +465,35 @@ namespace Comet {
         ma_sound_set_looping(&m_impl->sound, looping ? MA_TRUE : MA_FALSE);
     }
 
+    Result<void, Error> AudioPlayback::Voice::set_effects(const AudioEffectSettings& effects) {
+        if(auto valid = effects.validate(); !valid)
+            return Result<void, Error>::failure({valid.error()});
+        m_impl->effects.wet.store(effects.reverb_mix, std::memory_order_relaxed);
+        m_impl->effects.decay.store(effects.reverb_decay, std::memory_order_relaxed);
+        m_impl->effects.occlusion.store(effects.occlusion, std::memory_order_relaxed);
+        return Result<void, Error>::success();
+    }
+
+    Result<void, Error> AudioPlayback::Voice::fade_in(float seconds) {
+        if(!std::isfinite(seconds) || seconds < 0 || seconds > 60)
+            return Result<void, Error>::failure({"Audio fade duration must be in [0, 60] seconds"});
+        ma_sound_set_fade_in_milliseconds(
+            &m_impl->sound, seconds > 0 ? 0 : 1, 1, ma_uint64(seconds * 1000));
+        return Result<void, Error>::success();
+    }
+
+    Result<void, Error> AudioPlayback::Voice::fade_out(float seconds) {
+        if(!std::isfinite(seconds) || seconds < 0 || seconds > 60)
+            return Result<void, Error>::failure({"Audio fade duration must be in [0, 60] seconds"});
+        const auto result =
+            ma_sound_stop_with_fade_in_milliseconds(&m_impl->sound, ma_uint64(seconds * 1000));
+        if(result != MA_SUCCESS)
+            return Result<void, Error>::failure(audio_error("Cannot fade voice", result));
+        return Result<void, Error>::success();
+    }
+
     bool AudioPlayback::Voice::is_playing() const {
-        return ma_sound_is_playing(&m_impl->sound) == MA_TRUE;
+        return ma_sound_is_playing(&m_impl->sound) == MA_TRUE
+               || m_impl->effects.tail.load(std::memory_order_relaxed) > 0;
     }
 }

@@ -9,12 +9,131 @@
 #include "core/project.h"
 #include "scene/component_registry.h"
 #include "scene/scene_serializer.h"
+#include "scene/script_component.h"
+#include "scene/scene_runtime.h"
+#include "scripting/script_instance.h"
+#include "asset/asset_manager.h"
+#include "asset/registry.h"
+#include "core/task_scheduler.h"
+#include "support/render_resource_factory.h"
+#include "scene/systems/physics_system.h"
 
 #include <gtest/gtest.h>
 #include <set>
 #include <map>
 
 namespace Comet::Tests {
+    TEST(ProjectAssetsTest, JourneyCoversEverySceneAndCarriesCompletionAroundTheWholeRoute) {
+        const auto project = Project::load(COMET_SAMPLE_PROJECT_DIRECTORY);
+        ASSERT_TRUE(project) << project.error();
+        AssetRegistry assets;
+        FakeRenderResourceFactory factory;
+        TaskScheduler workers(1);
+        AssetManager manager(project.value().paths(), assets, factory, workers);
+        ASSERT_TRUE(manager.scan().succeeded());
+        auto components = std::make_shared<ComponentRegistry>(create_scene_component_registry());
+        const SceneSerializer serializer(*components, manager.scene_sources(*components));
+        ASSERT_TRUE(manager.load_data(AssetHandle(6729301842000001200ull)));
+        const auto script = manager.load_script(AssetHandle(6729301842000001201ull));
+        ASSERT_TRUE(script) << script.error().message;
+        const auto& chapters = project.value().included_scenes();
+        EXPECT_EQ(
+            chapters.size(), std::ranges::count_if(manager.get_database().get_assets(),
+                                 [](const auto& asset) { return asset.type == AssetType::Scene; }));
+        ParameterMap progress;
+        InputState input;
+        project.value().input_actions().evaluate({}, input);
+        for(size_t index = 0; index < chapters.size(); ++index) {
+            SCOPED_TRACE(chapters[index].string());
+            auto loaded =
+                serializer.load((project.value().paths().assets() / chapters[index]).string());
+            ASSERT_TRUE(loaded) << loaded.error();
+            auto& scene = *loaded.value();
+            Entity guide;
+            scene.each<const ScriptComponent>([&](Entity entity, const auto& binding) {
+                if(binding.asset == AssetHandle(6729301842000001201ull))
+                    guide = entity;
+            });
+            ASSERT_TRUE(guide);
+            const auto& parameters = guide.get_component<ScriptComponent>().parameters;
+            const auto player = scene.find_entity(std::get<EntityUuid>(parameters.at("player")));
+            ASSERT_TRUE(player && player.has_component<CharacterControllerComponent>());
+            std::set<AssetHandle> collision_meshes;
+            scene.each<const ColliderComponent>([&](Entity, const auto& collider) {
+                if(collider.mesh)
+                    collision_meshes.insert(collider.mesh);
+            });
+            for(const auto handle : collision_meshes)
+                ASSERT_TRUE(manager.import_mesh(handle));
+            PhysicsService physics(
+                {.read = [&](AssetHandle handle) { return manager.read_mesh_data(handle); },
+                    .revision =
+                        [&](AssetHandle handle) { return manager.mesh_data_revision(handle); }});
+            SceneRuntime runtime;
+            ASSERT_TRUE(runtime.set_services({.physics = &physics}));
+            ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
+            ASSERT_TRUE(runtime.start(scene, SceneRuntime::State::Running,
+                SceneRuntime::InputStart::Fresh, std::move(progress)));
+            for(int step = 0; step < 240; ++step)
+                ASSERT_TRUE(runtime.advance(1.0 / 60));
+            EXPECT_GT(player.get_component<TransformComponent>().translation.y, -5);
+            auto instance = ScriptInstance::create(*script.value());
+            ASSERT_TRUE(instance);
+            ScriptInstance::Invocation context{.delta_time = .01,
+                .scene = &scene,
+                .session = &runtime.get_session(),
+                .input = &input,
+                .assets = &assets,
+                .components = components};
+            const auto invoke = [&](ScriptInstance::Phase phase, std::string_view event = "") {
+                context.event_handler = event;
+                return instance.value()->invoke(phase, guide, parameters, context);
+            };
+            auto started = invoke(ScriptInstance::Phase::Start);
+            ASSERT_TRUE(started) << started.error().message;
+            EXPECT_EQ(std::get<float>(*runtime.get_session().get_value("tour.number")), index + 1);
+            EXPECT_FALSE(
+                std::get<std::string>(*runtime.get_session().get_value("tour.task")).empty());
+            const auto player_camera =
+                scene.find_entity(std::get<EntityUuid>(parameters.at("camera")));
+            ASSERT_TRUE(player_camera);
+            if(std::get<bool>(parameters.at("intro"))) {
+                ASSERT_TRUE(guide.has_component<SplineFollowerComponent>());
+                EXPECT_EQ(guide.get_component<SplineFollowerComponent>().finished_event,
+                    "cutscene.finished");
+                EXPECT_TRUE(guide.get_component<CameraComponent>().primary);
+                ASSERT_TRUE(invoke(ScriptInstance::Phase::Event, "finish_intro"));
+            }
+            EXPECT_TRUE(player_camera.get_component<CameraComponent>().primary);
+            if(parameters.contains("reference_camera")) {
+                ASSERT_TRUE(invoke(ScriptInstance::Phase::Event, "reference_view"));
+                EXPECT_FALSE(player_camera.get_component<CameraComponent>().primary);
+                // 延迟到达的开场事件不能覆盖用户手动选择的参考视角。
+                ASSERT_TRUE(invoke(ScriptInstance::Phase::Event, "finish_intro"));
+                EXPECT_FALSE(player_camera.get_component<CameraComponent>().primary);
+                ASSERT_TRUE(invoke(ScriptInstance::Phase::Event, "reference_view"));
+                EXPECT_TRUE(player_camera.get_component<CameraComponent>().primary);
+            }
+            ASSERT_TRUE(invoke(ScriptInstance::Phase::Update));
+            EXPECT_FALSE(runtime.take_checkpoint_request());
+            ASSERT_TRUE(invoke(ScriptInstance::Phase::Event, "complete"));
+            auto updated = invoke(ScriptInstance::Phase::Update);
+            ASSERT_TRUE(updated) << updated.error().message;
+            const auto saved = runtime.take_checkpoint_request();
+            ASSERT_TRUE(saved);
+            EXPECT_EQ(saved->marker, "journey_start");
+            const auto& bits = std::get<std::string>(saved->values.at("tour.completed"));
+            EXPECT_EQ(std::ranges::count(bits, '1'), index + 1);
+            ASSERT_TRUE(invoke(ScriptInstance::Phase::Event, "next_chapter"));
+            const auto next = runtime.take_scene_request();
+            ASSERT_TRUE(next);
+            EXPECT_EQ(next->path, chapters[(index + 1) % chapters.size()].generic_string());
+            progress = next->values;
+            ASSERT_TRUE(invoke(ScriptInstance::Phase::Stop));
+            ASSERT_TRUE(runtime.stop());
+        }
+    }
+
     TEST(ProjectAssetsTest, DemoCubeNormalsPointOutwards) {
         const auto mesh = MeshImporter{}.import(
             ProjectPaths(COMET_SAMPLE_PROJECT_DIRECTORY).assets() / "meshes/cube.gltf");
@@ -113,9 +232,11 @@ namespace Comet::Tests {
 
     TEST(ProjectAssetsTest, DemoSceneRetainsAudioConfigurationWhenCloned) {
         const auto registry = create_scene_component_registry();
-        const SceneSerializer serializer(registry);
         const auto project = Project::load(COMET_SAMPLE_PROJECT_DIRECTORY);
         ASSERT_TRUE(project) << project.error();
+        AssetDatabase database(project.value().paths());
+        ASSERT_TRUE(database.scan().succeeded());
+        const SceneSerializer serializer(registry, project_scene_sources(database, registry));
         for(const auto* path : {"scenes/default.scene", "scenes/character.scene"}) {
             auto loaded = serializer.load((project.value().paths().assets() / path).string());
             ASSERT_TRUE(loaded) << loaded.error();

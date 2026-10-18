@@ -96,6 +96,15 @@ namespace CometEditor {
             Comet::AssetHandle handle, Comet::AssetType type, Comet::AssetRevision revision);
         [[nodiscard]] Comet::Result<std::size_t, Comet::Error> prepare_scene(
             Comet::Scene& scene, const Comet::ComponentRegistry& components);
+        [[nodiscard]] Comet::Result<std::vector<Comet::AssetReference>, Comet::Error>
+        prepare_streaming_cell(Comet::Scene& scene, const Comet::ComponentRegistry& components) {
+            return m_manager.prepare_scene(scene, components);
+        }
+        [[nodiscard]] Comet::Result<bool, Comet::Error> streaming_ready(
+            std::span<const Comet::AssetReference> references) const {
+            return m_manager.references_ready(
+                references, Comet::AssetManager::MissingAssetPolicy::FailRequired);
+        }
         void track_scene(Comet::Scene& scene, const Comet::ComponentRegistry& components);
         [[nodiscard]] Comet::Result<std::vector<Comet::AssetReference>, Comet::Error>
         capture_play_references(Comet::Scene& scene, const Comet::ComponentRegistry& components);

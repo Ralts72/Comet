@@ -22,6 +22,7 @@ namespace Comet {
             std::shared_ptr<ImageView> image, std::shared_ptr<Sampler> sampler);
 
         ~Texture() = default;
+        [[nodiscard]] uint64_t gpu_resident_bytes() const;
 
         [[nodiscard]] const std::shared_ptr<Sampler>& get_sampler() const { return m_sampler; }
         [[nodiscard]] int get_width() const { return m_width; }

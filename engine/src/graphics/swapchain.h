@@ -74,6 +74,7 @@ namespace Comet {
         // 只更新下一次重建请求；调用方负责完成在途帧及 dependent 生命周期。
         bool request_vsync(bool enabled);
         bool request_output_mode(OutputMode mode);
+        void refresh_output_capabilities() { m_output_format.reset(); }
         // 调用前必须完成在途帧和 present，并释放 dependent。
         Result<void, GraphicsError> recreate_surface();
 

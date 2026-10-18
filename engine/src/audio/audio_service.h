@@ -54,14 +54,16 @@ namespace Comet {
         [[nodiscard]] Result<void, Error> set_listener(std::optional<AudioListenerPose> listener);
         [[nodiscard]] Result<std::unique_ptr<AudioPlayback::Voice>, Error> prepare_voice(
             AssetHandle clip, float volume, bool looping, AudioCategory category,
-            const AudioSpatialSettings& spatial);
+            const AudioSpatialSettings& spatial, float fade_in = 0);
         [[nodiscard]] Result<VoiceId, Error> start_voice(AssetHandle clip, float volume,
-            bool looping, AudioCategory category, const AudioSpatialSettings& spatial);
+            bool looping, AudioCategory category, const AudioSpatialSettings& spatial,
+            float fade_in = 0);
         [[nodiscard]] bool has_voice(VoiceId voice) const;
         [[nodiscard]] uint64_t clip_revision(AssetHandle clip) const;
         [[nodiscard]] Result<void, Error> update_voice(VoiceId voice, float volume, bool looping,
-            AudioCategory category, const AudioSpatialSettings& spatial);
-        void remove_voice(VoiceId voice);
+            AudioCategory category, const AudioSpatialSettings& spatial,
+            AudioEffectSettings effects = {});
+        void remove_voice(VoiceId voice, float fade_out = 0);
 
         const AssetRegistry& m_assets;
         AudioPlayback::Mode m_mode;

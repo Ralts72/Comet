@@ -3,6 +3,15 @@
 
 layout(local_size_x = 8, local_size_y = 8) in;
 layout(rgba32f, set = 0, binding = 3) uniform image2D accumulation;
+layout(rgba32f, set = 0, binding = 9) uniform writeonly image2D ray_guide;
+layout(rgba32f, set = 0, binding = 10) uniform writeonly image2D ray_reprojection;
+layout(std140, set = 0, binding = 12) uniform CameraData {
+    mat4 current;
+    mat4 previous;
+    vec4 medium;
+    vec4 medium_color;
+    uvec4 flags;
+} ray_camera;
 layout(push_constant) uniform Parameters {
     mat4 inverse_view_projection;
     vec4 background;
@@ -12,8 +21,74 @@ layout(push_constant) uniform Parameters {
 } parameters;
 
 #include "raytracing/scene.glsl"
+layout(std430, set = 0, binding = 11) readonly buffer PreviousTriangles { Triangle previous_triangles[]; };
+vec4 primary_guide, primary_motion;
+vec2 encode_normal(vec3 normal) {
+    normal /= abs(normal.x) + abs(normal.y) + abs(normal.z);
+    return normal.z >= 0 ? normal.xy : (1 - abs(normal.yx)) * mix(vec2(-1), vec2(1), greaterThanEqual(normal.xy, vec2(0)));
+}
+void write_primary(vec3 point, vec3 old_point, vec3 normal, float material) {
+    vec4 clip = ray_camera.current * vec4(point, 1);
+    vec4 old = ray_camera.previous * vec4(old_point, 1);
+    primary_guide = vec4(encode_normal(normal), clamp(clip.z / clip.w, 0, 1), material);
+    primary_motion = vec4(old.xy / max(abs(old.w), 1e-8) * vec2(.5, -.5) + .5,
+        old.z / max(abs(old.w), 1e-8), old.w > 0 && ray_camera.flags.x != 0u ? 1 : 0);
+}
+float phase_hg(float cosine, float g) {
+    float denominator = max(1 + g*g - 2*g*cosine, 1e-5);
+    return (1 - g*g) / (4 * PI * denominator * sqrt(denominator));
+}
+vec3 sample_phase(vec3 direction, float g) {
+    float u = random_float();
+    float fraction = (1 - g*g) / (1 - g + 2*g*u);
+    float cosine = abs(g) < .001 ? 1 - 2*u : (1 + g*g - fraction*fraction) / (2*g);
+    cosine = clamp(cosine, -1, 1);
+    float radius = sqrt(max(0, 1 - cosine*cosine)), angle = 2 * PI * random_float();
+    return local_direction(vec3(radius*cos(angle), radius*sin(angle), cosine), direction);
+}
+vec3 medium_lighting(vec3 position, vec3 direction) {
+    vec3 result = vec3(0);
+    for(uint i = 0; i < parameters.counts.y; ++i) {
+        Light light = lights[i];
+        vec3 incoming = -light.direction;
+        float distance = ray_camera.medium.z, attenuation = 1;
+        if(light.type != 0) {
+            vec3 delta = light.position - position;
+            distance = length(delta);
+            if(distance < .001 || distance >= light.range) continue;
+            incoming = delta / distance;
+            float falloff = max(1 - pow(distance / light.range, 4), 0);
+            attenuation = falloff*falloff / max(distance*distance, .01);
+            if(light.type == 2) {
+                float alignment = dot(-incoming, light.direction);
+                attenuation *= light.inner_cone_cos - light.outer_cone_cos > 1e-6
+                    ? smoothstep(light.outer_cone_cos, light.inner_cone_cos, alignment)
+                    : float(alignment >= light.outer_cone_cos);
+            }
+        }
+        uint index; vec3 barycentric;
+        float maximum = max(.001, distance - .001);
+        if(intersect_scene(position + incoming*.001, incoming, maximum, index, barycentric, true)) continue;
+        result += light.color * light.intensity * attenuation * exp(-ray_camera.medium.x * min(distance, ray_camera.medium.z))
+            * phase_hg(dot(direction, incoming), ray_camera.medium.y);
+    }
+    if(environment_size.x != 0 && parameters.environment.y > 0) {
+        vec3 incoming = sample_environment();
+        uint index; vec3 barycentric;
+        float maximum = ray_camera.medium.z;
+        if(!intersect_scene(position + incoming*.001, incoming, maximum, index, barycentric, true)) {
+            float phase = phase_hg(dot(direction, incoming), ray_camera.medium.y);
+            float pdf = environment_pdf(incoming);
+            result += environment_radiance(incoming, false) * phase * exp(-ray_camera.medium.x * ray_camera.medium.z)
+                * power_heuristic(pdf, phase) / max(pdf, 1e-8);
+        }
+    }
+    return result;
+}
 
-vec3 radiance(vec3 origin, vec3 direction, float primary_distance) {
+vec3 radiance(vec3 origin, vec3 direction, float primary_distance, float cone_spread) {
+    uint medium_stack[8];
+    int medium_count = 0;
     vec3 result = vec3(0);
     vec3 throughput = vec3(1);
     float previous_pdf = 0.0;
@@ -22,7 +97,26 @@ vec3 radiance(vec3 origin, vec3 direction, float primary_distance) {
     for(uint bounce = 0; bounce < parameters.dimensions.w; ++bounce) {
         float distance = bounce == 0 ? primary_distance : 1e30;
         uint index; vec3 barycentric;
-        if(!intersect_scene(origin, direction, distance, index, barycentric, false)) {
+        bool found = intersect_scene(origin, direction, distance, index, barycentric, false);
+        if(medium_count > 0)
+            throughput *= exp(-surfaces[medium_stack[medium_count - 1]].absorption.xyz * distance);
+        if(ray_camera.medium.x > 0 && medium_count == 0) {
+            float flight = -log(max(1 - random_float(), 1e-7)) / ray_camera.medium.x;
+            if(flight < min(distance, ray_camera.medium.z)) {
+                vec3 point = origin + direction * flight;
+                throughput *= ray_camera.medium_color.rgb;
+                result += throughput * medium_lighting(point, direction);
+                vec3 incoming = sample_phase(direction, ray_camera.medium.y);
+                previous_pdf = phase_hg(dot(direction, incoming), ray_camera.medium.y);
+                previous_delta = false;
+                previous_position = point;
+                origin = point + incoming * .001;
+                direction = incoming;
+                cone_spread = max(cone_spread, .5);
+                continue;
+            }
+        }
+        if(!found) {
             float weight = bounce > 0 && !previous_delta ? power_heuristic(previous_pdf, environment_pdf(direction)) : 1.0;
             result += throughput * environment_radiance(direction, bounce == 0) * weight;
             break;
@@ -32,9 +126,21 @@ vec3 radiance(vec3 origin, vec3 direction, float primary_distance) {
         vec3 geometric = normalize(cross(triangle.p[1].xyz - triangle.p[0].xyz, triangle.p[2].xyz - triangle.p[0].xyz));
         bool entering = dot(geometric, direction) < 0.0;
         if(!entering) geometric = -geometric;
+        ray_cone_width += distance * cone_spread;
         Surface surface = hit_surface(triangle, barycentric);
-        if(!entering && surface.emission_roughness.w >= 0.0)
-            surface.parameters.w = 1.0 / surface.parameters.w;
+        int medium_index = -1;
+        for(int m = 0; m < medium_count; ++m)
+            if(medium_stack[m] == triangle.surface.x) medium_index = m;
+        float current_ior = medium_count > 0 ? surfaces[medium_stack[medium_count - 1]].parameters.w : 1;
+        float destination_ior = surface.parameters.w;
+        if(!entering) {
+            destination_ior = medium_index > 0 ? surfaces[medium_stack[medium_index - 1]].parameters.w : 1;
+            if(medium_index < 0 && medium_count == 0) current_ior = surface.parameters.w;
+        }
+        if(surface.emission_roughness.w >= 0) {
+            if(transmission_weight(surface) > 0) surface.parameters.w = destination_ior / current_ior;
+            else if(!entering) surface.parameters.w = 1 / surface.parameters.w;
+        }
         vec3 normal = hit_normal(triangle, surface, barycentric, geometric, -direction);
         float emission_weight = 1.0;
         if(bounce > 0 && !previous_delta && parameters.counts.w > 0 && any(greaterThan(surface.emission_roughness.xyz, vec3(0))))
@@ -61,6 +167,16 @@ vec3 radiance(vec3 origin, vec3 direction, float primary_distance) {
             throughput *= value * abs(dot(normal, incoming)) / pdf;
             previous_pdf = pdf;
         }
+        if(dot(geometric, incoming) < 0 && transmission_weight(surface) > 0) {
+            if(entering) {
+                if(medium_count == 8) break;
+                medium_stack[medium_count++] = triangle.surface.x;
+            } else if(medium_index >= 0) {
+                for(int m = medium_index; m + 1 < medium_count; ++m) medium_stack[m] = medium_stack[m + 1];
+                --medium_count;
+            }
+        }
+        cone_spread = max(cone_spread, surface.emission_roughness.w * .5);
         previous_delta = delta;
         previous_position = position;
         if(bounce >= 2) {
@@ -88,7 +204,35 @@ void main() {
     vec4 far_point = parameters.inverse_view_projection * vec4(ndc, 1, 1);
     vec3 origin = near_point.xyz / near_point.w;
     vec3 delta = far_point.xyz / far_point.w - origin;
-    vec3 sample_value = radiance(origin, normalize(delta), length(delta));
+    if(ray_camera.flags.y != 0u) {
+        // 指导图使用确定性中心射线，不随抗锯齿抖动改变轮廓。
+        vec2 center_ndc = (vec2(pixel) + .5) / vec2(parameters.dimensions.xy) * 2 - 1;
+        center_ndc.y = -center_ndc.y;
+        vec4 start = parameters.inverse_view_projection * vec4(center_ndc, 0, 1);
+        vec4 end = parameters.inverse_view_projection * vec4(center_ndc, 1, 1);
+        vec3 start_point = start.xyz / start.w, end_point = end.xyz / end.w;
+        vec3 center_direction = normalize(end_point - start_point);
+        float distance = length(end_point - start_point);
+        uint index; vec3 barycentric;
+        if(intersect_scene(start_point, center_direction, distance, index, barycentric, false)) {
+            Triangle triangle = triangles[index];
+            Triangle old = previous_triangles[index];
+            vec3 normal = normalize(cross(triangle.p[1].xyz - triangle.p[0].xyz, triangle.p[2].xyz - triangle.p[0].xyz));
+            if(dot(normal, center_direction) > 0) normal = -normal;
+            Surface material = hit_surface(triangle, barycentric);
+            normal = hit_normal(triangle, material, barycentric, normal, -center_direction);
+            write_primary(start_point + center_direction * distance,
+                old.p[0].xyz * barycentric.x + old.p[1].xyz * barycentric.y + old.p[2].xyz * barycentric.z, normal, material.opacity.w);
+        } else {
+            write_primary(end_point, end_point, vec3(0, 0, 1), 0);
+            primary_guide.z = 1;
+        }
+        imageStore(ray_guide, ivec2(pixel), primary_guide);
+        imageStore(ray_reprojection, ivec2(pixel), primary_motion);
+    }
+    vec4 neighbor = parameters.inverse_view_projection * vec4(ndc + vec2(2.0 / float(parameters.dimensions.x), 0), 1, 1);
+    float cone_spread = length(normalize(neighbor.xyz / neighbor.w - origin) - normalize(delta));
+    vec3 sample_value = radiance(origin, normalize(delta), length(delta), cone_spread);
     if(any(isnan(sample_value)) || any(isinf(sample_value)))
         sample_value = vec3(0);
     vec3 mean = sample_value;

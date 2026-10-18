@@ -123,4 +123,20 @@ namespace Comet {
         }
     }
 
+    void Mesh::draw_indirect(
+        const CommandBuffer& command, const Buffer& commands, uint64_t offset) const {
+        if(m_index_count)
+            command.get().drawIndexedIndirect(
+                commands.get(), offset, 1, sizeof(vk::DrawIndexedIndirectCommand));
+        else
+            command.get().drawIndirect(
+                commands.get(), offset, 1, sizeof(vk::DrawIndexedIndirectCommand));
+    }
+
+    uint64_t Mesh::gpu_resident_bytes() const {
+        return (m_vertex_buffer ? m_vertex_buffer->allocation_bytes() : 0)
+               + (m_index_buffer ? m_index_buffer->allocation_bytes() : 0)
+               + (m_skin_buffer ? m_skin_buffer->allocation_bytes() : 0);
+    }
+
 }

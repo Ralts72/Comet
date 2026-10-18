@@ -31,7 +31,7 @@
 Project、Profile、玩家设置聚合、Application 与 Engine 是组合层。WindowSettings、VulkanSettings、RenderSettings、AudioSettings 等值类型仍归所属功能模块。
 模块接收自身所需参数，不接收完整 Config。Shader 编译工具是生成 Shader 所需的独立进程，复用 Foundation，不反向链接 engine。
 
-数学类型与运算统一从 `core/math_utils.h` 的 `Math` 使用；GLM 的头文件、类型名与扩展调用集中在该适配入口，包含矩阵分解与半精度编码。向量／矩阵仍直接复用 GLM 存储与运算，不承诺独立 ABI，也不复制一套数学库。Vulkan、Jolt、RmlUi、fastgltf 等具体接口保留在所属后端或导入适配中；玩法与内容接口只接收引擎领域值。
+数学类型与运算统一从 `core/math_utils.h` 的 `Math` 使用；GLM 的头文件、类型名与扩展调用集中在该适配入口，包含矩阵分解与半精度编码。向量／矩阵仍直接复用 GLM 存储与运算，不承诺独立 ABI，也不复制一套数学库。Vulkan、Jolt、RmlUi、fastgltf 等具体接口保留在所属后端或导入适配中；玩法与内容接口只接收引擎领域值。EnTT 留在 Scene 的 ECS 实现和提取／同步适配中，渲染提取器的头文件只存普通槽位索引；窗口的原生句柄只供图形和编辑器后端连接。既有模块检查同时约束直接包含和数学、JSON、物理、UI、模型导入的后端类型名。
 外部模型导入沿用 ModelImporter 的来源检查与依赖闭包，包含地形各层贴图及植被模型的伴随文件；编辑器只校验复制范围并管理暂存／发布，不另写 glTF 或地形依赖解析器。
 JSON 编解码沿用 `common/json.h` 的显式 DOM 别名、字段校验和 UTF-8 校验；节点继续借用 Parser，领域代码不引用 simdjson 名称或单独引入其头文件。
 
@@ -467,8 +467,8 @@ Compute 在绘制前生成普通 Mesh 顶点，主绘制、阴影及项目材质
 
 RmlContext 提供通用文档、字体、输入与 Overlay 适配，不认识 demo 动作或菜单。项目的 `ui` 清单决定页面和控制器入口。
 ProjectUi 负责清单装载与 UI 控制器桥接，宿主注入输入、显示、画质、音量的读取／保存／应用服务，以及本局状态的只读查询与命名事件发送。
-HUD、页面、主题、画质档位和游戏特有交互属于项目 RML／RCSS／Lua，App 是通用宿主。
-UI 的 `api.session_get(key)` 读取当前活动 RuntimeSession 的 bool／float／string；无游戏、缺键或非标量返回 nil。Demo 用它显示收集进度与完成提示；`api.emit(name)` 经 App／Editor 注入的回调排入当前 Scene 事件队列，场景脚本在 Runtime 更新中处理关卡／存档规则。无活动游戏不接受事件，未发布候选不能发送；UI 不借用 Scene 或物理对象，RenderThread 继续只消费已捕获的 UI 顶点。
+HUD、页面、主题、画质档位和游戏特有交互属于项目 RML／RCSS／Lua，App 是通用宿主。示例旅程由 GameData 章节表、关卡脚本与共用角色 Prefab 装配；中文说明复用 RmlUi 屏幕文字，尚无独立世界空间 3D 文字组件。`Project::included_scenes` 只声明必需的导出根，不使运行时提前加载所有关卡资源。
+UI 的 `api.session_get(key)` 读取当前活动 RuntimeSession 的 bool／float／string；无游戏、缺键或非标量返回 nil。Demo 用它显示收集进度与完成提示；`api.emit(name[, scalar])` 经 App／Editor 注入的回调排入当前 Scene 事件队列，场景脚本在 Runtime 更新中处理关卡／存档规则。无活动游戏不接受事件，未发布候选不能发送；UI 不借用 Scene 或物理对象，RenderThread 继续只消费已捕获的 UI 顶点。
 Engine 内置 `ui.settings(options)`，统一菜单、设置草稿、改键录入、焦点、显示确认和应用结果；底层仍调用既有输入事务及宿主设置服务。
 项目选择面板、控件身份、快捷键和扩展回调；普通页面仍可直接返回自己的控制器，不必使用设置模块。
 Editor Play 使用相同项目页面；ImGui 项目／玩家面板调用相同引擎业务能力，不复制存储规则。
@@ -580,7 +580,7 @@ Editor 的 LightingBakeInput 共用静态筛选、依赖指纹与状态缓存；
 
 CPU Worker 解码、预计算并写可重建 Artifact，任务受源大小、工作集、排队和完成预算约束。
 CPU 产品移交 RenderAssetFactory 创建 GPU 候选；App／Editor 注入 Engine 的资源工厂，由 RenderThread 创建，Main 等待结果后复核源版本和运行发布版本，再注册到 Registry。失败保留旧完整版本，过期候选不能覆盖或删除更新的预览，旧帧继续保活原资源。
-临时背景用于首次预览，不冒充完整资产就绪；App 启动准备明确等待所需产品。导出／驻留／streaming 仍按资产主线推进。
+临时背景用于首次预览，不冒充完整资产就绪；App 启动准备明确等待所需产品。导出闭包与运行单元的驻留需求分别管理，见下方资产与分块运行边界。
 
 静态 GI 的离线求解归现有 `tools/asset`：输入持有静态 CPU 网格、材质、灯光与环境，私有三角形 BVH 负责遮挡和漫反射路径。Engine 的 `IrradianceData` 只定义有界探针网格、卷积后球谐系数、方向距离矩、产品读写和采样，不持有烘焙任务或设备。`CpuCubeSampler` 由环境预过滤、HDR 编码和 GI 共用，按需解码 mip 并统一跨面采样；各 Worker 独占缓存，源数据寿命由调用者保证。
 
@@ -661,7 +661,7 @@ flowchart LR
 Registry 接纳与渲染域程序发布分别核对各自状态，不建立第二份资产身份或让文件通知直接切换 GPU 对象。
 
 关卡成功激活后，AssetManager 依据当前场景引用、数据库依赖与模型来源闭包释放无需求的 Registry 资源及 CPU 模型缓存；内置和未索引的外部身份保留。Editor 同时收集入关引用、原 Edit、当前 Play、选中资源和独立预览需求；活动材质编辑或引用收集失败时保守保留，不猜测 `use_count`。
-`residency()` 报告 Registry 和 CPU 模型缓存的条目数，`release_unused()` 返回卸载数量；GPU 分配与在途占用沿用渲染诊断。旧快照／音频 Voice 继续保活已移出 Registry 的对象，后台旧候选不能复活已取消需求。
+`residency()` 报告 Registry／CPU 模型条目与已注册 GPU 资产的分配字节；创建工厂随候选提供不可变字节元数据，注册表不读取 GPU 对象布局。相同资源对象的别名只计一次，环境内部共享纹理采用保守计数。`release_unused()` 返回卸载数量；在途旧代、渲染目标和堆预算仍由渲染诊断观测。旧快照／音频 Voice 继续保活已移出 Registry 的对象，后台旧候选不能复活已取消需求。
 
 ### 游戏数值资产
 
@@ -696,13 +696,19 @@ Presentation 的等待列表与 Queue 的提交／呈现参数转换使用调用
 SceneRenderer 保存编译计划，每帧绑定当前 slot 目标；resize 更换 owner，旧目标由在途帧保留。
 复用目标即使以 Undefined 丢弃旧内容，也保留先前逻辑使用者和该 slot 上一轮执行的读写范围；丢弃不代表资源从未使用过。
 图负责场景／阴影／Bloom 的同步；最终输出 RenderPass、ImGui、WSI 与 upload completion 仍有独立职责。
-跨描述裸内存别名、自动 pass 排序／裁剪与跨队列调度尚未实现。独立 RenderThread 已负责录制、提交与呈现。
+`IndependentCompute` 图仅接受 HostWrite／Undefined 的初始输入，避免把尚未执行的当帧 GPU 生产者错误移到另一队列。绑定验证和保活在 RenderThread 完成；自有录制回调及原生 barrier 可以交给既有 TaskScheduler，任务各用独立 CommandPool。最终提交先接纳全部录制结果；设备有额外 graphics 同族队列时独立提交并以 timeline 连接，只有一条队列时把命令缓冲按序放入原提交。GPU 实例剔除是实际消费者。
+跨描述裸内存别名、自动 pass 排序／裁剪、任意依赖 DAG 与跨队列族迁移尚未实现。所有队列提交和呈现仍由 RenderThread 串行协调，Worker 不访问 Scene 或提交队列。
 
 ## HDR 与 SDR 输出
 
 内部场景用线性 HDR，OutputPass 负责曝光、色调映射和输出编码；设备按完整格式／颜色空间组合协商 SDR 或 HDR。
 App 直接呈现，Editor 离屏后经 ImGui 呈现并固定 SDR；场景输出目标与颜色模式是两个参数。
 渲染比例缩放场景／Bloom，OutputPass 输出完整分辨率，游戏 UI 随后合成，UI 尺寸不随渲染比例缩小。
+窗口层按重叠面积选择当前屏幕并报告显示／DPI 版本；Main 在交接阶段传递变化，RenderThread 重新查询格式并更换交换链及 dependent。全屏定位使用当前屏幕。HDR 为扩展线性 sRGB，不是 HDR10／PQ；不支持的格式沿既有 SDR 协商处理。
+
+### 镜头效果
+
+LensSettings 是场景内容，经原有事务、序列化和渲染快照传递；SceneRenderer 按景深／运动模糊需求保留深度和运动目标。关闭 TAA 时仍可生成未抖动运动信息，相机切换拒绝旧矩阵。OutputPass 在色调映射前执行有界深度感知景深与快门积分；UI 不经过镜头效果。透明面和独立粒子没有自身运动矢量，多层景深不在首版范围。
 
 ### Bloom
 
@@ -762,4 +768,24 @@ WindSwaySystem 发布瞬时顶点弯曲，Scene 只存放并提取呈现输出�
 
 PoseConstraintSystem 一次装配手／脚目标与全身设置并发布姿态，避免先求解手部再重复全身求解；纯动画求解器在基础姿态及偏移之后进行有界的骨盆／躯干优化，再执行原有解析肢体约束。全身约束改变时从基础姿态重求，避免重复叠加已解出的脚部偏移。结果继续通过唯一的 AnimationPlayback 发布，固定步插值、挂点和蒙皮共用。AnimationPose 保存从未约束动画提取的根运动修正，约束重建和呈现插值复用它，避免把 IK 的骨盆偏移再次当作动画根运动移除。
 
-GPU 粒子静态网格碰撞在 Main 依据 Collider 快照及 CPU 网格版本构建，复用 RayScene 的 BVH 构建与 escape 链布局；不读取材质、光源或动画。Renderer 冻结只读几何到帧请求，模拟按几何代际上传紧凑三角形与节点 buffer，各帧槽保留其使用的旧代。遍历与三角形扫掠受显式访问预算限制。
+GPU 粒子网格碰撞在 Main 依据 Collider／显式视觉碰撞组件和 CPU 网格版本构建，复用 RayScene 的蒙皮／柔性顶点求值、BVH 与 escape 链布局；不读取材质或光源。变换与姿态变化 refit，并保留旧快照。Renderer 冻结只读几何到帧请求，模拟按几何代际上传紧凑三角形与节点 buffer，各帧槽保留其使用的旧代。遍历与三角形扫掠受显式访问预算限制。
+
+### 世界效果与分块内容
+
+SplineComponent 持有局部曲线及共用采样／切线函数；SplineMotionSystem 驱动普通实体或运动学刚体，镜头轨道暂借手动控制权并在完成／停止时恢复，完成事件发给跟随实体，项目脚本用它切回玩家镜头，不另维护开场时钟。WeatherSystem 复用 Runtime 时间，只拥有环境光强、风、雾的开关／密度／颜色、太阳强度／旋转和降水开关／速率／风；换目标或停止时仅恢复这些字段，保留其他系统对背景、光色、位置和粒子外观的修改。WindSwaySystem 只发布视觉弯曲，角色与显式交互体提供影响范围；WaterSurfaceSystem 只发布自己的材质参数，不创建第二套材质权威。移除水面组件仅清理它拥有的运行参数。
+
+StreamCellComponent 声明 Prefab、平移中心和加载／卸载距离。WorldStreamingSystem 选择空间需求，借用宿主注入的既有来源读取、资产准备／就绪查询和字节统计；System 不依赖 AssetManager 或 GPU 类型。候选只在资源就绪且预算允许时请求整棵子树，创建／销毁仍走 Runtime 阶段提交。单元失败保留其他活动内容，Stop 移除自身生成子树。
+
+运行引用收集使用 Resident 范围，跳过未激活单元的声明；导出收集保留完整可达单元闭包。App／Editor 将活动与准备中的单元引用加入现有需求释放流程，Editor 同时保留 Edit 基线和预览。当帧先退回离开区域的单元，等下次宿主维护回收资产需求后再准入新区域，避免用待卸载资源误判预算不足。卸载减少 Registry 需求，在途资源仍由帧槽保活；CPU 模型产品按文件缓存，不假装为文件内分页。
+
+### 动态射线输入与过滤
+
+RaySceneBuilder 生成不可变几何、材质、贴图 bank、环境和光源。蒙皮／风动更新共享拓扑并 refit；材质向量或水面相位变化不重新解码贴图，也不扫描全部三角形重建未变的发光面成员。纹理 bank 包含线性 mip 链，RaySceneBuffers 分别按身份复用 GPU 场景 buffer。
+
+路径追踪既可累积静态参考图，也可逐帧动态采样。RadianceFilter 位于 engine，App／Editor 共用；当前及上一代三角形的重心重投影、法线／深度／材质身份指导历史拒绝，再做空间双边过滤与方差裁剪。原始积分、过滤历史和显示参数各有独立寿命。介质栈、均匀散射和射线锥纹理 LOD 在积分器内处理，不注入光栅 GI 能量。
+
+当前仍是世界空间扁平软件 BVH，动态快照复制和上传成本随几何规模增长；共享 BLAS／TLAS、任意交错／异质介质、各向异性纹理足迹与硬件光追分别作为后续专题。
+
+### 音频效果
+
+AudioSystem 每帧最多执行八次 PhysicsAccess 遮挡射线，优先服务等待最久的声源；源与监听者沿层级找到所属刚体／角色，避免子节点被自身角色遮挡。结果平滑发布；AudioService 管理 Voice、停止淡出与尾音。miniaudio 后端的私有节点只消费原子效果参数，预分配延迟线、低通和衰减不访问 Scene，音频回调不分配容器。淡入／淡出由声部时钟执行，算法混响尾音保留到结束；场景停止仍统一清理运行音频。

@@ -37,7 +37,11 @@ function progress.sync(level)
 end
 
 function progress.save()
-    comet.save_checkpoint("course_start", keys)
+    if comet.session_get("tour.active") then
+        comet.emit("tour.save")
+    else
+        comet.save_checkpoint("course_start", keys)
+    end
 end
 
 function progress.collect(level, goal)

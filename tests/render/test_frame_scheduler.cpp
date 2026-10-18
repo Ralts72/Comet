@@ -2,6 +2,10 @@
 
 #include "graphics/device.h"
 #include "graphics/queue.h"
+#include "core/task_scheduler.h"
+#include "graphics/resource/buffer.h"
+#include <thread>
+#include <chrono>
 #include "support/engine_fixture.h"
 
 #include <array>
@@ -127,4 +131,52 @@ namespace Comet::Tests {
         frames.wait_for_all_slots();
         EXPECT_TRUE(newer_owner.expired());
     }
+    TEST_F(FrameSchedulerTest, IndependentRecordingOverlapsHostWorkAndWaitsBeforeGraphicsReads) {
+        auto& device = engine->get_renderer().get_render_context().get_device();
+        TaskScheduler tasks(2);
+        FrameScheduler frames(device, 1);
+        frames.set_task_scheduler(&tasks);
+        frames.initialize_swapchain_images(1);
+        frames.wait_for_current_slot();
+        frames.begin_frame(0);
+        auto buffer = Buffer::try_create_gpu_buffer(
+            device, Flags<BufferUsage>(BufferUsage::CopySrc) | BufferUsage::CopyDst, 4, true);
+        auto readback = Buffer::try_create_readback_buffer(device, 4);
+        ASSERT_TRUE(buffer);
+        ASSERT_TRUE(readback);
+        std::promise<std::thread::id> entered;
+        auto started = entered.get_future();
+        std::promise<void> proceed;
+        auto gate = proceed.get_future().share();
+        auto ready = frames.record_independent(
+            [buffer = buffer.value(), &entered, gate](CommandBuffer& command) {
+                entered.set_value(std::this_thread::get_id());
+                gate.wait();
+                command.get().fillBuffer(buffer->get(), 0, 4, 0xcafeu);
+                return Result<void, GraphicsError>::success();
+            });
+        ASSERT_TRUE(ready);
+        const auto observed = started.wait_for(std::chrono::seconds(2));
+        proceed.set_value();
+        ASSERT_EQ(observed, std::future_status::ready);
+        EXPECT_NE(started.get(), std::this_thread::get_id());
+        frames.retain_current_frame_resource(buffer.value());
+        frames.retain_current_frame_resource(readback.value());
+        auto& command = frames.get_current_command_buffer();
+        command.begin();
+        const vk::MemoryBarrier barrier(
+            vk::AccessFlagBits::eTransferWrite, vk::AccessFlagBits::eTransferRead);
+        command.get().pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
+            vk::PipelineStageFlagBits::eTransfer, {}, barrier, {}, {});
+        command.get().copyBuffer(
+            buffer.value()->get(), readback.value()->get(), vk::BufferCopy(0, 0, 4));
+        command.end();
+        ASSERT_TRUE(frames.submit({}, {}));
+        frames.end_frame();
+        frames.wait_for_all_slots();
+        uint32_t result = 0;
+        ASSERT_TRUE(readback.value()->read(std::as_writable_bytes(std::span(&result, 1))));
+        EXPECT_EQ(result, 0xcafeu);
+    }
+
 }

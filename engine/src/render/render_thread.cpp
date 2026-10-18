@@ -1,3 +1,5 @@
+#include "render/resource/mesh.h"
+#include "render/resource/texture.h"
 #include "render_thread.h"
 #include "render/renderer.h"
 #include "render/resource/render_resources.h"
@@ -139,4 +141,11 @@ namespace Comet {
             m_completed.notify_one();
         }
     }
+    uint64_t RenderThread::gpu_bytes(const std::shared_ptr<Mesh>& value) const {
+        return value ? value->gpu_resident_bytes() : 0;
+    }
+    uint64_t RenderThread::gpu_bytes(const std::shared_ptr<Texture>& value) const {
+        return value ? value->gpu_resident_bytes() : 0;
+    }
+
 }

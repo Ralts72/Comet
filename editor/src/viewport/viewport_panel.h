@@ -60,6 +60,13 @@ namespace CometEditor {
             return m_irradiance_debug;
         }
         [[nodiscard]] bool path_trace_enabled() const { return m_path_trace; }
+        [[nodiscard]] bool path_trace_override() const { return m_path_trace_override; }
+        void follow_scene_path_trace(const Comet::PathTraceSettings& settings) {
+            if(!m_path_trace_override) {
+                m_path_trace = settings.enabled;
+                m_path_trace_settings = settings;
+            }
+        }
         [[nodiscard]] const Comet::PathTraceSettings& path_trace_settings() const {
             return m_path_trace_settings;
         }
@@ -143,6 +150,7 @@ namespace CometEditor {
         Comet::IrradianceDebugMode m_irradiance_debug = Comet::IrradianceDebugMode::Off;
         bool m_game_ui_reload_requested = false;
         bool m_path_trace = false;
+        bool m_path_trace_override = false;
         bool m_path_trace_restart = false;
         bool m_path_trace_export = false;
         Comet::PathTraceSettings m_path_trace_settings;

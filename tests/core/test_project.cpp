@@ -85,6 +85,27 @@ namespace Comet::Tests {
         EXPECT_TRUE(std::filesystem::is_empty(root / "assets"));
     }
 
+    TEST_F(ProjectTest, RequiredExportScenesSurviveOtherProjectEditsAndRejectInvalidLists) {
+        auto contents = manifest();
+        contents.pop_back();
+        contents += R"(,"included_scenes":["scenes/main.scene","scenes/second.scene"]})";
+        write(contents);
+        auto project = Project::load(root);
+        ASSERT_TRUE(project) << project.error();
+        ASSERT_EQ(project.value().included_scenes().size(), 2u);
+        ASSERT_TRUE(project.value().save_name("Renamed"));
+        auto reopened = Project::load(root);
+        ASSERT_TRUE(reopened);
+        EXPECT_EQ(reopened.value().included_scenes(), project.value().included_scenes());
+        for(const auto* entries : {R"(["../escape.scene"])", R"(["/tmp/a.scene"])", R"(["a.txt"])",
+                R"(["a.scene","./a.scene"])", R"([true])", "null"}) {
+            auto invalid = manifest();
+            invalid.pop_back();
+            write(invalid + ",\"included_scenes\":" + entries + "}");
+            EXPECT_FALSE(Project::load(root)) << entries;
+        }
+    }
+
     TEST_F(ProjectTest, DisplayDefaultsSurviveOtherProjectEditsAndFailedSaves) {
         write(manifest());
         auto loaded = Project::load(root);

@@ -113,18 +113,23 @@ namespace Comet {
                     {"metallic_roughness_texture", 3, "Metallic Roughness Texture", "", true},
                     {"occlusion_texture", 4, "Occlusion Texture", "", true},
                     {"emissive_texture", 5, "Emissive Texture", "", true}},
-                64,
+                96,
                 std::vector<ScalarProperty>{{"metallic", 16, 0, 0, 1, 0.01f, "Metallic"},
                     {"roughness", 20, 0.5f, 0.045f, 1, 0.01f, "Roughness"},
                     {"normal_scale", 24, 1, 0, 4, 0.01f, "Normal Scale"},
                     {"occlusion_strength", 28, 1, 0, 1, 0.01f, "Occlusion Strength"},
                     {"emissive_strength", 48, 1, 0, 100, 0.05f, "Emissive Strength"},
                     {"transmission", 52, 0, 0, 1, 0.01f, "透射率（路径追踪）"},
-                    {"ior", 56, 1.5f, 1, 3, 0.01f, "折射率（路径追踪）"}},
+                    {"ior", 56, 1.5f, 1, 3, 0.01f, "折射率（路径追踪）"},
+                    {"attenuation_distance", 60, 1, .001f, 100000, .1f, "吸收参考距离（米）"}},
                 std::vector<VectorProperty>{{"base_color", 0, {0.8f, 0.8f, 0.8f, 1},
                                                 VectorProperty::Semantic::Color, "Base Color"},
                     {"emissive_color", 32, {0, 0, 0, 1}, VectorProperty::Semantic::Color,
-                        "Emissive Color"}}))};
+                        "Emissive Color"},
+                    {"attenuation_color", 64, {1, 1, 1, 1}, VectorProperty::Semantic::Color,
+                        "吸收后颜色（路径追踪）"},
+                    {"water_parameters", 80, {0, 0, 0, 0}, VectorProperty::Semantic::Vector,
+                        "水面波纹（强度／频率／相位／启用）"}}))};
         return layouts;
     }
 

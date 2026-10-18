@@ -24,9 +24,7 @@ namespace Comet {
             }
             return value;
         }
-        Math::Vec4 projection_coefficients(const Math::Mat4& projection) {
-            return {projection[2][2], projection[3][2], projection[2][3], projection[3][3]};
-        }
+
     }
 
     TemporalPass::TemporalPass(Device& device) : m_device(device) {}
@@ -111,18 +109,12 @@ namespace Comet {
             }
             m_initialized_serial = serial;
         }
-        const auto previous_world = Math::inverse(m_unjittered.view);
-        const auto current_world = Math::inverse(camera.view);
-        const bool cut =
-            Math::distance(Math::Vec3(previous_world[3]), Math::Vec3(current_world[3])) > 5
-            || Math::dot(Math::Vec3(previous_world[2]), Math::Vec3(current_world[2])) < .75f;
         m_history_valid = m_recorded_serial && m_recorded_serial + 1 == serial
-                          && m_lifetime == scene_lifetime
-                          && m_unjittered.projection == camera.projection && !cut;
+                          && m_lifetime == scene_lifetime && !camera.is_cut_from(m_unjittered);
         Camera prepared{camera};
         if(m_history_valid) {
             prepared.previous = m_camera.projection * m_camera.view;
-            prepared.previous_projection = projection_coefficients(m_camera.projection);
+            prepared.previous_projection = m_camera.depth_parameters();
         } else
             m_sample = 0;
         const uint32_t sample = (m_sample++ % 8) + 1;
@@ -170,8 +162,8 @@ namespace Comet {
             Math::Vec2 jitter_delta;
             uint32_t valid;
         };
-        const Parameters parameters{projection_coefficients(m_camera.projection), m_jitter_delta,
-            m_history_valid ? 1u : 0u};
+        const Parameters parameters{
+            m_camera.depth_parameters(), m_jitter_delta, m_history_valid ? 1u : 0u};
         command.push_constants(*m_pipeline->get_layout(), Flags<ShaderStage>(ShaderStage::Fragment),
             0, &parameters, 28);
         command.draw(3);

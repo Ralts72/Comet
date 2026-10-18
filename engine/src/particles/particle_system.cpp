@@ -144,7 +144,14 @@ namespace Comet {
             const float radius = std::sqrt(std::max(0.0f, 1 - y * y));
             const float angle = 2 * Math::PI * random_unit(emitter);
             const Math::Vec3 direction{radius * std::cos(angle), y, radius * std::sin(angle)};
-            Particle particle{Math::Vec3(emitter.pose[3]),
+            const auto offset =
+                settings.spawn_extents == Math::Vec3(0)
+                    ? Math::Vec3(0)
+                    : (Math::Vec3(random_unit(emitter), random_unit(emitter), random_unit(emitter))
+                              * 2.f
+                          - Math::Vec3(1))
+                          * settings.spawn_extents;
+            Particle particle{Math::Vec3(emitter.pose * Math::Vec4(offset, 1)),
                 Math::Vec3(emitter.pose * Math::Vec4(direction, 0)) * settings.speed};
             if(delta > 0) {
                 // 连续发射保留本固定步内的出生时间，而不是整批在步末出生。
@@ -162,11 +169,7 @@ namespace Comet {
     }
 
     bool ParticleSystem::configure(Emitter& emitter, const ParticleEmitterComponent& settings) {
-        auto previous = emitter.settings;
-        previous.enabled = settings.enabled;
-        const bool reset =
-            emitter.settings.simulation != settings.simulation
-            || (settings.simulation == ParticleSimulation::GPU && previous != settings);
+        const bool reset = settings.requires_restart(emitter.settings);
         if(emitter.settings != settings && (!emitter.particles.empty() || emitter.gpu_count))
             m_dirty = true;
         if(reset) {

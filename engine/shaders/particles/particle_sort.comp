@@ -4,6 +4,7 @@ struct Particle { vec4 position_size; vec4 color; vec4 uv_rect; vec4 sort_key; }
 layout(std430,set=0,binding=1) readonly buffer Parameters {
     mat4 view;
     vec4 acceleration_lifetime, start_color, end_color, sizes_speed_cone, atlas, animation;
+    vec4 spawn_extents;
     uvec4 counts;
 } parameters;
 layout(std430,set=0,binding=2) buffer Instances { Particle particles[]; };

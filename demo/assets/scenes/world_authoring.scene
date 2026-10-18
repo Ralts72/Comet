@@ -1,0 +1,791 @@
+{
+  "version": 3,
+  "environment": {
+    "asset": 0,
+    "background": false,
+    "intensity": 1,
+    "rotation": 0,
+    "lighting": false,
+    "lighting_intensity": 1,
+    "background_color": [0.3, 0.4, 0.5],
+    "fog_enabled": false,
+    "fog_color": [0.5, 0.5, 0.5],
+    "fog_start": 10,
+    "fog_end": 100,
+    "realtime_gi_budget": 32
+  },
+  "post_process": {
+    "exposure": 1,
+    "bloom_enabled": true,
+    "bloom_strength": 0.15,
+    "bloom_threshold": 1,
+    "ao_enabled": false,
+    "weighted_oit": false,
+    "ao_radius": 0.5,
+    "ao_strength": 1
+  },
+  "entities": [
+    {
+      "uuid": "053ccf36-7a83-51b3-ad0b-9b8951f74364",
+      "components": {
+        "name": "柔性植物 7",
+        "transform": {
+          "translation": [-4.5, 1, 0.4],
+          "rotation": [0, 0, 0],
+          "scale": [0.18, 2, 0.18]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
+        },
+        "wind_sway": {
+          "enabled": true,
+          "amplitude": [4, 0, 3],
+          "flexible": true,
+          "height": 1,
+          "interaction_radius": 1,
+          "interaction_strength": 25,
+          "wind_response": 1,
+          "frequency": 0.7
+        }
+      }
+    },
+    {
+      "uuid": "0a2edd55-9a34-59a8-b1e5-108e3ead22e1",
+      "components": {
+        "name": "柔性植物 6",
+        "transform": {
+          "translation": [-4.5, 1, -0.5],
+          "rotation": [0, 0, 0],
+          "scale": [0.18, 2, 0.18]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
+        },
+        "wind_sway": {
+          "enabled": true,
+          "amplitude": [4, 0, 3],
+          "flexible": true,
+          "height": 1,
+          "interaction_radius": 1,
+          "interaction_strength": 25,
+          "wind_response": 1,
+          "frequency": 0.7
+        }
+      }
+    },
+    {
+      "uuid": "249875c1-8913-5457-be45-838e24f6d63e",
+      "components": {
+        "name": "柔性植物 12",
+        "transform": {
+          "translation": [-4.5, 1, 4.9],
+          "rotation": [0, 0, 0],
+          "scale": [0.18, 2, 0.18]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
+        },
+        "wind_sway": {
+          "enabled": true,
+          "amplitude": [4, 0, 3],
+          "flexible": true,
+          "height": 1,
+          "interaction_radius": 1,
+          "interaction_strength": 25,
+          "wind_response": 1,
+          "frequency": 0.7
+        }
+      }
+    },
+    {
+      "uuid": "374d23ec-0f19-506d-962f-f7dacc36fc55",
+      "components": {
+        "name": "太阳",
+        "transform": {
+          "translation": [0, 0, 0],
+          "rotation": [-45, 35, 0],
+          "scale": [1, 1, 1]
+        },
+        "light": {
+          "type": "directional",
+          "enabled": true,
+          "casts_shadow": true,
+          "shadow_distance": 90,
+          "color": [1, 0.94, 0.85],
+          "intensity": 3,
+          "range": 10,
+          "inner_angle": 20,
+          "outer_angle": 30
+        }
+      }
+    },
+    {
+      "uuid": "4ffbbc12-10f8-5303-a3f8-428e9974290e",
+      "components": {
+        "name": "柔性植物 10",
+        "transform": {
+          "translation": [-4.5, 1, 3.1],
+          "rotation": [0, 0, 0],
+          "scale": [0.18, 2, 0.18]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
+        },
+        "wind_sway": {
+          "enabled": true,
+          "amplitude": [4, 0, 3],
+          "flexible": true,
+          "height": 1,
+          "interaction_radius": 1,
+          "interaction_strength": 25,
+          "wind_response": 1,
+          "frequency": 0.7
+        }
+      }
+    },
+    {
+      "uuid": "513e713e-476b-5645-92e0-3074053ca32d",
+      "components": {
+        "name": "柔性植物 5",
+        "transform": {
+          "translation": [-4.5, 1, -1.4],
+          "rotation": [0, 0, 0],
+          "scale": [0.18, 2, 0.18]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
+        },
+        "wind_sway": {
+          "enabled": true,
+          "amplitude": [4, 0, 3],
+          "flexible": true,
+          "height": 1,
+          "interaction_radius": 1,
+          "interaction_strength": 25,
+          "wind_response": 1,
+          "frequency": 0.7
+        }
+      }
+    },
+    {
+      "uuid": "53822f3b-2b66-5215-a9d3-661a57aa6ee4",
+      "components": {
+        "name": "柔性植物 9",
+        "transform": {
+          "translation": [-4.5, 1, 2.2],
+          "rotation": [0, 0, 0],
+          "scale": [0.18, 2, 0.18]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
+        },
+        "wind_sway": {
+          "enabled": true,
+          "amplitude": [4, 0, 3],
+          "flexible": true,
+          "height": 1,
+          "interaction_radius": 1,
+          "interaction_strength": 25,
+          "wind_response": 1,
+          "frequency": 0.7
+        }
+      }
+    },
+    {
+      "uuid": "6aa44e07-d7bf-52a5-9e08-b91aedc0d5d6",
+      "components": {
+        "name": "水面",
+        "transform": {
+          "translation": [0, 0, 0],
+          "rotation": [0, 0, 0],
+          "scale": [8, 0.05, 8]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 6729301842000001000,
+          "contributes_to_gi": true
+        },
+        "water_surface": {
+          "enabled": true,
+          "amplitude": 0.08,
+          "wavelength": 4,
+          "speed": 1
+        }
+      }
+    },
+    {
+      "uuid": "7d2f4e21-6bae-5d58-a76b-aa1c72b004e5",
+      "components": {
+        "name": "柔性植物 3",
+        "transform": {
+          "translation": [-4.5, 1, -3.2],
+          "rotation": [0, 0, 0],
+          "scale": [0.18, 2, 0.18]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
+        },
+        "wind_sway": {
+          "enabled": true,
+          "amplitude": [4, 0, 3],
+          "flexible": true,
+          "height": 1,
+          "interaction_radius": 1,
+          "interaction_strength": 25,
+          "wind_response": 1,
+          "frequency": 0.7
+        }
+      }
+    },
+    {
+      "uuid": "820c1465-b72a-5055-83dd-cbc9b8d5f09a",
+      "components": {
+        "name": "镜头轨道",
+        "transform": {
+          "translation": [0, 0, 0],
+          "rotation": [0, 0, 0],
+          "scale": [1, 1, 1]
+        },
+        "spline": {
+          "start": [9, 5, 14],
+          "control_a": [8, 5, 12],
+          "control_b": [7, 4, 11],
+          "end": [6, 4, 10]
+        }
+      }
+    },
+    {
+      "uuid": "8281dddb-1fe5-54a6-8000-4c2c56a42519",
+      "components": {
+        "name": "天气控制",
+        "transform": {
+          "translation": [0, 0, 0],
+          "rotation": [0, 0, 0],
+          "scale": [1, 1, 1]
+        },
+        "weather": {
+          "enabled": true,
+          "hour": 14,
+          "day_length": 60,
+          "overcast": 0.3,
+          "wind": [2, 0, 0.5],
+          "fog_density": 0.012,
+          "fog_color": [0.65, 0.7, 0.75],
+          "sun": {
+            "entity": "374d23ec-0f19-506d-962f-f7dacc36fc55"
+          },
+          "sun_intensity": 3,
+          "sun_yaw": 45,
+          "precipitation": {
+            "entity": "a3ece228-323f-5a7a-8eb1-f8b9aa5616f1"
+          },
+          "precipitation_amount": 0.5
+        }
+      }
+    },
+    {
+      "uuid": "8a780b05-be13-5086-b594-9e89377a5a4c",
+      "components": {
+        "name": "柔性植物 8",
+        "transform": {
+          "translation": [-4.5, 1, 1.3],
+          "rotation": [0, 0, 0],
+          "scale": [0.18, 2, 0.18]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
+        },
+        "wind_sway": {
+          "enabled": true,
+          "amplitude": [4, 0, 3],
+          "flexible": true,
+          "height": 1,
+          "interaction_radius": 1,
+          "interaction_strength": 25,
+          "wind_response": 1,
+          "frequency": 0.7
+        }
+      }
+    },
+    {
+      "uuid": "a118813e-0174-5837-8bc2-d899db06208c",
+      "components": {
+        "name": "柔性植物 11",
+        "transform": {
+          "translation": [-4.5, 1, 4],
+          "rotation": [0, 0, 0],
+          "scale": [0.18, 2, 0.18]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
+        },
+        "wind_sway": {
+          "enabled": true,
+          "amplitude": [4, 0, 3],
+          "flexible": true,
+          "height": 1,
+          "interaction_radius": 1,
+          "interaction_strength": 25,
+          "wind_response": 1,
+          "frequency": 0.7
+        }
+      }
+    },
+    {
+      "uuid": "a3ece228-323f-5a7a-8eb1-f8b9aa5616f1",
+      "components": {
+        "name": "降水发射器",
+        "transform": {
+          "translation": [0, 10, 0],
+          "rotation": [0, 0, 0],
+          "scale": [1, 1, 1]
+        },
+        "particle_emitter": {
+          "simulation": "gpu",
+          "gpu_dynamics": true,
+          "gpu_world_collision": false,
+          "mesh_collision_budget": 256,
+          "vector_field": 0,
+          "vector_field_strength": 1,
+          "wind": [0, 0, 0],
+          "vortex_center": [0, 0, 0],
+          "vortex_axis": [0, 1, 0],
+          "vortex_strength": 0,
+          "vortex_radius": 5,
+          "turbulence": 0,
+          "turbulence_frequency": 1,
+          "texture": 0,
+          "blend": "alpha",
+          "soft_distance": 0,
+          "atlas_columns": 1,
+          "atlas_rows": 1,
+          "frame_count": 1,
+          "frame_rate": 0,
+          "loop_animation": false,
+          "collision": "kill",
+          "collision_radius": 0.025,
+          "restitution": 0.5,
+          "friction": 0.1,
+          "collision_layers": 4294967295,
+          "enabled": true,
+          "capacity": 8192,
+          "seed": 1,
+          "burst": 0,
+          "rate": 2000,
+          "lifetime": 2,
+          "speed": 0,
+          "spread": 0,
+          "acceleration": [0, -20, 0],
+          "start_color": [0.6, 0.75, 1, 0.7],
+          "end_color": [0.6, 0.75, 1, 0],
+          "spawn_extents": [12, 0.5, 12],
+          "start_size": 0.025,
+          "end_size": 0.025
+        }
+      }
+    },
+    {
+      "uuid": "bd9105c6-a49a-5a48-a8b2-dae959ec4726",
+      "components": {
+        "name": "柔性植物 4",
+        "transform": {
+          "translation": [-4.5, 1, -2.3],
+          "rotation": [0, 0, 0],
+          "scale": [0.18, 2, 0.18]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
+        },
+        "wind_sway": {
+          "enabled": true,
+          "amplitude": [4, 0, 3],
+          "flexible": true,
+          "height": 1,
+          "interaction_radius": 1,
+          "interaction_strength": 25,
+          "wind_response": 1,
+          "frequency": 0.7
+        }
+      }
+    },
+    {
+      "uuid": "c5e73545-e086-5d77-a090-6b4365f0c9e8",
+      "components": {
+        "name": "柔性植物 2",
+        "transform": {
+          "translation": [-4.5, 1, -4.1],
+          "rotation": [0, 0, 0],
+          "scale": [0.18, 2, 0.18]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
+        },
+        "wind_sway": {
+          "enabled": true,
+          "amplitude": [4, 0, 3],
+          "flexible": true,
+          "height": 1,
+          "interaction_radius": 1,
+          "interaction_strength": 25,
+          "wind_response": 1,
+          "frequency": 0.7
+        }
+      }
+    },
+    {
+      "uuid": "c6085a40-66be-5f07-b51f-ef6d7b605029",
+      "components": {
+        "name": "植被交互体",
+        "transform": {
+          "translation": [-5, 0, -5],
+          "rotation": [0, 0, 0],
+          "scale": [0.6, 1.6, 0.6]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
+        },
+        "spline_follower": {
+          "path": {
+            "entity": "da749f8e-d803-59e7-800e-97e9d5bac3c8"
+          },
+          "playing": true,
+          "duration": 8,
+          "loop": true,
+          "orient": false,
+          "ease": false,
+          "skip_action": "",
+          "finished_event": ""
+        },
+        "vegetation_interactor": {
+          "radius": 0.8,
+          "height": 2
+        },
+        "rigid_body": {
+          "motion": "kinematic",
+          "mass_mode": "mass",
+          "mass": 1,
+          "density": 1000,
+          "continuous_collision": false
+        },
+        "collider": {
+          "shape": "box",
+          "mesh": 0,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
+          "half_extents": [0.5, 0.5, 0.5],
+          "radius": 0.5,
+          "height": 2,
+          "is_trigger": false,
+          "friction": 0.2,
+          "restitution": 0
+        }
+      }
+    },
+    {
+      "uuid": "da749f8e-d803-59e7-800e-97e9d5bac3c8",
+      "components": {
+        "name": "交互体路径",
+        "transform": {
+          "translation": [-5, 0, 0],
+          "rotation": [0, 0, 0],
+          "scale": [1, 1, 1]
+        },
+        "spline": {
+          "start": [0, 0, -5],
+          "control_a": [0, 0, -2],
+          "control_b": [0, 0, 2],
+          "end": [0, 0, 5]
+        }
+      }
+    },
+    {
+      "uuid": "da75bc97-99ab-5946-b87c-55c097a51ed9",
+      "components": {
+        "name": "主相机",
+        "transform": {
+          "translation": [9, 5, 14],
+          "rotation": [-18, 25, 0],
+          "scale": [1, 1, 1]
+        },
+        "spline_follower": {
+          "path": {
+            "entity": "820c1465-b72a-5055-83dd-cbc9b8d5f09a"
+          },
+          "playing": true,
+          "duration": 6,
+          "loop": false,
+          "orient": false,
+          "ease": true,
+          "skip_action": "game.skip_cutscene",
+          "finished_event": "cutscene.finished"
+        },
+        "camera": {
+          "primary": false,
+          "projection": "perspective",
+          "fov": 55,
+          "orthographic_height": 10,
+          "near_clip": 0.1,
+          "far_clip": 180
+        },
+        "camera_controller": {
+          "enabled": false,
+          "mode": "free",
+          "move_speed": 5,
+          "look_sensitivity": 0.2,
+          "look_speed": 120,
+          "orbit_distance": 6,
+          "orbit_height": 1.2,
+          "orbit_min_distance": 1.5,
+          "orbit_max_distance": 12,
+          "orbit_zoom_step": 0.5,
+          "collision_radius": 0.15
+        },
+        "script": {
+          "asset": 6729301842000001201,
+          "parameters": {
+            "camera": {
+              "entity": "4d927010-8cba-4b92-b3ae-82728e86e7ad"
+            },
+            "catalog": "6729301842000001200",
+            "chapter": 35,
+            "intro": true,
+            "player": {
+              "entity": "ffff3334-2f0e-46b4-a788-5e42e88564ba"
+            },
+            "reference_camera": {
+              "entity": "da75bc97-99ab-5946-b87c-55c097a51ed9"
+            }
+          }
+        }
+      }
+    },
+    {
+      "uuid": "e9b2d7e1-e9e2-54bd-94bf-9bdb28840caa",
+      "components": {
+        "name": "柔性植物 1",
+        "transform": {
+          "translation": [-4.5, 1, -5],
+          "rotation": [0, 0, 0],
+          "scale": [0.18, 2, 0.18]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
+        },
+        "wind_sway": {
+          "enabled": true,
+          "amplitude": [4, 0, 3],
+          "flexible": true,
+          "height": 1,
+          "interaction_radius": 1,
+          "interaction_strength": 25,
+          "wind_response": 1,
+          "frequency": 0.7
+        }
+      }
+    },
+    {
+      "uuid": "f43a0e48-39ee-59a7-8d6b-c62676f9445a",
+      "components": {
+        "name": "地面",
+        "transform": {
+          "translation": [0, -0.3, 0],
+          "rotation": [0, 0, 0],
+          "scale": [28, 0.5, 28]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
+        },
+        "rigid_body": {
+          "motion": "static",
+          "mass_mode": "mass",
+          "mass": 1,
+          "density": 1000,
+          "continuous_collision": false
+        },
+        "collider": {
+          "shape": "box",
+          "mesh": 0,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
+          "half_extents": [0.5, 0.5, 0.5],
+          "radius": 0.5,
+          "height": 2,
+          "is_trigger": false,
+          "friction": 0.2,
+          "restitution": 0
+        }
+      }
+    },
+    {
+      "uuid": "ffff3334-2f0e-46b4-a788-5e42e88564ba",
+      "components": {
+        "name": "旅人"
+      },
+      "prefab": {
+        "asset": 6729301842000001202,
+        "entities": {
+          "3078a5ce-543c-4df2-90d1-d8c7b1e2769c": "2102139c-642d-41f0-a10d-f3aac695a04b",
+          "8c7518af-a8a2-472c-8f21-d63fc11b2b33": "3a91e203-e031-49c1-9aae-7fc5b9fead00",
+          "d3bb4700-17b7-4112-b03d-44d354eabaae": "ffff3334-2f0e-46b4-a788-5e42e88564ba",
+          "dd8d0ac8-87a1-485b-96f6-84a127b948a0": "4d927010-8cba-4b92-b3ae-82728e86e7ad"
+        },
+        "changes": [
+          {
+            "base": {
+              "parent": "00000000-0000-0000-0000-000000000000",
+              "entity": {
+                "uuid": "d3bb4700-17b7-4112-b03d-44d354eabaae",
+                "components": {
+                  "name": "旅人",
+                  "script": {
+                    "asset": 6729301842000000023,
+                    "parameters": {
+                      "camera": {
+                        "entity": "dd8d0ac8-87a1-485b-96f6-84a127b948a0"
+                      },
+                      "visual": {
+                        "entity": "3078a5ce-543c-4df2-90d1-d8c7b1e2769c"
+                      }
+                    }
+                  },
+                  "transform": {
+                    "translation": [0, 0, 0],
+                    "rotation": [0, 0, 0],
+                    "scale": [1, 1, 1]
+                  },
+                  "audio_source": {
+                    "clip": 8247160951280394421,
+                    "play_on_start": false,
+                    "loop": false,
+                    "category": "effects",
+                    "volume": 0.2,
+                    "spatial": false,
+                    "min_distance": 1,
+                    "max_distance": 30,
+                    "rolloff": 1,
+                    "fade_in": 0,
+                    "fade_out": 0,
+                    "reverb_mix": 0,
+                    "reverb_decay": 1.2,
+                    "occlusion_strength": 0.75,
+                    "occlusion": false,
+                    "occlusion_layers": 4294967295
+                  },
+                  "character_controller": {
+                    "enabled": true,
+                    "radius": 0.3,
+                    "height": 1.8,
+                    "move_speed": 4,
+                    "run_speed": 6,
+                    "crouch_speed": 2,
+                    "crouch_height_ratio": 0.6,
+                    "air_control": 1,
+                    "push_force": 100,
+                    "jump_speed": 5,
+                    "max_slope_angle": 45,
+                    "step_height": 0.3,
+                    "ground_snap_distance": 0.3,
+                    "collision_layer": 1,
+                    "collision_mask": 4294967295,
+                    "gravity_scale": 1
+                  }
+                }
+              }
+            },
+            "value": {
+              "parent": "00000000-0000-0000-0000-000000000000",
+              "entity": {
+                "uuid": "ffff3334-2f0e-46b4-a788-5e42e88564ba",
+                "components": {
+                  "name": "旅人",
+                  "script": {
+                    "asset": 6729301842000000023,
+                    "parameters": {
+                      "camera": {
+                        "entity": "4d927010-8cba-4b92-b3ae-82728e86e7ad"
+                      },
+                      "visual": {
+                        "entity": "2102139c-642d-41f0-a10d-f3aac695a04b"
+                      }
+                    }
+                  },
+                  "transform": {
+                    "translation": [4, 0, 7],
+                    "rotation": [0, 0, 0],
+                    "scale": [1, 1, 1]
+                  },
+                  "audio_source": {
+                    "clip": 8247160951280394421,
+                    "play_on_start": false,
+                    "loop": false,
+                    "category": "effects",
+                    "volume": 0.2,
+                    "spatial": false,
+                    "min_distance": 1,
+                    "max_distance": 30,
+                    "rolloff": 1,
+                    "fade_in": 0,
+                    "fade_out": 0,
+                    "reverb_mix": 0,
+                    "reverb_decay": 1.2,
+                    "occlusion_strength": 0.75,
+                    "occlusion": false,
+                    "occlusion_layers": 4294967295
+                  },
+                  "character_controller": {
+                    "enabled": true,
+                    "radius": 0.3,
+                    "height": 1.8,
+                    "move_speed": 4,
+                    "run_speed": 6,
+                    "crouch_speed": 2,
+                    "crouch_height_ratio": 0.6,
+                    "air_control": 1,
+                    "push_force": 100,
+                    "jump_speed": 5,
+                    "max_slope_angle": 45,
+                    "step_height": 0.3,
+                    "ground_snap_distance": 0.3,
+                    "collision_layer": 1,
+                    "collision_mask": 4294967295,
+                    "gravity_scale": 1
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "removed": [],
+        "added": []
+      }
+    }
+  ]
+}

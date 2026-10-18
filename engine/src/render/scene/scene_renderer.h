@@ -97,8 +97,8 @@ namespace Comet {
             bool gpu_dynamics = false;
             [[nodiscard]] bool needs_depth(
                 const PostProcessSettings& settings, bool temporal) const {
-                return settings.uses_ao() || temporal || soft_particles || decals || outline
-                       || weighted_transparency || gpu_dynamics;
+                return settings.uses_ao() || settings.uses_lens() || temporal || soft_particles
+                       || decals || outline || weighted_transparency || gpu_dynamics;
             }
             bool operator==(const ViewRequirements&) const = default;
         };

@@ -1,4 +1,5 @@
 #include "game_app.h"
+#include "gameplay/world_streaming.h"
 #include "gameplay/checkpoint_store.h"
 #include "gameplay/game_session.h"
 #include "runtime/player_settings_owner.h"
@@ -128,6 +129,27 @@ namespace {
                            }});
                 !added)
                 return added;
+            auto streaming = std::make_unique<Comet::Gameplay::WorldStreamingSystem>(
+                Comet::Gameplay::WorldStreamingSystem::Sources{
+                    .load =
+                        [sources = m_asset_manager->scene_sources(m_components)](
+                            Comet::AssetHandle handle) {
+                            return sources(handle, Comet::AssetType::Prefab);
+                        },
+                    .prepare =
+                        [this](Comet::Scene& cell) {
+                            return m_asset_manager->prepare_scene(cell, m_components);
+                        },
+                    .ready =
+                        [this](std::span<const Comet::AssetReference> references) {
+                            return m_asset_manager->references_ready(
+                                references, Comet::AssetManager::MissingAssetPolicy::FailRequired);
+                        },
+                    .resident_bytes =
+                        [this] { return get_engine().get_asset_registry().resident_gpu_bytes(); }});
+            m_streaming = streaming.get();
+            if(auto added = engine.add_system(std::move(streaming)); !added)
+                return added;
             if(!m_project.ui())
                 return Init::success();
             auto services = m_player_settings.ui_services();
@@ -138,10 +160,12 @@ namespace {
                     return std::nullopt;
                 return runtime.get_session().get_value(key);
             };
-            services.emit = [this](std::string_view event) {
+            services.emit = [this](std::string_view event,
+                                std::optional<Comet::ParameterValue> value) {
                 auto& engine = get_engine();
                 auto* scene = engine.get_scene();
-                return engine.get_scene_runtime().is_active() && scene && scene->emit_event(event);
+                return engine.get_scene_runtime().is_active() && scene
+                       && scene->emit_event(event, std::move(value));
             };
             auto ui = Comet::Ui::ProjectUi::create(engine.get_window(), engine.get_renderer(),
                 *m_project.ui(), game_ui_options(m_project), std::move(services));
@@ -194,6 +218,22 @@ namespace {
                 }
             if(auto activated = activate_pending_scene(); !activated)
                 return activated;
+            if(!m_pending_scene && m_streaming && m_streaming_revision != m_streaming->revision()) {
+                m_streaming_revision = m_streaming->revision();
+                auto references = m_asset_manager->collect_scene_references(
+                    *get_engine().get_scene(), m_components);
+                if(!references)
+                    return Comet::Result<void, Comet::Error>::failure(references.error());
+                const auto streaming = m_streaming->references();
+                references.value().insert(
+                    references.value().end(), streaming.begin(), streaming.end());
+                const auto released = m_asset_manager->release_unused(references.value());
+                const auto stats = m_streaming->statistics();
+                LOG_INFO(
+                    "Streaming: {} active, {} pending, {} failed; GPU assets {}/{} MiB, released {}",
+                    stats.active, stats.pending, stats.failed, stats.gpu_bytes / (1024 * 1024),
+                    stats.budget_bytes / (1024 * 1024), released.registry_assets);
+            }
             return Comet::Result<void, Comet::Error>::success();
         }
 
@@ -338,6 +378,8 @@ namespace {
         Comet::PlayerSettingsOwner m_player_settings;
         Comet::Input::Gate m_input_gate;
         std::unique_ptr<Comet::Ui::ProjectUi> m_ui;
+        Comet::Gameplay::WorldStreamingSystem* m_streaming = nullptr;
+        uint64_t m_streaming_revision = 0;
         bool m_ui_blocked = false;
         bool m_ui_pointer_blocked = false;
         std::unique_ptr<Comet::AssetManager> m_asset_manager;

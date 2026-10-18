@@ -111,7 +111,8 @@ namespace Comet {
     AssetManager::~AssetManager() = default;
 
     AssetManager::Residency AssetManager::residency() const {
-        return {m_registry.size(), m_loader->model_cache_entries()};
+        return {
+            m_registry.size(), m_loader->model_cache_entries(), m_registry.resident_gpu_bytes()};
     }
 
     AssetManager::ResidencyRelease AssetManager::release_unused(
@@ -365,7 +366,7 @@ namespace Comet {
             scene, [this](AssetHandle handle) { return load_script(handle); },
             [this, &components](AssetHandle handle) { return load_prefab(handle, components); },
             [this](AssetHandle handle) { return load_data(handle); },
-            policy == MissingAssetPolicy::AllowMissing);
+            policy == MissingAssetPolicy::AllowMissing, false);
     }
 
     Result<std::vector<AssetReference>, Error> AssetManager::prepare_scene(
@@ -543,9 +544,11 @@ namespace Comet {
         auto version = std::make_shared<ShaderProgramArtifact>(std::move(artifact));
         bool stored = false;
         if(m_registry.contains(handle))
-            stored = m_registry.replace_asset(handle, version);
+            stored =
+                m_registry.replace_asset(handle, version, m_render_factory->gpu_bytes(version));
         else
-            stored = m_registry.register_asset(handle, version);
+            stored =
+                m_registry.register_asset(handle, version, m_render_factory->gpu_bytes(version));
         if(!stored) {
             LOG_WARN("Shader program {} cannot replace the registered asset", handle.value());
             return ImportPublication::success(std::nullopt);
@@ -663,7 +666,8 @@ namespace Comet {
                 candidate.handle.value(), candidate.revision);
             return ImportPublication::success(std::nullopt);
         }
-        const bool published = m_registry.replace_asset(candidate.handle, texture);
+        const bool published = m_registry.replace_asset(
+            candidate.handle, texture, m_render_factory->gpu_bytes(texture));
         if(!published) {
             LOG_ERROR("Failed to publish refreshed runtime texture for asset handle {}",
                 candidate.handle.value());
@@ -713,9 +717,11 @@ namespace Comet {
             return ImportPublication::success(std::nullopt);
         bool published = false;
         if(m_registry.contains(candidate.handle))
-            published = m_registry.replace_asset(candidate.handle, environment.value());
+            published = m_registry.replace_asset(candidate.handle, environment.value(),
+                m_render_factory->gpu_bytes(environment.value()));
         else
-            published = m_registry.register_asset(candidate.handle, environment.value());
+            published = m_registry.register_asset(candidate.handle, environment.value(),
+                m_render_factory->gpu_bytes(environment.value()));
         if(!published) {
             LOG_ERROR("Failed to publish environment {}", candidate.handle.value());
             return ImportPublication::success(std::nullopt);
@@ -890,7 +896,8 @@ namespace Comet {
                 handle.value(), revision);
             return Result<void, Error>::failure({"Runtime mesh revision is stale"});
         }
-        if(!m_registry.replace_asset(handle, candidate.value()))
+        if(!m_registry.replace_asset(
+               handle, candidate.value(), m_render_factory->gpu_bytes(candidate.value())))
             return Result<void, Error>::failure({"Failed to publish runtime mesh"});
         return Result<void, Error>::success();
     }
@@ -1001,9 +1008,11 @@ namespace Comet {
             return Reimport::failure({saved.error()});
         bool published;
         if(m_registry.contains(handle))
-            published = m_registry.replace_asset(handle, candidate.value());
+            published = m_registry.replace_asset(
+                handle, candidate.value(), m_render_factory->gpu_bytes(candidate.value()));
         else
-            published = m_registry.register_asset(handle, candidate.value());
+            published = m_registry.register_asset(
+                handle, candidate.value(), m_render_factory->gpu_bytes(candidate.value()));
         if(!published)
             return Reimport::failure({"Cannot publish audio asset"});
         return candidate;
@@ -1055,9 +1064,11 @@ namespace Comet {
 
         bool published;
         if(previous_texture)
-            published = m_registry.replace_asset(handle, texture.value());
+            published = m_registry.replace_asset(
+                handle, texture.value(), m_render_factory->gpu_bytes(texture.value()));
         else
-            published = m_registry.register_asset(handle, texture.value());
+            published = m_registry.register_asset(
+                handle, texture.value(), m_render_factory->gpu_bytes(texture.value()));
         if(!published) {
             return Result<std::shared_ptr<Texture>, Error>::failure(
                 {"Failed to publish runtime texture"});
@@ -1235,7 +1246,8 @@ namespace Comet {
     Result<void, Error> AssetManager::preview_material_update(MaterialUpdate& update) {
         if(!material_update_is_current(update))
             return Result<void, Error>::failure({"Material preview is stale"});
-        if(!m_registry.replace_asset(update.handle(), update.m_material))
+        if(!m_registry.replace_asset(
+               update.handle(), update.m_material, m_render_factory->gpu_bytes(update.m_material)))
             return Result<void, Error>::failure({"Cannot publish material preview"});
         update.m_expected = update.m_material;
         update.m_publication = m_registry.get_revision(update.handle());
@@ -1247,7 +1259,8 @@ namespace Comet {
         if(!previous || !material_update_is_current(update)
             || update.m_expected != update.m_material)
             return Result<void, Error>::failure({"Material preview was replaced"});
-        if(!m_registry.replace_asset(update.handle(), previous))
+        if(!m_registry.replace_asset(
+               update.handle(), previous, m_render_factory->gpu_bytes(previous)))
             return Result<void, Error>::failure({"Cannot restore material preview"});
         return Result<void, Error>::success();
     }
@@ -1266,9 +1279,11 @@ namespace Comet {
             return Result<void, Error>::failure({updated.error()});
         bool published;
         if(replace_existing)
-            published = m_registry.replace_asset(handle, material);
+            published =
+                m_registry.replace_asset(handle, material, m_render_factory->gpu_bytes(material));
         else
-            published = m_registry.register_asset(handle, material);
+            published =
+                m_registry.register_asset(handle, material, m_render_factory->gpu_bytes(material));
         if(!published)
             return Result<void, Error>::failure({"Failed to publish material"});
         return Result<void, Error>::success();

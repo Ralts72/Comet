@@ -90,8 +90,8 @@ namespace Comet::Tests {
         const auto reflected = MaterialLayout::reflect(layout, shader.value());
         ASSERT_TRUE(reflected) << reflected.error();
         EXPECT_EQ(reflected.value(), layout);
-        ASSERT_EQ(layout->get_parameter_size(), 64);
-        ASSERT_EQ(layout->get_scalars().size(), 7);
+        ASSERT_EQ(layout->get_parameter_size(), 96);
+        ASSERT_EQ(layout->get_scalars().size(), 8);
         ASSERT_EQ(layout->get_textures().size(), 5);
         EXPECT_EQ(layout->get_textures()[0].name, "base_color_texture");
         EXPECT_TRUE(layout->get_textures()[0].optional);

@@ -43,6 +43,34 @@ namespace Comet::Tests {
             1, std::span(&collider, 1), read, [&](AssetHandle) { return revision; }));
     }
 
+    TEST(ParticleCollisionTest, DeformedGeometryRefitsAndKeepsSubmittedSnapshots) {
+        MeshData mesh;
+        mesh.vertices = {{{-1, 0, 0}}, {{1, 0, 0}}, {{0, 2, 0}}};
+        ParticleMeshCollider collider{1, AssetHandle{77}, Math::Mat4(1), 4};
+        ParticleCollisionBuilder builder;
+        unsigned reads = 0;
+        const auto update = [&] {
+            return builder.update(1, std::span(&collider, 1), [&](AssetHandle) {
+                ++reads;
+                return Result<MeshData, Error>::success(mesh);
+            });
+        };
+        const auto first = update();
+        ASSERT_TRUE(first) << first.error().message;
+        collider.bend = {.3f, 0, 2, 0};
+        collider.model = Math::translate(Math::Mat4(1), {0, 1, 0});
+        const auto bent = update();
+        ASSERT_TRUE(bent) << bent.error().message;
+        EXPECT_EQ(reads, 1u);
+        EXPECT_EQ(bent.value()->geometry->nodes[0].links, first.value()->geometry->nodes[0].links);
+        EXPECT_GT(bent.value()->geometry->triangles[0].positions[2].x, 0);
+        EXPECT_EQ(first.value()->geometry->triangles[0].positions[2], Math::Vec4(0, 2, 0, 1));
+        EXPECT_EQ(update().value(), bent.value());
+        collider.bend = {};
+        collider.model = Math::Mat4(1);
+        EXPECT_EQ(update().value()->geometry->triangles[0].positions[2], Math::Vec4(0, 2, 0, 1));
+    }
+
     TEST_F(RenderGraphGpuTest, GpuMeshSweepHitsFacesEdgesAndVerticesAndPreservesPausedState) {
         auto& context = engine->get_renderer().get_render_context();
         auto& device = context.get_device();

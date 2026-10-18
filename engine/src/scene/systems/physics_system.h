@@ -27,8 +27,7 @@ namespace Comet {
             bool character = false;
         };
         Result<void, Error> synchronize(Scene& scene);
-        Result<PhysicsService::ObjectChange, Error> synchronize_object(
-            Scene& scene, entt::entity handle);
+        Result<PhysicsService::ObjectChange, Error> synchronize_object(Scene& scene, Entity entity);
         Result<void, Error> synchronize_joints(Scene& scene);
         PhysicsService& m_physics;
         std::vector<Entry> m_entries;

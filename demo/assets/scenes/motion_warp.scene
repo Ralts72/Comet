@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "environment": {
     "asset": 0,
     "background": false,
@@ -7,77 +7,39 @@
     "rotation": 0,
     "lighting": false,
     "lighting_intensity": 1,
-    "background_color": [
-      0.08,
-      0.1,
-      0.14
-    ]
+    "background_color": [0.08, 0.1, 0.14],
+    "fog_enabled": false,
+    "fog_color": [0.5, 0.5, 0.5],
+    "fog_start": 10,
+    "fog_end": 100,
+    "realtime_gi_budget": 32
+  },
+  "post_process": {
+    "exposure": 1,
+    "bloom_enabled": false,
+    "bloom_strength": 0.15,
+    "bloom_threshold": 1,
+    "ao_enabled": false,
+    "weighted_oit": false,
+    "ao_radius": 0.5,
+    "ao_strength": 1
   },
   "entities": [
-    {
-      "uuid": "9c24ffa0-e428-4cb0-9e54-538118eba170",
-      "components": {
-        "name": "主相机",
-        "transform": {
-          "translation": [
-            8,
-            5,
-            10
-          ],
-          "rotation": [
-            -18,
-            35,
-            0
-          ],
-          "scale": [
-            1,
-            1,
-            1
-          ]
-        },
-        "camera": {
-          "primary": true,
-          "fov": 45,
-          "near_clip": 0.1,
-          "far_clip": 100
-        },
-        "camera_controller": {
-          "enabled": true,
-          "move_speed": 5,
-          "look_sensitivity": 0.2,
-          "look_speed": 120
-        }
-      }
-    },
     {
       "uuid": "007fca8b-0152-4465-9cd1-205bfd81bd4f",
       "components": {
         "name": "主光源",
         "transform": {
-          "translation": [
-            0,
-            0,
-            0
-          ],
-          "rotation": [
-            -45,
-            -35,
-            0
-          ],
-          "scale": [
-            1,
-            1,
-            1
-          ]
+          "translation": [0, 0, 0],
+          "rotation": [-45, -35, 0],
+          "scale": [1, 1, 1]
         },
         "light": {
           "type": "directional",
           "enabled": true,
-          "color": [
-            1,
-            1,
-            1
-          ],
+          "casts_shadow": false,
+          "shadow_distance": 100,
+          "color": [1, 1, 1],
           "intensity": 2,
           "range": 10,
           "inner_angle": 20,
@@ -86,219 +48,31 @@
       }
     },
     {
-      "uuid": "4c2b987f-3043-476d-94f1-550bca22bce6",
-      "components": {
-        "name": "地面",
-        "transform": {
-          "translation": [
-            0,
-            -0.5,
-            0
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            12,
-            1,
-            10
-          ]
-        },
-        "mesh_renderer": {
-          "mesh": 7535385251553858160,
-          "material": 9429603817048603172
-        },
-        "rigid_body": {
-          "motion": "static"
-        },
-        "collider": {
-          "shape": "box",
-          "half_extents": [
-            0.5,
-            0.5,
-            0.5
-          ],
-          "radius": 0.5,
-          "is_trigger": false
-        }
-      }
-    },
-    {
-      "uuid": "cb56dc23-cd92-467f-aa41-e722547c414e",
-      "components": {
-        "name": "原地攻击对照",
-        "transform": {
-          "translation": [
-            -2,
-            1,
-            -2
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            1,
-            1,
-            1
-          ]
-        },
-        "character_controller": {
-          "enabled": true,
-          "radius": 0.3,
-          "height": 1.8,
-          "move_speed": 4,
-          "jump_speed": 5,
-          "max_slope_angle": 45,
-          "step_height": 0.3,
-          "ground_snap_distance": 0.3,
-          "gravity_scale": 1,
-          "run_speed": 6,
-          "crouch_speed": 2,
-          "crouch_height_ratio": 0.6,
-          "air_control": 1,
-          "push_force": 100
-        }
-      },
-      "children": [
-        {
-          "uuid": "448c746e-1224-4f5b-b528-3568b487ba19",
-          "components": {
-            "name": "攻击模型",
-            "transform": {
-              "translation": [
-                0,
-                0,
-                0
-              ],
-              "rotation": [
-                0,
-                90,
-                0
-              ],
-              "scale": [
-                1,
-                1,
-                1
-              ]
-            },
-            "mesh_renderer": {
-              "mesh": 13857136248767905793,
-              "material": 13857136248767905794
-            },
-            "animator": {
-              "enabled": true,
-              "clip": "attack",
-              "speed": 1,
-              "loop": false,
-              "transition": 0,
-              "controller": 0,
-              "parameters": {}
-            },
-            "root_motion": {
-              "enabled": true,
-              "node": "root",
-              "target": {
-                "entity": "cb56dc23-cd92-467f-aa41-e722547c414e"
-              },
-              "horizontal": true,
-              "vertical": false,
-              "rotation": true
-            },
-            "motion_warp": {
-              "enabled": false,
-              "target": {
-                "entity": "c6f0fa73-09cc-4fa7-9b91-cc9302a6faf6"
-              },
-              "state": "attack",
-              "start": 0.15,
-              "end": 0.65,
-              "max_distance": 2.5,
-              "max_angle": 90,
-              "weight": 1
-            }
-          }
-        }
-      ]
-    },
-    {
-      "uuid": "c6f0fa73-09cc-4fa7-9b91-cc9302a6faf6",
-      "components": {
-        "name": "攻击对位目标",
-        "transform": {
-          "translation": [
-            -0.5,
-            0.05,
-            -2
-          ],
-          "rotation": [
-            0,
-            90,
-            0
-          ],
-          "scale": [
-            0.15,
-            0.05,
-            0.8
-          ]
-        },
-        "mesh_renderer": {
-          "mesh": 7535385251553858160,
-          "material": 13857136248767905794
-        },
-        "outline": {
-          "enabled": true,
-          "color": [
-            0.1,
-            1,
-            0.3,
-            1
-          ],
-          "width": 2,
-          "fill": 0.2,
-          "through_walls": true
-        }
-      }
-    },
-    {
       "uuid": "038e03ca-58a9-4b28-a743-f6d4796b45ec",
       "components": {
         "name": "动作对位",
         "transform": {
-          "translation": [
-            -2,
-            1,
-            2
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            1,
-            1,
-            1
-          ]
+          "translation": [-2, 1, 2],
+          "rotation": [0, 0, 0],
+          "scale": [1, 1, 1]
         },
         "character_controller": {
           "enabled": true,
           "radius": 0.3,
           "height": 1.8,
           "move_speed": 4,
-          "jump_speed": 5,
-          "max_slope_angle": 45,
-          "step_height": 0.3,
-          "ground_snap_distance": 0.3,
-          "gravity_scale": 1,
           "run_speed": 6,
           "crouch_speed": 2,
           "crouch_height_ratio": 0.6,
           "air_control": 1,
-          "push_force": 100
+          "push_force": 100,
+          "jump_speed": 5,
+          "max_slope_angle": 45,
+          "step_height": 0.3,
+          "ground_snap_distance": 0.3,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
+          "gravity_scale": 1
         }
       },
       "children": [
@@ -307,25 +81,14 @@
           "components": {
             "name": "攻击模型",
             "transform": {
-              "translation": [
-                0,
-                0,
-                0
-              ],
-              "rotation": [
-                0,
-                90,
-                0
-              ],
-              "scale": [
-                1,
-                1,
-                1
-              ]
+              "translation": [0, 0, 0],
+              "rotation": [0, 90, 0],
+              "scale": [1, 1, 1]
             },
             "mesh_renderer": {
               "mesh": 13857136248767905793,
-              "material": 13857136248767905794
+              "material": 13857136248767905794,
+              "contributes_to_gi": true
             },
             "animator": {
               "enabled": true,
@@ -363,43 +126,404 @@
       ]
     },
     {
+      "uuid": "4c2b987f-3043-476d-94f1-550bca22bce6",
+      "components": {
+        "name": "地面",
+        "transform": {
+          "translation": [0, -0.5, 0],
+          "rotation": [0, 0, 0],
+          "scale": [12, 1, 10]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 9429603817048603172,
+          "contributes_to_gi": true
+        },
+        "rigid_body": {
+          "motion": "static",
+          "mass_mode": "mass",
+          "mass": 1,
+          "density": 1000,
+          "continuous_collision": false
+        },
+        "collider": {
+          "shape": "box",
+          "mesh": 0,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
+          "half_extents": [0.5, 0.5, 0.5],
+          "radius": 0.5,
+          "height": 2,
+          "is_trigger": false,
+          "friction": 0.2,
+          "restitution": 0
+        }
+      }
+    },
+    {
       "uuid": "7ed12269-ec60-4103-938b-c68ee17d8cf5",
       "components": {
         "name": "攻击对位目标",
         "transform": {
-          "translation": [
-            -0.5,
-            0.05,
-            2
-          ],
-          "rotation": [
-            0,
-            90,
-            0
-          ],
-          "scale": [
-            0.15,
-            0.05,
-            0.8
-          ]
+          "translation": [-0.5, 0.05, 2],
+          "rotation": [0, 90, 0],
+          "scale": [0.15, 0.05, 0.8]
         },
         "mesh_renderer": {
           "mesh": 7535385251553858160,
-          "material": 13857136248767905794
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
         },
         "outline": {
           "enabled": true,
-          "color": [
-            0.1,
-            1,
-            0.3,
-            1
-          ],
+          "color": [0.1, 1, 0.3, 1],
           "width": 2,
           "fill": 0.2,
           "through_walls": true
+        },
+        "rigid_body": {
+          "motion": "static",
+          "mass_mode": "mass",
+          "mass": 1,
+          "density": 1000,
+          "continuous_collision": false
+        },
+        "collider": {
+          "shape": "box",
+          "mesh": 0,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
+          "half_extents": [0.5, 0.5, 0.5],
+          "radius": 0.5,
+          "height": 2,
+          "is_trigger": false,
+          "friction": 0.2,
+          "restitution": 0
         }
       }
+    },
+    {
+      "uuid": "834677b3-90f6-46b9-a71a-7ad7ba8c6bb1",
+      "components": {
+        "name": "旅人"
+      },
+      "prefab": {
+        "asset": 6729301842000001202,
+        "entities": {
+          "3078a5ce-543c-4df2-90d1-d8c7b1e2769c": "564d1cda-9bc9-407c-b141-6e46f8b89657",
+          "8c7518af-a8a2-472c-8f21-d63fc11b2b33": "5f17bb93-8386-492e-a99a-0367cd52db37",
+          "d3bb4700-17b7-4112-b03d-44d354eabaae": "834677b3-90f6-46b9-a71a-7ad7ba8c6bb1",
+          "dd8d0ac8-87a1-485b-96f6-84a127b948a0": "743aed7c-375e-44b1-a4f6-22850f9b2de4"
+        },
+        "changes": [
+          {
+            "base": {
+              "parent": "00000000-0000-0000-0000-000000000000",
+              "entity": {
+                "uuid": "d3bb4700-17b7-4112-b03d-44d354eabaae",
+                "components": {
+                  "name": "旅人",
+                  "script": {
+                    "asset": 6729301842000000023,
+                    "parameters": {
+                      "camera": {
+                        "entity": "dd8d0ac8-87a1-485b-96f6-84a127b948a0"
+                      },
+                      "visual": {
+                        "entity": "3078a5ce-543c-4df2-90d1-d8c7b1e2769c"
+                      }
+                    }
+                  },
+                  "transform": {
+                    "translation": [0, 0, 0],
+                    "rotation": [0, 0, 0],
+                    "scale": [1, 1, 1]
+                  },
+                  "audio_source": {
+                    "clip": 8247160951280394421,
+                    "play_on_start": false,
+                    "loop": false,
+                    "category": "effects",
+                    "volume": 0.2,
+                    "spatial": false,
+                    "min_distance": 1,
+                    "max_distance": 30,
+                    "rolloff": 1,
+                    "fade_in": 0,
+                    "fade_out": 0,
+                    "reverb_mix": 0,
+                    "reverb_decay": 1.2,
+                    "occlusion_strength": 0.75,
+                    "occlusion": false,
+                    "occlusion_layers": 4294967295
+                  },
+                  "character_controller": {
+                    "enabled": true,
+                    "radius": 0.3,
+                    "height": 1.8,
+                    "move_speed": 4,
+                    "run_speed": 6,
+                    "crouch_speed": 2,
+                    "crouch_height_ratio": 0.6,
+                    "air_control": 1,
+                    "push_force": 100,
+                    "jump_speed": 5,
+                    "max_slope_angle": 45,
+                    "step_height": 0.3,
+                    "ground_snap_distance": 0.3,
+                    "collision_layer": 1,
+                    "collision_mask": 4294967295,
+                    "gravity_scale": 1
+                  }
+                }
+              }
+            },
+            "value": {
+              "parent": "00000000-0000-0000-0000-000000000000",
+              "entity": {
+                "uuid": "834677b3-90f6-46b9-a71a-7ad7ba8c6bb1",
+                "components": {
+                  "name": "旅人",
+                  "script": {
+                    "asset": 6729301842000000023,
+                    "parameters": {
+                      "camera": {
+                        "entity": "743aed7c-375e-44b1-a4f6-22850f9b2de4"
+                      },
+                      "visual": {
+                        "entity": "564d1cda-9bc9-407c-b141-6e46f8b89657"
+                      }
+                    }
+                  },
+                  "transform": {
+                    "translation": [0, 0, 5],
+                    "rotation": [0, 0, 0],
+                    "scale": [1, 1, 1]
+                  },
+                  "audio_source": {
+                    "clip": 8247160951280394421,
+                    "play_on_start": false,
+                    "loop": false,
+                    "category": "effects",
+                    "volume": 0.2,
+                    "spatial": false,
+                    "min_distance": 1,
+                    "max_distance": 30,
+                    "rolloff": 1,
+                    "fade_in": 0,
+                    "fade_out": 0,
+                    "reverb_mix": 0,
+                    "reverb_decay": 1.2,
+                    "occlusion_strength": 0.75,
+                    "occlusion": false,
+                    "occlusion_layers": 4294967295
+                  },
+                  "character_controller": {
+                    "enabled": true,
+                    "radius": 0.3,
+                    "height": 1.8,
+                    "move_speed": 4,
+                    "run_speed": 6,
+                    "crouch_speed": 2,
+                    "crouch_height_ratio": 0.6,
+                    "air_control": 1,
+                    "push_force": 100,
+                    "jump_speed": 5,
+                    "max_slope_angle": 45,
+                    "step_height": 0.3,
+                    "ground_snap_distance": 0.3,
+                    "collision_layer": 1,
+                    "collision_mask": 4294967295,
+                    "gravity_scale": 1
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "removed": [],
+        "added": []
+      }
+    },
+    {
+      "uuid": "9c24ffa0-e428-4cb0-9e54-538118eba170",
+      "components": {
+        "name": "主相机",
+        "transform": {
+          "translation": [8, 5, 10],
+          "rotation": [-18, 35, 0],
+          "scale": [1, 1, 1]
+        },
+        "camera": {
+          "primary": false,
+          "projection": "perspective",
+          "fov": 45,
+          "orthographic_height": 10,
+          "near_clip": 0.1,
+          "far_clip": 100
+        },
+        "camera_controller": {
+          "enabled": false,
+          "mode": "free",
+          "move_speed": 5,
+          "look_sensitivity": 0.2,
+          "look_speed": 120,
+          "orbit_distance": 6,
+          "orbit_height": 1.2,
+          "orbit_min_distance": 1.5,
+          "orbit_max_distance": 12,
+          "orbit_zoom_step": 0.5,
+          "collision_radius": 0.15
+        }
+      }
+    },
+    {
+      "uuid": "9dd4f1ae-61a8-5db2-b52f-69d8b94043e8",
+      "components": {
+        "name": "旅程 · 12 攻击对位",
+        "script": {
+          "asset": 6729301842000001201,
+          "parameters": {
+            "camera": {
+              "entity": "743aed7c-375e-44b1-a4f6-22850f9b2de4"
+            },
+            "catalog": "6729301842000001200",
+            "chapter": 12,
+            "intro": false,
+            "player": {
+              "entity": "834677b3-90f6-46b9-a71a-7ad7ba8c6bb1"
+            },
+            "reference_camera": {
+              "entity": "9c24ffa0-e428-4cb0-9e54-538118eba170"
+            }
+          }
+        },
+        "transform": {
+          "translation": [0, 0, 5],
+          "rotation": [0, 0, 0],
+          "scale": [1, 1, 1]
+        }
+      }
+    },
+    {
+      "uuid": "c6f0fa73-09cc-4fa7-9b91-cc9302a6faf6",
+      "components": {
+        "name": "攻击对位目标",
+        "transform": {
+          "translation": [-0.5, 0.05, -2],
+          "rotation": [0, 90, 0],
+          "scale": [0.15, 0.05, 0.8]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
+        },
+        "outline": {
+          "enabled": true,
+          "color": [0.1, 1, 0.3, 1],
+          "width": 2,
+          "fill": 0.2,
+          "through_walls": true
+        },
+        "rigid_body": {
+          "motion": "static",
+          "mass_mode": "mass",
+          "mass": 1,
+          "density": 1000,
+          "continuous_collision": false
+        },
+        "collider": {
+          "shape": "box",
+          "mesh": 0,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
+          "half_extents": [0.5, 0.5, 0.5],
+          "radius": 0.5,
+          "height": 2,
+          "is_trigger": false,
+          "friction": 0.2,
+          "restitution": 0
+        }
+      }
+    },
+    {
+      "uuid": "cb56dc23-cd92-467f-aa41-e722547c414e",
+      "components": {
+        "name": "原地攻击对照",
+        "transform": {
+          "translation": [-2, 1, -2],
+          "rotation": [0, 0, 0],
+          "scale": [1, 1, 1]
+        },
+        "character_controller": {
+          "enabled": true,
+          "radius": 0.3,
+          "height": 1.8,
+          "move_speed": 4,
+          "run_speed": 6,
+          "crouch_speed": 2,
+          "crouch_height_ratio": 0.6,
+          "air_control": 1,
+          "push_force": 100,
+          "jump_speed": 5,
+          "max_slope_angle": 45,
+          "step_height": 0.3,
+          "ground_snap_distance": 0.3,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
+          "gravity_scale": 1
+        }
+      },
+      "children": [
+        {
+          "uuid": "448c746e-1224-4f5b-b528-3568b487ba19",
+          "components": {
+            "name": "攻击模型",
+            "transform": {
+              "translation": [0, 0, 0],
+              "rotation": [0, 90, 0],
+              "scale": [1, 1, 1]
+            },
+            "mesh_renderer": {
+              "mesh": 13857136248767905793,
+              "material": 13857136248767905794,
+              "contributes_to_gi": true
+            },
+            "animator": {
+              "enabled": true,
+              "clip": "attack",
+              "speed": 1,
+              "loop": false,
+              "transition": 0,
+              "controller": 0,
+              "parameters": {}
+            },
+            "root_motion": {
+              "enabled": true,
+              "node": "root",
+              "target": {
+                "entity": "cb56dc23-cd92-467f-aa41-e722547c414e"
+              },
+              "horizontal": true,
+              "vertical": false,
+              "rotation": true
+            },
+            "motion_warp": {
+              "enabled": false,
+              "target": {
+                "entity": "c6f0fa73-09cc-4fa7-9b91-cc9302a6faf6"
+              },
+              "state": "attack",
+              "start": 0.15,
+              "end": 0.65,
+              "max_distance": 2.5,
+              "max_angle": 90,
+              "weight": 1
+            }
+          }
+        }
+      ]
     }
   ]
 }

@@ -106,6 +106,7 @@ namespace Comet {
             float value, const MaterialParameterValidator& materials);
         [[nodiscard]] Result<void> set_material_vector(Entity entity, std::string_view name,
             Math::Vec4 value, const MaterialParameterValidator& materials);
+        bool clear_material_parameter(Entity entity, std::string_view name);
         [[nodiscard]] std::shared_ptr<const MaterialOverrides> get_material_overrides(
             Entity entity);
 

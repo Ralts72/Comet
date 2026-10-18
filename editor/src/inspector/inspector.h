@@ -11,6 +11,7 @@
 #include "editor_state.h"
 #include "assets/asset_reference.h"
 
+#include <array>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -121,6 +122,7 @@ namespace CometEditor {
         bool m_animation_preview_drawn = false;
         ParticlePreview m_particle_preview;
         bool m_particle_preview_drawn = false;
+        std::array<char, 128> m_property_filter{};
         uint32_t m_active_item = 0;
         uint32_t m_script_active_item = 0;
     };

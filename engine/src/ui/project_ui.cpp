@@ -416,15 +416,34 @@ namespace Comet::Ui {
         auto element = [&](const char* id) { return vm.m_document->GetElementById(id); };
         switch(operation) {
             case Api::Emit: {
-                if(lua_gettop(state) != 1 || lua_type(state, 1) != LUA_TSTRING)
-                    return luaL_error(state, "ui.emit expects one event name");
+                if(lua_gettop(state) < 1 || lua_gettop(state) > 2
+                    || lua_type(state, 1) != LUA_TSTRING)
+                    return luaL_error(state, "ui.emit expects an event name and optional scalar");
                 std::size_t length = 0;
                 const auto* name = lua_tolstring(state, 1, &length);
                 const std::string_view event(name, length);
                 if(!valid_parameter_name(event))
                     return luaL_error(state, "Expected an event name of at most 128 bytes");
-                lua_pushboolean(
-                    state, m_info.game_available && m_services.emit && m_services.emit(event));
+                m_session_value.reset();
+                if(lua_type(state, 2) == LUA_TBOOLEAN)
+                    m_session_value = bool(lua_toboolean(state, 2));
+                else if(lua_type(state, 2) == LUA_TNUMBER) {
+                    const auto value = lua_tonumber(state, 2);
+                    if(!std::isfinite(value) || std::abs(value) > std::numeric_limits<float>::max())
+                        return luaL_error(state, "UI event number must be finite");
+                    m_session_value = float(value);
+                } else if(lua_type(state, 2) == LUA_TSTRING) {
+                    size_t size = 0;
+                    const char* text = lua_tolstring(state, 2, &size);
+                    if(size > 4096)
+                        return luaL_error(state, "UI event text exceeds 4096 bytes");
+                    m_session_value = std::string(text, size);
+                } else if(!lua_isnoneornil(state, 2))
+                    return luaL_error(state, "UI event value must be a scalar");
+                const bool accepted = m_info.game_available && m_services.emit
+                                      && m_services.emit(event, std::move(m_session_value));
+                m_session_value.reset();
+                lua_pushboolean(state, accepted);
                 return 1;
             }
             case Api::SessionGet: {

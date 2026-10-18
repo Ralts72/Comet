@@ -164,3 +164,32 @@ p { display: block; margin: 8dp 0; }
 .calibration[disabled], #audio input[disabled] { opacity: 0.5; pointer-events: none; tab-index: none; }
 
 #display-confirmation { display: block; margin-top: 12dp; padding: 12dp; border: 1dp #52a8cc; background-color: #203b50; }
+
+#tour-guide {
+    position: absolute; left: 18dp; top: 16dp; width: 54%; max-width: 540dp;
+    box-sizing: border-box; padding: 14dp 18dp; border-left: 3dp #75b9c9;
+    background-color: #101c2de6; font-size: 14dp;
+}
+#tour-guide h1 { font-size: 24dp; margin: 4dp 0 8dp; }
+.tour-progress { color: #a3bacb; margin-top: 6dp; font-size: 12dp; }
+.tour-task { margin-top: 10dp; color: #e0cc98; }
+.tour-complete { margin-top: 10dp; color: #9ad6bd; }
+#tour-guide button, #tour-actions button { min-width: 70dp; padding: 7dp 10dp; font-size: 13dp; }
+#tour-actions { position: absolute; left: 18dp; bottom: 14dp; width: 85%; }
+.tour-controls { font-size: 12dp; color: #c0cee1; margin: 4dp; }
+#tour-menu {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    background-color: #0b1422e8; pointer-events: auto;
+}
+#tour-panel {
+    box-sizing: border-box; width: 85%; max-width: 850dp; height: 88%;
+    margin: 3% auto; padding: 22dp; background-color: #182538; border: 1dp #40526c;
+    overflow-x: hidden; overflow-y: auto;
+}
+#tour-chapters { display: block; height: 48%; overflow-x: hidden; overflow-y: auto; }
+.chapter-section { margin: 14dp 4dp 6dp; color: #9dcedc; font-size: 14dp; }
+.chapter { display: block; width: 96%; text-align: left; margin: 5dp 0; padding: 9dp 12dp; }
+.chapter span { float: right; color: #a9bdd0; font-size: 12dp; }
+.chapter.selected { background-color: #31546a; border-color: #84b9ca; }
+.tour-footer { margin-top: 18dp; padding-top: 8dp; border-top: 1dp #40526c; }
+#combat-hint { bottom: 120dp; }

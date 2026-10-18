@@ -107,6 +107,7 @@ namespace Comet {
         Device& device, const ImageInfo& info, Allocator::ImageAllocation allocation)
         : Image(device, info) {
         m_image = allocation.image;
+        m_allocated_bytes = allocation.allocation.bytes();
         m_allocation = std::move(allocation.allocation);
         LOG_INFO("Vulkan image created successfully with VMA allocation");
     }

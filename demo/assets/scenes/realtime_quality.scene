@@ -1,32 +1,21 @@
 {
-  "version": 2,
+  "version": 3,
   "environment": {
-    "asset": 11764928350182740632,
+    "asset": 6729301842000000104,
     "background": false,
     "intensity": 1,
     "rotation": 0,
     "lighting": true,
     "lighting_intensity": 0.8,
-    "background_color": [
-      0.02,
-      0.03,
-      0.05
-    ],
+    "background_color": [0.02, 0.03, 0.05],
     "fog_enabled": false,
-    "fog_color": [
-      0.6,
-      0.7,
-      0.8
-    ],
+    "fog_color": [0.6, 0.7, 0.8],
     "fog_start": 8,
     "fog_end": 32,
+    "realtime_gi_budget": 32,
     "volumetric_fog": {
       "enabled": true,
-      "color": [
-        0.65,
-        0.75,
-        0.9
-      ],
+      "color": [0.65, 0.75, 0.9],
       "density": 0.045,
       "base_height": 1.5,
       "height_falloff": 0.3,
@@ -41,468 +30,38 @@
     "bloom_strength": 0.15,
     "bloom_threshold": 1,
     "ao_enabled": false,
+    "weighted_oit": false,
     "ao_radius": 1,
-    "ao_strength": 1.5
+    "ao_strength": 1.5,
+    "lens": {
+      "depth_of_field": true,
+      "focus_distance": 8,
+      "focus_range": 5,
+      "aperture": 3,
+      "motion_blur": true,
+      "shutter": 0.35,
+      "max_blur": 12
+    }
   },
   "entities": [
     {
-      "uuid": "864afd39-d252-56c0-9c5d-4482e30f5544",
+      "uuid": "229f53c4-95a6-508a-8a07-afc05efec72f",
       "components": {
-        "name": "主相机",
+        "name": "墙面贴花",
         "transform": {
-          "translation": [
-            0,
-            4,
-            9
-          ],
-          "rotation": [
-            -15,
-            0,
-            0
-          ],
-          "scale": [
-            1,
-            1,
-            1
-          ]
+          "translation": [0, 1.5, -3.83],
+          "rotation": [90, 0, 0],
+          "scale": [1, 1, 1]
         },
-        "camera": {
-          "primary": true,
-          "fov": 50,
-          "near_clip": 0.1,
-          "far_clip": 150
-        },
-        "camera_controller": {
+        "decal": {
           "enabled": true,
-          "move_speed": 5,
-          "look_sensitivity": 0.2,
-          "look_speed": 120
-        }
-      }
-    },
-    {
-      "uuid": "85dc6db7-4269-55e3-9063-91fbbc057e4a",
-      "components": {
-        "name": "地面",
-        "transform": {
-          "translation": [
-            0,
-            -0.25,
-            -12
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            20,
-            0.5,
-            60
-          ]
-        },
-        "mesh_renderer": {
-          "mesh": 7535385251553858160,
-          "material": 13857136248767905794
-        }
-      }
-    },
-    {
-      "uuid": "8d0a9808-eebc-5253-94cc-09b29d66269d",
-      "components": {
-        "name": "距离柱 1 / -3",
-        "transform": {
-          "translation": [
-            -3,
-            1.5,
-            4
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            1,
-            3,
-            1
-          ]
-        },
-        "mesh_renderer": {
-          "mesh": 7535385251553858160,
-          "material": 13857136248767905794
-        }
-      }
-    },
-    {
-      "uuid": "45c2aafc-aa28-5fe2-8b91-c9807c534ef9",
-      "components": {
-        "name": "距离柱 1 / 3",
-        "transform": {
-          "translation": [
-            3,
-            1.5,
-            4
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            1,
-            3,
-            1
-          ]
-        },
-        "mesh_renderer": {
-          "mesh": 7535385251553858160,
-          "material": 13857136248767905794
-        }
-      }
-    },
-    {
-      "uuid": "da6061fc-d687-5a36-b122-e07c98a3d358",
-      "components": {
-        "name": "距离柱 2 / -3",
-        "transform": {
-          "translation": [
-            -3,
-            1.5,
-            -2
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            1,
-            3,
-            1
-          ]
-        },
-        "mesh_renderer": {
-          "mesh": 7535385251553858160,
-          "material": 13857136248767905794
-        }
-      }
-    },
-    {
-      "uuid": "7f312118-a85c-5d5c-9425-7fb31564fbfa",
-      "components": {
-        "name": "距离柱 2 / 3",
-        "transform": {
-          "translation": [
-            3,
-            1.5,
-            -2
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            1,
-            3,
-            1
-          ]
-        },
-        "mesh_renderer": {
-          "mesh": 7535385251553858160,
-          "material": 13857136248767905794
-        }
-      }
-    },
-    {
-      "uuid": "de54802e-06dd-5bad-a096-6e4eb9c6a0e9",
-      "components": {
-        "name": "距离柱 3 / -3",
-        "transform": {
-          "translation": [
-            -3,
-            1.5,
-            -8
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            1,
-            3,
-            1
-          ]
-        },
-        "mesh_renderer": {
-          "mesh": 7535385251553858160,
-          "material": 13857136248767905794
-        }
-      }
-    },
-    {
-      "uuid": "f9640009-ddcd-5e9c-a01f-69fd2df1d6b3",
-      "components": {
-        "name": "距离柱 3 / 3",
-        "transform": {
-          "translation": [
-            3,
-            1.5,
-            -8
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            1,
-            3,
-            1
-          ]
-        },
-        "mesh_renderer": {
-          "mesh": 7535385251553858160,
-          "material": 13857136248767905794
-        }
-      }
-    },
-    {
-      "uuid": "8049d3d9-c799-5677-99eb-a7ab0e030266",
-      "components": {
-        "name": "距离柱 4 / -3",
-        "transform": {
-          "translation": [
-            -3,
-            1.5,
-            -14
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            1,
-            3,
-            1
-          ]
-        },
-        "mesh_renderer": {
-          "mesh": 7535385251553858160,
-          "material": 13857136248767905794
-        }
-      }
-    },
-    {
-      "uuid": "845388f5-8b84-5c7a-b21b-191cdcd06caf",
-      "components": {
-        "name": "距离柱 4 / 3",
-        "transform": {
-          "translation": [
-            3,
-            1.5,
-            -14
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            1,
-            3,
-            1
-          ]
-        },
-        "mesh_renderer": {
-          "mesh": 7535385251553858160,
-          "material": 13857136248767905794
-        }
-      }
-    },
-    {
-      "uuid": "53aa71eb-c131-5868-8332-5c7de661be33",
-      "components": {
-        "name": "距离柱 5 / -3",
-        "transform": {
-          "translation": [
-            -3,
-            1.5,
-            -20
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            1,
-            3,
-            1
-          ]
-        },
-        "mesh_renderer": {
-          "mesh": 7535385251553858160,
-          "material": 13857136248767905794
-        }
-      }
-    },
-    {
-      "uuid": "b8c4e238-b3f4-5e37-935e-70f8093b15bb",
-      "components": {
-        "name": "距离柱 5 / 3",
-        "transform": {
-          "translation": [
-            3,
-            1.5,
-            -20
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            1,
-            3,
-            1
-          ]
-        },
-        "mesh_renderer": {
-          "mesh": 7535385251553858160,
-          "material": 13857136248767905794
-        }
-      }
-    },
-    {
-      "uuid": "b1e34d58-ff85-5585-b06c-442cff23782c",
-      "components": {
-        "name": "距离柱 6 / -3",
-        "transform": {
-          "translation": [
-            -3,
-            1.5,
-            -26
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            1,
-            3,
-            1
-          ]
-        },
-        "mesh_renderer": {
-          "mesh": 7535385251553858160,
-          "material": 13857136248767905794
-        }
-      }
-    },
-    {
-      "uuid": "4d45bf15-0869-5db4-81e5-e400a7e1957e",
-      "components": {
-        "name": "距离柱 6 / 3",
-        "transform": {
-          "translation": [
-            3,
-            1.5,
-            -26
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            1,
-            3,
-            1
-          ]
-        },
-        "mesh_renderer": {
-          "mesh": 7535385251553858160,
-          "material": 13857136248767905794
-        }
-      }
-    },
-    {
-      "uuid": "d5432773-08ac-54c3-86e1-5216e031251d",
-      "components": {
-        "name": "太阳",
-        "transform": {
-          "translation": [
-            0,
-            0,
-            0
-          ],
-          "rotation": [
-            -50,
-            -20,
-            0
-          ],
-          "scale": [
-            1,
-            1,
-            1
-          ]
-        },
-        "light": {
-          "type": "directional",
-          "enabled": true,
-          "color": [
-            1,
-            0.95,
-            0.85
-          ],
-          "intensity": 3,
-          "casts_shadow": true,
-          "shadow_distance": 90,
-          "range": 10,
-          "inner_angle": 20,
-          "outer_angle": 30
-        }
-      }
-    },
-    {
-      "uuid": "660430fb-08cc-546b-aebb-d0d3ce72b438",
-      "components": {
-        "name": "聚光灯（体积光束）",
-        "transform": {
-          "translation": [
-            0,
-            5,
-            5
-          ],
-          "rotation": [
-            -25,
-            0,
-            0
-          ],
-          "scale": [
-            1,
-            1,
-            1
-          ]
-        },
-        "light": {
-          "type": "spot",
-          "enabled": true,
-          "color": [
-            1,
-            0.8,
-            0.55
-          ],
-          "intensity": 180,
-          "range": 35,
-          "inner_angle": 15,
-          "outer_angle": 25,
-          "casts_shadow": true
+          "texture": 5783275031450616120,
+          "half_extents": [1, 0.2, 1],
+          "color": [0.4, 0.1, 1, 1],
+          "roughness": 0.7,
+          "normal_threshold": 0.2,
+          "edge_fade": 0.05,
+          "draw_order": 0
         }
       }
     },
@@ -511,25 +70,33 @@
       "components": {
         "name": "投影墙",
         "transform": {
-          "translation": [
-            0,
-            2,
-            -4
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            4,
-            4,
-            0.3
-          ]
+          "translation": [0, 2, -4],
+          "rotation": [0, 0, 0],
+          "scale": [4, 4, 0.3]
         },
         "mesh_renderer": {
           "mesh": 7535385251553858160,
-          "material": 13857136248767905794
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
+        },
+        "rigid_body": {
+          "motion": "static",
+          "mass_mode": "mass",
+          "mass": 1,
+          "density": 1000,
+          "continuous_collision": false
+        },
+        "collider": {
+          "shape": "box",
+          "mesh": 0,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
+          "half_extents": [0.5, 0.5, 0.5],
+          "radius": 0.5,
+          "height": 2,
+          "is_trigger": false,
+          "friction": 0.2,
+          "restitution": 0
         }
       }
     },
@@ -538,36 +105,152 @@
       "components": {
         "name": "橙色地面贴花",
         "transform": {
-          "translation": [
-            -1.2,
-            0.05,
-            2
-          ],
-          "rotation": [
-            0,
-            0,
-            0
-          ],
-          "scale": [
-            1,
-            1,
-            1
-          ]
+          "translation": [-1.2, 0.05, 2],
+          "rotation": [0, 0, 0],
+          "scale": [1, 1, 1]
         },
         "decal": {
+          "enabled": true,
           "texture": 5783275031450616120,
-          "half_extents": [
-            1,
-            0.2,
-            1
-          ],
-          "color": [
-            1,
-            0.25,
-            0.05,
-            1
-          ],
-          "roughness": 0.7
+          "half_extents": [1, 0.2, 1],
+          "color": [1, 0.25, 0.05, 1],
+          "roughness": 0.7,
+          "normal_threshold": 0.2,
+          "edge_fade": 0.05,
+          "draw_order": 0
+        }
+      }
+    },
+    {
+      "uuid": "3ae3a479-33ca-59c5-8b81-68b6ccd8576e",
+      "components": {
+        "name": "旅程 · 21 光束与镜头",
+        "script": {
+          "asset": 6729301842000001201,
+          "parameters": {
+            "camera": {
+              "entity": "3af91616-bfc7-41b3-ad07-1bf8186677ec"
+            },
+            "catalog": "6729301842000001200",
+            "chapter": 21,
+            "intro": false,
+            "player": {
+              "entity": "ae407a8d-7f75-4bab-8251-139ae039d43e"
+            },
+            "reference_camera": {
+              "entity": "864afd39-d252-56c0-9c5d-4482e30f5544"
+            }
+          }
+        },
+        "transform": {
+          "translation": [0, 0, 6],
+          "rotation": [0, 0, 0],
+          "scale": [1, 1, 1]
+        }
+      }
+    },
+    {
+      "uuid": "45c2aafc-aa28-5fe2-8b91-c9807c534ef9",
+      "components": {
+        "name": "距离柱 1 / 3",
+        "transform": {
+          "translation": [3, 1.5, 4],
+          "rotation": [0, 0, 0],
+          "scale": [1, 3, 1]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
+        },
+        "rigid_body": {
+          "motion": "static",
+          "mass_mode": "mass",
+          "mass": 1,
+          "density": 1000,
+          "continuous_collision": false
+        },
+        "collider": {
+          "shape": "box",
+          "mesh": 0,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
+          "half_extents": [0.5, 0.5, 0.5],
+          "radius": 0.5,
+          "height": 2,
+          "is_trigger": false,
+          "friction": 0.2,
+          "restitution": 0
+        }
+      }
+    },
+    {
+      "uuid": "4d45bf15-0869-5db4-81e5-e400a7e1957e",
+      "components": {
+        "name": "距离柱 6 / 3",
+        "transform": {
+          "translation": [3, 1.5, -26],
+          "rotation": [0, 0, 0],
+          "scale": [1, 3, 1]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
+        },
+        "rigid_body": {
+          "motion": "static",
+          "mass_mode": "mass",
+          "mass": 1,
+          "density": 1000,
+          "continuous_collision": false
+        },
+        "collider": {
+          "shape": "box",
+          "mesh": 0,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
+          "half_extents": [0.5, 0.5, 0.5],
+          "radius": 0.5,
+          "height": 2,
+          "is_trigger": false,
+          "friction": 0.2,
+          "restitution": 0
+        }
+      }
+    },
+    {
+      "uuid": "53aa71eb-c131-5868-8332-5c7de661be33",
+      "components": {
+        "name": "距离柱 5 / -3",
+        "transform": {
+          "translation": [-3, 1.5, -20],
+          "rotation": [0, 0, 0],
+          "scale": [1, 3, 1]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
+        },
+        "rigid_body": {
+          "motion": "static",
+          "mass_mode": "mass",
+          "mass": 1,
+          "density": 1000,
+          "continuous_collision": false
+        },
+        "collider": {
+          "shape": "box",
+          "mesh": 0,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
+          "half_extents": [0.5, 0.5, 0.5],
+          "radius": 0.5,
+          "height": 2,
+          "is_trigger": false,
+          "friction": 0.2,
+          "restitution": 0
         }
       }
     },
@@ -576,74 +259,588 @@
       "components": {
         "name": "蓝色地面贴花",
         "transform": {
-          "translation": [
-            1.2,
-            0.05,
-            -1
-          ],
-          "rotation": [
-            0,
-            20,
-            0
-          ],
-          "scale": [
-            1,
-            1,
-            1
-          ]
+          "translation": [1.2, 0.05, -1],
+          "rotation": [0, 20, 0],
+          "scale": [1, 1, 1]
         },
         "decal": {
+          "enabled": true,
           "texture": 5783275031450616120,
-          "half_extents": [
-            1,
-            0.2,
-            1
-          ],
-          "color": [
-            0.05,
-            0.6,
-            1,
-            1
-          ],
-          "roughness": 0.7
+          "half_extents": [1, 0.2, 1],
+          "color": [0.05, 0.6, 1, 1],
+          "roughness": 0.7,
+          "normal_threshold": 0.2,
+          "edge_fade": 0.05,
+          "draw_order": 0
         }
       }
     },
     {
-      "uuid": "229f53c4-95a6-508a-8a07-afc05efec72f",
+      "uuid": "660430fb-08cc-546b-aebb-d0d3ce72b438",
       "components": {
-        "name": "墙面贴花",
+        "name": "聚光灯（体积光束）",
         "transform": {
-          "translation": [
-            0,
-            1.5,
-            -3.83
-          ],
-          "rotation": [
-            90,
-            0,
-            0
-          ],
-          "scale": [
-            1,
-            1,
-            1
-          ]
+          "translation": [0, 5, 5],
+          "rotation": [-25, 0, 0],
+          "scale": [1, 1, 1]
         },
-        "decal": {
-          "texture": 5783275031450616120,
-          "half_extents": [
-            1,
-            0.2,
-            1
-          ],
-          "color": [
-            0.4,
-            0.1,
-            1,
-            1
-          ],
-          "roughness": 0.7
+        "light": {
+          "type": "spot",
+          "enabled": true,
+          "casts_shadow": true,
+          "shadow_distance": 100,
+          "color": [1, 0.8, 0.55],
+          "intensity": 180,
+          "range": 35,
+          "inner_angle": 15,
+          "outer_angle": 25
+        }
+      }
+    },
+    {
+      "uuid": "7f312118-a85c-5d5c-9425-7fb31564fbfa",
+      "components": {
+        "name": "距离柱 2 / 3",
+        "transform": {
+          "translation": [3, 1.5, -2],
+          "rotation": [0, 0, 0],
+          "scale": [1, 3, 1]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
+        },
+        "rigid_body": {
+          "motion": "static",
+          "mass_mode": "mass",
+          "mass": 1,
+          "density": 1000,
+          "continuous_collision": false
+        },
+        "collider": {
+          "shape": "box",
+          "mesh": 0,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
+          "half_extents": [0.5, 0.5, 0.5],
+          "radius": 0.5,
+          "height": 2,
+          "is_trigger": false,
+          "friction": 0.2,
+          "restitution": 0
+        }
+      }
+    },
+    {
+      "uuid": "8049d3d9-c799-5677-99eb-a7ab0e030266",
+      "components": {
+        "name": "距离柱 4 / -3",
+        "transform": {
+          "translation": [-3, 1.5, -14],
+          "rotation": [0, 0, 0],
+          "scale": [1, 3, 1]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
+        },
+        "rigid_body": {
+          "motion": "static",
+          "mass_mode": "mass",
+          "mass": 1,
+          "density": 1000,
+          "continuous_collision": false
+        },
+        "collider": {
+          "shape": "box",
+          "mesh": 0,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
+          "half_extents": [0.5, 0.5, 0.5],
+          "radius": 0.5,
+          "height": 2,
+          "is_trigger": false,
+          "friction": 0.2,
+          "restitution": 0
+        }
+      }
+    },
+    {
+      "uuid": "845388f5-8b84-5c7a-b21b-191cdcd06caf",
+      "components": {
+        "name": "距离柱 4 / 3",
+        "transform": {
+          "translation": [3, 1.5, -14],
+          "rotation": [0, 0, 0],
+          "scale": [1, 3, 1]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
+        },
+        "rigid_body": {
+          "motion": "static",
+          "mass_mode": "mass",
+          "mass": 1,
+          "density": 1000,
+          "continuous_collision": false
+        },
+        "collider": {
+          "shape": "box",
+          "mesh": 0,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
+          "half_extents": [0.5, 0.5, 0.5],
+          "radius": 0.5,
+          "height": 2,
+          "is_trigger": false,
+          "friction": 0.2,
+          "restitution": 0
+        }
+      }
+    },
+    {
+      "uuid": "85dc6db7-4269-55e3-9063-91fbbc057e4a",
+      "components": {
+        "name": "地面",
+        "transform": {
+          "translation": [0, -0.25, -12],
+          "rotation": [0, 0, 0],
+          "scale": [20, 0.5, 60]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
+        },
+        "rigid_body": {
+          "motion": "static",
+          "mass_mode": "mass",
+          "mass": 1,
+          "density": 1000,
+          "continuous_collision": false
+        },
+        "collider": {
+          "shape": "box",
+          "mesh": 0,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
+          "half_extents": [0.5, 0.5, 0.5],
+          "radius": 0.5,
+          "height": 2,
+          "is_trigger": false,
+          "friction": 0.2,
+          "restitution": 0
+        }
+      }
+    },
+    {
+      "uuid": "864afd39-d252-56c0-9c5d-4482e30f5544",
+      "components": {
+        "name": "主相机",
+        "transform": {
+          "translation": [0, 4, 9],
+          "rotation": [-15, 0, 0],
+          "scale": [1, 1, 1]
+        },
+        "camera": {
+          "primary": false,
+          "projection": "perspective",
+          "fov": 50,
+          "orthographic_height": 10,
+          "near_clip": 0.1,
+          "far_clip": 150
+        },
+        "camera_controller": {
+          "enabled": false,
+          "mode": "free",
+          "move_speed": 5,
+          "look_sensitivity": 0.2,
+          "look_speed": 120,
+          "orbit_distance": 6,
+          "orbit_height": 1.2,
+          "orbit_min_distance": 1.5,
+          "orbit_max_distance": 12,
+          "orbit_zoom_step": 0.5,
+          "collision_radius": 0.15
+        }
+      }
+    },
+    {
+      "uuid": "8d0a9808-eebc-5253-94cc-09b29d66269d",
+      "components": {
+        "name": "距离柱 1 / -3",
+        "transform": {
+          "translation": [-3, 1.5, 4],
+          "rotation": [0, 0, 0],
+          "scale": [1, 3, 1]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
+        },
+        "rigid_body": {
+          "motion": "static",
+          "mass_mode": "mass",
+          "mass": 1,
+          "density": 1000,
+          "continuous_collision": false
+        },
+        "collider": {
+          "shape": "box",
+          "mesh": 0,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
+          "half_extents": [0.5, 0.5, 0.5],
+          "radius": 0.5,
+          "height": 2,
+          "is_trigger": false,
+          "friction": 0.2,
+          "restitution": 0
+        }
+      }
+    },
+    {
+      "uuid": "ae407a8d-7f75-4bab-8251-139ae039d43e",
+      "components": {
+        "name": "旅人"
+      },
+      "prefab": {
+        "asset": 6729301842000001202,
+        "entities": {
+          "3078a5ce-543c-4df2-90d1-d8c7b1e2769c": "aa041c87-0f66-47a2-b92a-e291e604d43a",
+          "8c7518af-a8a2-472c-8f21-d63fc11b2b33": "0afdcf1e-10bf-42a5-b160-d387d104cae8",
+          "d3bb4700-17b7-4112-b03d-44d354eabaae": "ae407a8d-7f75-4bab-8251-139ae039d43e",
+          "dd8d0ac8-87a1-485b-96f6-84a127b948a0": "3af91616-bfc7-41b3-ad07-1bf8186677ec"
+        },
+        "changes": [
+          {
+            "base": {
+              "parent": "00000000-0000-0000-0000-000000000000",
+              "entity": {
+                "uuid": "d3bb4700-17b7-4112-b03d-44d354eabaae",
+                "components": {
+                  "name": "旅人",
+                  "script": {
+                    "asset": 6729301842000000023,
+                    "parameters": {
+                      "camera": {
+                        "entity": "dd8d0ac8-87a1-485b-96f6-84a127b948a0"
+                      },
+                      "visual": {
+                        "entity": "3078a5ce-543c-4df2-90d1-d8c7b1e2769c"
+                      }
+                    }
+                  },
+                  "transform": {
+                    "translation": [0, 0, 0],
+                    "rotation": [0, 0, 0],
+                    "scale": [1, 1, 1]
+                  },
+                  "audio_source": {
+                    "clip": 8247160951280394421,
+                    "play_on_start": false,
+                    "loop": false,
+                    "category": "effects",
+                    "volume": 0.2,
+                    "spatial": false,
+                    "min_distance": 1,
+                    "max_distance": 30,
+                    "rolloff": 1,
+                    "fade_in": 0,
+                    "fade_out": 0,
+                    "reverb_mix": 0,
+                    "reverb_decay": 1.2,
+                    "occlusion_strength": 0.75,
+                    "occlusion": false,
+                    "occlusion_layers": 4294967295
+                  },
+                  "character_controller": {
+                    "enabled": true,
+                    "radius": 0.3,
+                    "height": 1.8,
+                    "move_speed": 4,
+                    "run_speed": 6,
+                    "crouch_speed": 2,
+                    "crouch_height_ratio": 0.6,
+                    "air_control": 1,
+                    "push_force": 100,
+                    "jump_speed": 5,
+                    "max_slope_angle": 45,
+                    "step_height": 0.3,
+                    "ground_snap_distance": 0.3,
+                    "collision_layer": 1,
+                    "collision_mask": 4294967295,
+                    "gravity_scale": 1
+                  }
+                }
+              }
+            },
+            "value": {
+              "parent": "00000000-0000-0000-0000-000000000000",
+              "entity": {
+                "uuid": "ae407a8d-7f75-4bab-8251-139ae039d43e",
+                "components": {
+                  "name": "旅人",
+                  "script": {
+                    "asset": 6729301842000000023,
+                    "parameters": {
+                      "camera": {
+                        "entity": "3af91616-bfc7-41b3-ad07-1bf8186677ec"
+                      },
+                      "visual": {
+                        "entity": "aa041c87-0f66-47a2-b92a-e291e604d43a"
+                      }
+                    }
+                  },
+                  "transform": {
+                    "translation": [0, 0, 6],
+                    "rotation": [0, 0, 0],
+                    "scale": [1, 1, 1]
+                  },
+                  "audio_source": {
+                    "clip": 8247160951280394421,
+                    "play_on_start": false,
+                    "loop": false,
+                    "category": "effects",
+                    "volume": 0.2,
+                    "spatial": false,
+                    "min_distance": 1,
+                    "max_distance": 30,
+                    "rolloff": 1,
+                    "fade_in": 0,
+                    "fade_out": 0,
+                    "reverb_mix": 0,
+                    "reverb_decay": 1.2,
+                    "occlusion_strength": 0.75,
+                    "occlusion": false,
+                    "occlusion_layers": 4294967295
+                  },
+                  "character_controller": {
+                    "enabled": true,
+                    "radius": 0.3,
+                    "height": 1.8,
+                    "move_speed": 4,
+                    "run_speed": 6,
+                    "crouch_speed": 2,
+                    "crouch_height_ratio": 0.6,
+                    "air_control": 1,
+                    "push_force": 100,
+                    "jump_speed": 5,
+                    "max_slope_angle": 45,
+                    "step_height": 0.3,
+                    "ground_snap_distance": 0.3,
+                    "collision_layer": 1,
+                    "collision_mask": 4294967295,
+                    "gravity_scale": 1
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "removed": [],
+        "added": []
+      }
+    },
+    {
+      "uuid": "b1e34d58-ff85-5585-b06c-442cff23782c",
+      "components": {
+        "name": "距离柱 6 / -3",
+        "transform": {
+          "translation": [-3, 1.5, -26],
+          "rotation": [0, 0, 0],
+          "scale": [1, 3, 1]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
+        },
+        "rigid_body": {
+          "motion": "static",
+          "mass_mode": "mass",
+          "mass": 1,
+          "density": 1000,
+          "continuous_collision": false
+        },
+        "collider": {
+          "shape": "box",
+          "mesh": 0,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
+          "half_extents": [0.5, 0.5, 0.5],
+          "radius": 0.5,
+          "height": 2,
+          "is_trigger": false,
+          "friction": 0.2,
+          "restitution": 0
+        }
+      }
+    },
+    {
+      "uuid": "b8c4e238-b3f4-5e37-935e-70f8093b15bb",
+      "components": {
+        "name": "距离柱 5 / 3",
+        "transform": {
+          "translation": [3, 1.5, -20],
+          "rotation": [0, 0, 0],
+          "scale": [1, 3, 1]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
+        },
+        "rigid_body": {
+          "motion": "static",
+          "mass_mode": "mass",
+          "mass": 1,
+          "density": 1000,
+          "continuous_collision": false
+        },
+        "collider": {
+          "shape": "box",
+          "mesh": 0,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
+          "half_extents": [0.5, 0.5, 0.5],
+          "radius": 0.5,
+          "height": 2,
+          "is_trigger": false,
+          "friction": 0.2,
+          "restitution": 0
+        }
+      }
+    },
+    {
+      "uuid": "d5432773-08ac-54c3-86e1-5216e031251d",
+      "components": {
+        "name": "太阳",
+        "transform": {
+          "translation": [0, 0, 0],
+          "rotation": [-50, -20, 0],
+          "scale": [1, 1, 1]
+        },
+        "light": {
+          "type": "directional",
+          "enabled": true,
+          "casts_shadow": true,
+          "shadow_distance": 90,
+          "color": [1, 0.95, 0.85],
+          "intensity": 3,
+          "range": 10,
+          "inner_angle": 20,
+          "outer_angle": 30
+        }
+      }
+    },
+    {
+      "uuid": "da6061fc-d687-5a36-b122-e07c98a3d358",
+      "components": {
+        "name": "距离柱 2 / -3",
+        "transform": {
+          "translation": [-3, 1.5, -2],
+          "rotation": [0, 0, 0],
+          "scale": [1, 3, 1]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
+        },
+        "rigid_body": {
+          "motion": "static",
+          "mass_mode": "mass",
+          "mass": 1,
+          "density": 1000,
+          "continuous_collision": false
+        },
+        "collider": {
+          "shape": "box",
+          "mesh": 0,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
+          "half_extents": [0.5, 0.5, 0.5],
+          "radius": 0.5,
+          "height": 2,
+          "is_trigger": false,
+          "friction": 0.2,
+          "restitution": 0
+        }
+      }
+    },
+    {
+      "uuid": "de54802e-06dd-5bad-a096-6e4eb9c6a0e9",
+      "components": {
+        "name": "距离柱 3 / -3",
+        "transform": {
+          "translation": [-3, 1.5, -8],
+          "rotation": [0, 0, 0],
+          "scale": [1, 3, 1]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
+        },
+        "rigid_body": {
+          "motion": "static",
+          "mass_mode": "mass",
+          "mass": 1,
+          "density": 1000,
+          "continuous_collision": false
+        },
+        "collider": {
+          "shape": "box",
+          "mesh": 0,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
+          "half_extents": [0.5, 0.5, 0.5],
+          "radius": 0.5,
+          "height": 2,
+          "is_trigger": false,
+          "friction": 0.2,
+          "restitution": 0
+        }
+      }
+    },
+    {
+      "uuid": "f9640009-ddcd-5e9c-a01f-69fd2df1d6b3",
+      "components": {
+        "name": "距离柱 3 / 3",
+        "transform": {
+          "translation": [3, 1.5, -8],
+          "rotation": [0, 0, 0],
+          "scale": [1, 3, 1]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794,
+          "contributes_to_gi": true
+        },
+        "rigid_body": {
+          "motion": "static",
+          "mass_mode": "mass",
+          "mass": 1,
+          "density": 1000,
+          "continuous_collision": false
+        },
+        "collider": {
+          "shape": "box",
+          "mesh": 0,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
+          "half_extents": [0.5, 0.5, 0.5],
+          "radius": 0.5,
+          "height": 2,
+          "is_trigger": false,
+          "friction": 0.2,
+          "restitution": 0
         }
       }
     }

@@ -6,6 +6,8 @@
 #include <array>
 #include <limits>
 #include <optional>
+#include <span>
+#include <vector>
 
 namespace Comet {
     // 输入点所在坐标系中的轴对齐包围盒。
@@ -40,6 +42,25 @@ namespace Comet {
     private:
         Frustum() = default;
         std::array<Math::Vec4, 6> m_planes;
+    };
+
+    // 稳定槽位的界限 BVH；变换变化 refit，槽位／有效性变化重建。
+    class COMET_API SpatialIndex {
+    public:
+        void update(std::span<const std::optional<BoundingBox>> bounds);
+        // 缺少可靠界限的槽位始终返回；结果保持原槽位顺序。
+        uint32_t query(const Frustum&, std::vector<uint32_t>& visible) const;
+        void clear();
+
+    private:
+        struct Node {
+            BoundingBox bounds;
+            uint32_t first = 0, count = 0, escape = 0;
+        };
+        void build(uint32_t first, uint32_t count);
+        std::vector<std::optional<BoundingBox>> m_bounds;
+        std::vector<uint32_t> m_order, m_unbounded;
+        std::vector<Node> m_nodes;
     };
 
     // 仿射变换后的世界轴对齐包围盒；不接受投影矩阵。

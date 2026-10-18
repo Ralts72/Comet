@@ -62,6 +62,8 @@ namespace Comet {
         NumericPropertyMetadata numeric;
         std::optional<AssetType> asset_type;
         bool asset_cpu_only = false;
+        std::string group;
+        std::string description;
     };
 
     struct PropertyDescriptor {
@@ -88,6 +90,8 @@ namespace Comet {
         NumericPropertyMetadata numeric;
         std::optional<AssetType> asset_type;
         bool asset_cpu_only = false;
+        std::string group;
+        std::string description;
         std::function<void*(void*)> mutable_accessor;
         std::function<const void*(const void*)> const_accessor;
         std::function<void(void*)> on_changed;
@@ -164,6 +168,8 @@ namespace Comet {
             .numeric = std::move(metadata.numeric),
             .asset_type = metadata.asset_type,
             .asset_cpu_only = metadata.asset_cpu_only,
+            .group = std::move(metadata.group),
+            .description = std::move(metadata.description),
             .mutable_accessor = [member](void* component) -> void* {
                 return &(static_cast<Component*>(component)->*member);
             },
@@ -201,6 +207,8 @@ namespace Comet {
             .numeric = std::move(metadata.numeric),
             .asset_type = metadata.asset_type,
             .asset_cpu_only = metadata.asset_cpu_only,
+            .group = std::move(metadata.group),
+            .description = std::move(metadata.description),
             .mutable_accessor = [member](void* component) -> void* {
                 return &(static_cast<Component*>(component)->*member);
             },

@@ -30,7 +30,7 @@ namespace Comet {
         struct Parameters {
             Math::Mat4 view;
             Math::Vec4 acceleration_lifetime, start_color, end_color, sizes_speed_cone;
-            Math::Vec4 atlas, animation;
+            Math::Vec4 atlas, animation, spawn_extents;
             std::array<uint32_t, 4> counts;
         };
         struct DynamicParameters {
@@ -43,9 +43,9 @@ namespace Comet {
             std::array<uint32_t, 4> world;
             std::array<ParticleWorldCollider, ParticleWorldCollider::MAX_COLLIDERS> colliders;
         };
-        static_assert(sizeof(Spawn) == 96 && sizeof(Parameters) == 176);
+        static_assert(sizeof(Spawn) == 96 && sizeof(Parameters) == 192);
         static_assert(sizeof(ParticleWorldCollider) == 96);
-        static_assert(sizeof(DynamicParameters) == 352 + 64 + 48 + 64 * 96);
+        static_assert(sizeof(DynamicParameters) == 368 + 64 + 48 + 64 * 96);
     }
     struct GpuParticleSimulation::Program {
         std::shared_ptr<DescriptorSetLayout> descriptors;
@@ -353,14 +353,14 @@ namespace Comet {
                 {float(settings.atlas_columns), float(settings.atlas_rows),
                     float(settings.frame_count), 0},
                 {settings.frame_rate, settings.loop_animation ? 1.f : 0.f, 0, 0},
+                Math::Vec4(settings.spawn_extents, 0),
                 {uint32_t(births.size()), emitter.count, padded, settings.seed}};
             if(dynamic) {
                 const uint64_t id = emitter.id ? emitter.id : i + 1;
                 auto found = m_dynamics->history.find(id);
                 if(found != m_dynamics->history.end()) {
-                    auto previous_settings = found->second.settings;
-                    previous_settings.enabled = settings.enabled;
-                    if(found->second.serial + 1 != serial || previous_settings != settings
+                    if(found->second.serial + 1 != serial
+                        || settings.requires_restart(found->second.settings)
                         || found->second.time > emitter.time || found->second.field != field)
                         found = m_dynamics->history.end();
                 }

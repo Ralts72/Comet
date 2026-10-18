@@ -6,14 +6,21 @@
 #include <mutex>
 #include <system_error>
 #include <utility>
+#include <array>
 
 #ifdef __APPLE__
 #include <CoreServices/CoreServices.h>
 #include <dispatch/dispatch.h>
+#elif defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
 #endif
 
 namespace CometEditor {
-#ifdef __APPLE__
+#if defined(__APPLE__) || defined(_WIN32)
     namespace {
         constexpr auto RECONNECT_INTERVAL = std::chrono::seconds(2);
         constexpr std::size_t MAX_CHANGED_PATHS = 1024;
@@ -121,6 +128,107 @@ namespace CometEditor {
             if(queue)
                 dispatch_release(queue);
         }
+#elif defined(_WIN32)
+        HANDLE directory = INVALID_HANDLE_VALUE;
+        OVERLAPPED operation{};
+        alignas(DWORD) std::array<std::byte, 65536> buffer{};
+        std::filesystem::path root;
+        bool reading = false;
+
+        bool arm() {
+            ResetEvent(operation.hEvent);
+            reading = ReadDirectoryChangesW(directory, buffer.data(), DWORD(buffer.size()), TRUE,
+                          FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME
+                              | FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_SIZE,
+                          nullptr, &operation, nullptr)
+                      != FALSE;
+            return reading;
+        }
+        explicit Backend(const std::filesystem::path& path) {
+            std::error_code error;
+            root = std::filesystem::absolute(path, error).lexically_normal();
+            if(error || !std::filesystem::is_directory(root, error))
+                return;
+            directory = CreateFileW(root.c_str(), FILE_LIST_DIRECTORY,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED, nullptr);
+            if(directory == INVALID_HANDLE_VALUE)
+                return;
+            operation.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+            if(operation.hEvent)
+                available.store(arm());
+        }
+        void drain() {
+            if(!reading || !available.load())
+                return;
+            DWORD bytes = 0;
+            if(!GetOverlappedResult(directory, &operation, &bytes, FALSE)) {
+                if(GetLastError() == ERROR_IO_INCOMPLETE)
+                    return;
+                available.store(false);
+                reading = false;
+                const std::lock_guard lock(changes_mutex);
+                pending = requires_full_scan = true;
+                return;
+            }
+            reading = false;
+            {
+                const std::lock_guard lock(changes_mutex);
+                if(!bytes)
+                    requires_full_scan = true; // 通知缓冲溢出。
+                size_t offset = 0;
+                while(offset < bytes) {
+                    constexpr auto header = offsetof(FILE_NOTIFY_INFORMATION, FileName);
+                    if(bytes - offset < header) {
+                        requires_full_scan = true;
+                        break;
+                    }
+                    const auto& event =
+                        *reinterpret_cast<const FILE_NOTIFY_INFORMATION*>(buffer.data() + offset);
+                    if(event.FileNameLength % sizeof(wchar_t)
+                        || event.FileNameLength > bytes - offset - header) {
+                        requires_full_scan = true;
+                        break;
+                    }
+                    // 目录删除／重命名会影响整棵子树，沿用现有全量复核。
+                    if(event.Action != FILE_ACTION_MODIFIED)
+                        requires_full_scan = true;
+                    if(!requires_full_scan && paths.size() < MAX_CHANGED_PATHS)
+                        paths.push_back(
+                            root
+                            / std::wstring(event.FileName, event.FileNameLength / sizeof(wchar_t)));
+                    else if(paths.size() >= MAX_CHANGED_PATHS)
+                        requires_full_scan = true;
+                    if(!event.NextEntryOffset)
+                        break;
+                    if(event.NextEntryOffset < header || event.NextEntryOffset > bytes - offset
+                        || event.NextEntryOffset % alignof(DWORD)) {
+                        requires_full_scan = true;
+                        break;
+                    }
+                    offset += event.NextEntryOffset;
+                }
+                if(requires_full_scan)
+                    paths.clear();
+                pending = requires_full_scan || !paths.empty();
+            }
+            if(!arm()) {
+                available.store(false);
+                const std::lock_guard lock(changes_mutex);
+                pending = requires_full_scan = true;
+            }
+        }
+        ~Backend() {
+            if(reading) {
+                CancelIoEx(directory, &operation);
+                DWORD bytes;
+                GetOverlappedResult(directory, &operation, &bytes, TRUE);
+            }
+            if(operation.hEvent)
+                CloseHandle(operation.hEvent);
+            if(directory != INVALID_HANDLE_VALUE)
+                CloseHandle(directory);
+        }
 #else
         explicit Backend(const std::filesystem::path&) {}
 #endif
@@ -138,6 +246,9 @@ namespace CometEditor {
     }
 
     FileRecheckTrigger::Changes FileRecheckTrigger::poll_changes(const Clock::time_point now) {
+#ifdef _WIN32
+        m_backend->drain();
+#endif
         {
             std::lock_guard lock(m_backend->changes_mutex);
             if(m_backend->pending) {
@@ -154,7 +265,7 @@ namespace CometEditor {
         if(now < m_next_fallback)
             return {};
         m_next_fallback = now + m_fallback_interval;
-#ifdef __APPLE__
+#if defined(__APPLE__) || defined(_WIN32)
         if(!m_root.empty() && now >= m_next_reconnect) {
             m_next_reconnect = now + RECONNECT_INTERVAL;
             m_backend = std::make_unique<Backend>(m_root);

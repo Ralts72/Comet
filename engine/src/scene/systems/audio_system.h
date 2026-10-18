@@ -25,9 +25,14 @@ namespace Comet {
             uint64_t lifetime;
             uint64_t revision;
             AudioService::VoiceId voice;
+            float fade_out = 0;
+            float occlusion = 0;
+            float occlusion_target = 0;
+            double query_elapsed = .1;
         };
 
-        Result<void, Error> synchronize(Scene& scene);
+        Result<void, Error> synchronize(
+            Scene& scene, PhysicsAccess* physics = nullptr, double delta_time = 0);
         AudioService& m_audio;
         std::map<EntityUuid, Entry> m_entries;
     };

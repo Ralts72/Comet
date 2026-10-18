@@ -124,6 +124,12 @@ namespace {
                 ASSERT_TRUE(constructor.Bind(name, &display_text));
             for(const auto* name : {"course_actions", "next_level", "return_level"})
                 ASSERT_TRUE(constructor.Bind(name, &confirmation_flag));
+            for(const auto* name : {"tour_visible", "tour_collection", "tour_actions", "tour_done",
+                    "tour_has_reference", "tour_needs_deferred"})
+                ASSERT_TRUE(constructor.Bind(name, &confirmation_flag));
+            for(const auto* name : {"tour_title", "tour_section", "tour_progress",
+                    "tour_description", "tour_task", "tour_reference_label", "tour_save_status"})
+                ASSERT_TRUE(constructor.Bind(name, &display_text));
             ASSERT_TRUE(constructor.Bind("character_status", &display_text));
             ASSERT_TRUE(constructor.Bind("action_name", &action));
             ASSERT_TRUE(constructor.Bind("status_text", &status));

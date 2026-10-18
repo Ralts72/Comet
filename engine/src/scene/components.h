@@ -10,6 +10,7 @@
 #include "scene/entity_id.h"
 #include "scene/entity_uuid.h"
 #include "scene/scene_settings.h"
+#include "scene/world_components.h"
 
 #include <string>
 #include <type_traits>
@@ -173,6 +174,9 @@ namespace Comet {
         float frequency = 1;
         bool flexible = false;
         float height = 1; // 本地米数；底部 Y=0 固定。
+        float interaction_radius = 0;
+        float interaction_strength = 20;
+        float wind_response = 1;
         bool operator==(const WindSwayComponent&) const = default;
     };
 
@@ -279,6 +283,13 @@ namespace Comet {
         || std::is_same_v<std::remove_cvref_t<T>, HandIKComponent>
         || std::is_same_v<std::remove_cvref_t<T>, FullBodyIKComponent>
         || std::is_same_v<std::remove_cvref_t<T>, WindSwayComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, SplineComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, SplineFollowerComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, WeatherComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, WaterSurfaceComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, StreamCellComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, VegetationInteractorComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, ParticleMeshCollisionComponent>
         || std::is_same_v<std::remove_cvref_t<T>, MeshRendererComponent>
         || std::is_same_v<std::remove_cvref_t<T>, MeshLodComponent>
         || std::is_same_v<std::remove_cvref_t<T>, OutlineComponent>
@@ -324,6 +335,13 @@ namespace Comet {
         float min_distance = 1;
         float max_distance = 30;
         float rolloff = 1;
+        float fade_in = 0;
+        float fade_out = 0;
+        float reverb_mix = 0;
+        float reverb_decay = 1.2f;
+        bool occlusion = false;
+        float occlusion_strength = .75f;
+        uint32_t occlusion_layers = UINT32_MAX;
         [[nodiscard]] AudioSpatialSettings spatial_settings(const Math::Vec3& position) const {
             return {spatial, position, min_distance, max_distance, rolloff};
         }

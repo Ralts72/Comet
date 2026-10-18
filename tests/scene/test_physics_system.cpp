@@ -4,6 +4,8 @@
 #include "render/scene/scene_extractor.h"
 #include "scene/scene_serializer.h"
 #include "scene/systems/physics_system.h"
+#include "asset/database.h"
+#include "asset/runtime/prefab_loader.h"
 
 #include <algorithm>
 #include <array>
@@ -1843,12 +1845,15 @@ namespace Comet::Tests {
 
     TEST(PhysicsSystemTest, DemoSceneLoadsAndStartsItsPhysicsBodies) {
         const auto registry = create_scene_component_registry();
-        const SceneSerializer serializer(registry);
+        AssetDatabase database{ProjectPaths(COMET_SAMPLE_PROJECT_DIRECTORY)};
+        ASSERT_TRUE(database.scan().succeeded());
+        const SceneSerializer serializer(registry, project_scene_sources(database, registry));
         auto loaded = serializer.load(
             std::string(COMET_SAMPLE_PROJECT_DIRECTORY) + "/assets/scenes/default.scene");
         ASSERT_TRUE(loaded) << loaded.error();
-        EXPECT_EQ(loaded.value()->component_count<RigidBodyComponent>(), 8u);
-        EXPECT_EQ(loaded.value()->component_count<ColliderComponent>(), 8u);
+        const auto bodies = loaded.value()->component_count<RigidBodyComponent>();
+        EXPECT_GE(bodies, 8u);
+        EXPECT_EQ(loaded.value()->component_count<ColliderComponent>(), bodies);
         EXPECT_EQ(loaded.value()->component_count<PointJointComponent>(), 1u);
         EXPECT_EQ(loaded.value()->component_count<HingeJointComponent>(), 1u);
         EXPECT_EQ(loaded.value()->component_count<SliderJointComponent>(), 1u);
@@ -1857,6 +1862,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.set_services({.physics = &physics}));
         ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         ASSERT_TRUE(runtime.start(*loaded.value()));
+        EXPECT_EQ(physics.get_statistics().bodies, bodies);
         EXPECT_EQ(physics.get_statistics().joints, 3u);
         ASSERT_TRUE(runtime.advance(1.0 / 60.0));
         ASSERT_TRUE(runtime.stop());

@@ -21,8 +21,13 @@ namespace Comet {
                                                                               const auto& collider,
                                                                               const auto& body) {
                 if(collider.shape == ColliderShape::TriangleMesh && !collider.is_trigger
-                    && body.motion == BodyMotion::Static && collider.mesh) {
-                    const auto matrix = scene.get_world_matrix(entity);
+                    && collider.mesh) {
+                    if(entity.has_component<ParticleMeshCollisionComponent>()
+                        && entity.get_component<ParticleMeshCollisionComponent>().enabled)
+                        return;
+                    const auto matrix = interpolating && body.motion != BodyMotion::Static
+                                            ? scene.get_render_transform(entity).world_matrix
+                                            : scene.get_world_matrix(entity);
                     if(Math::positive_trs_scale(matrix))
                         output.particle_meshes.push_back(
                             {entity.get_id(), collider.mesh, matrix, collider.collision_layer});
@@ -65,6 +70,25 @@ namespace Comet {
                     return;
                 result.layers[0] = collider.collision_layer;
                 candidates.emplace_back(entity.get_id(), result);
+            });
+            scene.each<const ParticleMeshCollisionComponent>([&](Entity entity,
+                                                                 const auto& component) {
+                if(!component.enabled)
+                    return;
+                auto mesh = component.mesh;
+                if(!mesh && entity.has_component<MeshRendererComponent>())
+                    mesh = entity.get_component<MeshRendererComponent>().mesh;
+                if(!mesh)
+                    return;
+                const auto matrix = interpolating ? scene.get_render_transform(entity).world_matrix
+                                                  : scene.get_world_matrix(entity);
+                if(!Math::positive_trs_scale(matrix))
+                    return;
+                auto animation =
+                    component.deformed ? scene.get_render_animation_playback(entity) : nullptr;
+                output.particle_meshes.push_back(
+                    {entity.get_id(), mesh, matrix, component.layers, std::move(animation),
+                        component.deformed ? scene.get_vertex_bend(entity) : Math::Vec4(0)});
             });
             std::ranges::sort(output.particle_meshes, {}, &ParticleMeshCollider::entity_id);
             std::ranges::sort(candidates, {}, &std::pair<EntityId, ParticleWorldCollider>::first);
@@ -217,7 +241,7 @@ namespace Comet {
         // 复用已有快照槽位；查询过滤掉缺少 Transform 的实体后再收缩。
         output.render_items.resize(scene.component_count<MeshRendererComponent>());
         if(slots) {
-            slots->m_entities_by_slot.resize(output.render_items.size());
+            slots->m_entity_indices_by_slot.resize(output.render_items.size());
             slots->m_slots_by_entity.reserve(scene.entity_count());
         }
         std::size_t item_count = 0;
@@ -233,13 +257,13 @@ namespace Comet {
                 if(index >= slots->m_slots_by_entity.size())
                     slots->m_slots_by_entity.resize(index + 1);
                 slots->m_slots_by_entity[index] = item_count;
-                slots->m_entities_by_slot[item_count] = entity.m_handle;
+                slots->m_entity_indices_by_slot[item_count] = index;
             }
             ++item_count;
         });
         output.render_items.resize(item_count);
         if(slots) {
-            slots->m_entities_by_slot.resize(item_count);
+            slots->m_entity_indices_by_slot.resize(item_count);
             slots->m_matches_storage_order = true;
         }
     }
@@ -249,7 +273,7 @@ namespace Comet {
         m_scene_version = {};
         m_matches_storage_order = false;
         m_slots_by_entity.clear();
-        m_entities_by_slot.clear();
+        m_entity_indices_by_slot.clear();
     }
 
     void SceneExtractor::update_items(Scene& scene, RenderScene& output) {
@@ -274,7 +298,7 @@ namespace Comet {
                     if(index >= m_slots_by_entity.size())
                         m_slots_by_entity.resize(index + 1);
                     m_slots_by_entity[index] = slot;
-                    m_entities_by_slot.push_back(change.handle);
+                    m_entity_indices_by_slot.push_back(index);
                     items.emplace_back();
                     changes.structure.push_back(
                         {RenderItemChanges::StructuralEdit::Type::Append, slot});
@@ -290,13 +314,13 @@ namespace Comet {
                     {RenderItemChanges::StructuralEdit::Type::Remove, slot});
                 if(slot + 1 != items.size()) {
                     items[slot] = std::move(items.back());
-                    const auto moved = m_entities_by_slot.back();
-                    m_entities_by_slot[slot] = moved;
-                    m_slots_by_entity[entt::to_entity(moved)] = slot;
+                    const auto moved = m_entity_indices_by_slot.back();
+                    m_entity_indices_by_slot[slot] = moved;
+                    m_slots_by_entity[moved] = slot;
                     changes.slots.push_back(slot);
                 }
                 items.pop_back();
-                m_entities_by_slot.pop_back();
+                m_entity_indices_by_slot.pop_back();
                 m_matches_storage_order = false;
             }
         }

@@ -185,6 +185,10 @@ namespace Comet {
     Result<Renderer::FramePreparation, GraphicsError> Renderer::prepare_frame(
         AssetRegistry::Removals removals) {
         const auto size = m_window.get_framebuffer_size();
+        if(m_display_revision != m_window.get_display_revision()) {
+            m_display_refresh_pending = m_display_revision != 0;
+            m_display_revision = m_window.get_display_revision();
+        }
         if(m_render_thread && !m_render_context->get_device().is_resource_owner_thread()) {
             const auto prepared = m_render_thread->prepare_frame(size, std::move(removals));
             if(!prepared)
@@ -219,6 +223,11 @@ namespace Comet {
         if(auto maintained = maintain_assets(std::move(removals)); !maintained)
             return Preparation::failure(maintained.error());
 
+        if(std::exchange(m_display_refresh_pending, false)) {
+            m_render_context->get_swapchain().refresh_output_capabilities();
+            m_presentation->request_recreation();
+            m_output_recreating = true;
+        }
         if(m_pending_output) {
             const auto output = std::exchange(m_pending_output, std::nullopt).value();
             if(auto calibrated = get_view(DEFAULT_VIEW)
@@ -384,18 +393,22 @@ namespace Comet {
             auto& view = get_view(input.id);
             input.parameters.particle_collisions = particle_collisions;
             view.path_trace_error.clear();
+            if(input.draw && frame.world && !input.parameters.path_trace_override
+                && !input.parameters.path_trace_enabled
+                && frame.world->post_process.path_trace.enabled) {
+                input.parameters.path_trace_enabled = true;
+                input.parameters.path_trace_settings = frame.world->post_process.path_trace;
+            }
             if(!input.draw || !input.parameters.path_trace_enabled || !frame.world) {
                 view.path_trace_builder.reset();
                 continue;
             }
             input.parameters.path_trace.reset();
             if(frame.world->environment.fog_enabled
-                || std::ranges::any_of(frame.world->render_items,
-                    [](const auto& item) { return item.mesh && item.mesh->is_skinned(); })
                 || (frame.world->particles
                     && (!frame.world->particles->instances.empty()
                         || !frame.world->particles->gpu_emitters.empty()))) {
-                view.path_trace_error = "路径追踪暂不支持蒙皮／雾／粒子";
+                view.path_trace_error = "路径追踪暂不支持距离雾／粒子；介质请在路径追踪设置中配置";
                 continue;
             }
             if(!m_path_trace_support_error.empty()) {
@@ -759,6 +772,9 @@ namespace Comet {
         return config.surface_format.colorSpace == vk::ColorSpaceKHR::eExtendedSrgbLinearEXT;
     }
 
+    void Renderer::set_task_scheduler(TaskScheduler* scheduler) {
+        m_frames->set_task_scheduler(scheduler);
+    }
     void Renderer::request_swapchain_recreation() {
         m_presentation->request_recreation();
     }

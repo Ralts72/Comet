@@ -25,6 +25,9 @@ namespace Comet {
             MeshData data) override;
         void collect_completed_uploads();
 
+        [[nodiscard]] uint64_t gpu_bytes(const std::shared_ptr<Mesh>&) const override;
+        [[nodiscard]] uint64_t gpu_bytes(const std::shared_ptr<Texture>&) const override;
+
     private:
         Device& m_device;
         std::unique_ptr<UploadManager> m_upload_manager;

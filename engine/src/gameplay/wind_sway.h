@@ -15,6 +15,7 @@ namespace Comet::Gameplay {
             Math::Vec3 base{0}, output{0};
         };
         std::unordered_map<EntityId, State> m_states;
+        std::unordered_map<EntityId, Math::Vec2> m_interactions;
         double m_time = 0;
     };
 }

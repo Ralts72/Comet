@@ -153,4 +153,93 @@ namespace Comet {
         }
         return static_cast<float>(minimum_parameter);
     }
+    void SpatialIndex::clear() {
+        m_bounds.clear();
+        m_order.clear();
+        m_unbounded.clear();
+        m_nodes.clear();
+    }
+    void SpatialIndex::build(uint32_t first, uint32_t count) {
+        auto bounds = *m_bounds[m_order[first]];
+        for(uint32_t i = 1; i < count; ++i)
+            bounds.include(*m_bounds[m_order[first + i]]);
+        const auto node = uint32_t(m_nodes.size());
+        m_nodes.push_back({bounds, first, count, 0});
+        if(count > 8) {
+            const auto size = bounds.size();
+            int axis = size.y > size.x ? 1 : 0;
+            if(size.z > size[axis])
+                axis = 2;
+            const auto middle = first + count / 2;
+            std::nth_element(m_order.begin() + first, m_order.begin() + middle,
+                m_order.begin() + first + count, [&](uint32_t a, uint32_t b) {
+                    return m_bounds[a]->center()[axis] < m_bounds[b]->center()[axis];
+                });
+            build(first, middle - first);
+            build(middle, first + count - middle);
+            m_nodes[node].count = 0;
+        }
+        m_nodes[node].escape = uint32_t(m_nodes.size());
+    }
+    void SpatialIndex::update(std::span<const std::optional<BoundingBox>> bounds) {
+        bool topology = bounds.size() != m_bounds.size(), changed = topology;
+        if(!topology)
+            for(size_t i = 0; i < bounds.size(); ++i) {
+                topology |= bool(bounds[i]) != bool(m_bounds[i]);
+                changed |= topology
+                           || (bounds[i]
+                               && (bounds[i]->minimum != m_bounds[i]->minimum
+                                   || bounds[i]->maximum != m_bounds[i]->maximum));
+            }
+        if(!changed)
+            return;
+        m_bounds.assign(bounds.begin(), bounds.end());
+        if(topology) {
+            m_order.clear();
+            m_unbounded.clear();
+            m_nodes.clear();
+            for(uint32_t i = 0; i < m_bounds.size(); ++i)
+                (m_bounds[i] ? m_order : m_unbounded).push_back(i);
+            if(!m_order.empty())
+                build(0, uint32_t(m_order.size()));
+            return;
+        }
+        for(size_t i = m_nodes.size(); i-- > 0;) {
+            auto& node = m_nodes[i];
+            if(node.count) {
+                node.bounds = *m_bounds[m_order[node.first]];
+                for(uint32_t j = 1; j < node.count; ++j)
+                    node.bounds.include(*m_bounds[m_order[node.first + j]]);
+            } else {
+                node.bounds = m_nodes[i + 1].bounds;
+                node.bounds.include(m_nodes[m_nodes[i + 1].escape].bounds);
+            }
+        }
+    }
+    uint32_t SpatialIndex::query(const Frustum& frustum, std::vector<uint32_t>& visible) const {
+        visible.assign(m_unbounded.begin(), m_unbounded.end());
+        uint32_t tests = 0;
+        for(uint32_t i = 0; i < m_nodes.size();) {
+            const auto& node = m_nodes[i];
+            ++tests;
+            if(!frustum.intersects(node.bounds)) {
+                i = node.escape;
+                continue;
+            }
+            if(!node.count) {
+                ++i;
+                continue;
+            }
+            for(uint32_t j = 0; j < node.count; ++j) {
+                const auto slot = m_order[node.first + j];
+                ++tests;
+                if(frustum.intersects(*m_bounds[slot]))
+                    visible.push_back(slot);
+            }
+            ++i;
+        }
+        std::ranges::sort(visible);
+        return tests;
+    }
+
 }

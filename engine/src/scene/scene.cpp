@@ -673,6 +673,24 @@ namespace Comet {
         return found->second;
     }
 
+    bool Scene::clear_material_parameter(Entity entity, std::string_view name) {
+        const auto previous = get_material_overrides(entity);
+        if(!previous)
+            return false;
+        auto value = std::make_shared<MaterialOverrides>(*previous);
+        const auto key = std::string(name);
+        const auto removed =
+            value->vector_properties.erase(key) + value->scalar_properties.erase(key);
+        if(!removed)
+            return false;
+        if(value->vector_properties.empty() && value->scalar_properties.empty())
+            m_material_overrides.erase(entity.m_handle);
+        else
+            m_material_overrides[entity.m_handle] = std::move(value);
+        mark_render_entity_changed(entity.m_handle);
+        return true;
+    }
+
     Result<void> Scene::set_material_scalar(const Entity entity, const std::string_view name,
         const float value, const MaterialParameterValidator& materials) {
         return set_material_parameter(entity, name, value, materials);

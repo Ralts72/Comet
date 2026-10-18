@@ -57,6 +57,7 @@ namespace Comet {
         float fog_end = 100.0f;
         VolumetricFogSettings volumetric_fog;
         uint32_t realtime_gi_budget = 32;
+        Math::Vec3 wind{0};
 
         [[nodiscard]] Result<void> validate() const;
         bool operator==(const SceneEnvironment&) const = default;
@@ -73,6 +74,36 @@ namespace Comet {
         bool operator==(const ScreenSpaceReflectionSettings&) const = default;
     };
 
+    struct COMET_API LensSettings {
+        bool depth_of_field = false;
+        float focus_distance = 8;
+        float focus_range = 4;
+        float aperture = 6; // 最大弥散半径，按源图像像素计。
+        bool motion_blur = false;
+        float shutter = .5f; // 当前帧位移的曝光比例。
+        float max_blur = 24;
+        [[nodiscard]] Result<void> validate() const;
+        bool operator==(const LensSettings&) const = default;
+    };
+
+    struct COMET_API PathTraceSettings {
+        uint32_t samples = 256;
+        uint32_t bounces = 4;
+        uint32_t seed = 0;
+        uint64_t reset_generation = 0;
+        uint32_t max_dimension = 512;
+        bool enabled = false;
+        bool dynamic = false;
+        bool denoise = false;
+        float history_weight = .85f;
+        float medium_density = 0;
+        Math::Vec3 medium_color{1};
+        float medium_anisotropy = 0;
+        [[nodiscard]] Result<void> validate() const;
+        [[nodiscard]] Math::Vec2u image_size(Math::Vec2u output) const;
+        bool operator==(const PathTraceSettings&) const = default;
+    };
+
     struct COMET_API PostProcessSettings {
         static constexpr float MAX_EXPOSURE = 100.0f;
         static constexpr float MAX_BLOOM_STRENGTH = 10.0f;
@@ -87,7 +118,16 @@ namespace Comet {
         float ao_strength = 1.0f;
         ScreenSpaceReflectionSettings reflections;
         bool weighted_oit = false;
+        LensSettings lens;
+        PathTraceSettings path_trace;
 
+        [[nodiscard]] bool uses_depth_of_field() const {
+            return lens.depth_of_field && lens.aperture > 0;
+        }
+        [[nodiscard]] bool uses_motion_blur() const {
+            return lens.motion_blur && lens.shutter > 0 && lens.max_blur > 0;
+        }
+        [[nodiscard]] bool uses_lens() const { return uses_depth_of_field() || uses_motion_blur(); }
         [[nodiscard]] bool uses_ao() const { return ao_enabled && ao_strength > 0.0f; }
         [[nodiscard]] bool uses_bloom() const { return bloom_enabled && bloom_strength > 0.0f; }
         [[nodiscard]] bool uses_reflections() const { return reflections.active(); }

@@ -186,6 +186,10 @@ namespace Comet {
             writer.field("fog_start", environment.fog_start);
             writer.field("fog_end", environment.fog_end);
             writer.field("realtime_gi_budget", uint64_t(environment.realtime_gi_budget));
+            if(environment.wind != Math::Vec3(0)) {
+                writer.key("wind");
+                Json::write_vector(writer, environment.wind);
+            }
             if(environment.volumetric_fog != VolumetricFogSettings{}) {
                 writer.key("volumetric_fog");
                 write_volumetric_fog(writer, environment.volumetric_fog);
@@ -211,6 +215,37 @@ namespace Comet {
                 writer.field("max_distance", reflections.max_distance);
                 writer.field("thickness", reflections.thickness);
                 writer.field("max_roughness", reflections.max_roughness);
+                writer.end_object();
+            }
+            if(post_process.lens != LensSettings{}) {
+                const auto& lens = post_process.lens;
+                writer.key("lens");
+                writer.begin_object();
+                writer.field("depth_of_field", lens.depth_of_field);
+                writer.field("focus_distance", lens.focus_distance);
+                writer.field("focus_range", lens.focus_range);
+                writer.field("aperture", lens.aperture);
+                writer.field("motion_blur", lens.motion_blur);
+                writer.field("shutter", lens.shutter);
+                writer.field("max_blur", lens.max_blur);
+                writer.end_object();
+            }
+            if(post_process.path_trace != PathTraceSettings{}) {
+                const auto& trace = post_process.path_trace;
+                writer.key("path_trace");
+                writer.begin_object();
+                writer.field("enabled", trace.enabled);
+                writer.field("dynamic", trace.dynamic);
+                writer.field("denoise", trace.denoise);
+                writer.field("samples", uint64_t(trace.samples));
+                writer.field("bounces", uint64_t(trace.bounces));
+                writer.field("seed", uint64_t(trace.seed));
+                writer.field("max_dimension", uint64_t(trace.max_dimension));
+                writer.field("history_weight", trace.history_weight);
+                writer.field("medium_density", trace.medium_density);
+                writer.field("medium_anisotropy", trace.medium_anisotropy);
+                writer.key("medium_color");
+                Json::write_vector(writer, trace.medium_color);
                 writer.end_object();
             }
             writer.end_object();
@@ -278,7 +313,7 @@ namespace Comet {
             if(auto valid = context.validate_keys(environment_node,
                    {"asset", "background", "intensity", "rotation", "lighting",
                        "lighting_intensity", "background_color", "fog_enabled", "fog_color",
-                       "fog_start", "fog_end", "volumetric_fog", "realtime_gi_budget"},
+                       "fog_start", "fog_end", "volumetric_fog", "realtime_gi_budget", "wind"},
                    "environment");
                 !valid)
                 return LoadResult::failure(valid.error());
@@ -366,6 +401,16 @@ namespace Comet {
                     return LoadResult::failure(parsed.error());
                 environment.volumetric_fog = parsed.value();
             }
+            const auto wind_node = context.find(environment_node, "wind");
+            if(!wind_node)
+                return LoadResult::failure(wind_node.error());
+            if(wind_node.value()) {
+                const auto wind =
+                    Json::read_vector<Math::Vec3>(*wind_node.value(), context, "environment.wind");
+                if(!wind)
+                    return LoadResult::failure(wind.error());
+                environment.wind = wind.value();
+            }
             content.environment = environment;
         }
         Json::Node post_process_node;
@@ -375,7 +420,8 @@ namespace Comet {
                 return LoadResult::failure(context.error("post_process", "invalid object"));
             if(auto valid = context.validate_keys(post_process_node,
                    {"exposure", "bloom_enabled", "bloom_strength", "bloom_threshold", "ao_enabled",
-                       "ao_radius", "ao_strength", "screen_space_reflections", "weighted_oit"},
+                       "ao_radius", "ao_strength", "screen_space_reflections", "weighted_oit",
+                       "lens", "path_trace"},
                    "post_process");
                 !valid)
                 return LoadResult::failure(valid.error());
@@ -442,6 +488,88 @@ namespace Comet {
                     if(!number)
                         return LoadResult::failure(number.error());
                     *target = number.value().value_or(*target);
+                }
+            }
+            const auto lens_node = context.find(post_process_node, "lens");
+            if(!lens_node)
+                return LoadResult::failure(lens_node.error());
+            if(lens_node.value()) {
+                constexpr std::string_view location = "post_process.lens";
+                const auto node = *lens_node.value();
+                if(auto valid = context.validate_keys(node,
+                       {"depth_of_field", "focus_distance", "focus_range", "aperture",
+                           "motion_blur", "shutter", "max_blur"},
+                       location);
+                    !valid)
+                    return LoadResult::failure(valid.error());
+                auto& lens = settings.lens;
+                for(const auto& [key, target] : {std::pair{"depth_of_field", &lens.depth_of_field},
+                        {"motion_blur", &lens.motion_blur}}) {
+                    const auto value =
+                        context.read_optional_field<bool>(node, key, "a boolean", location);
+                    if(!value)
+                        return LoadResult::failure(value.error());
+                    *target = value.value().value_or(*target);
+                }
+                for(const auto& [key, target] : {std::pair{"focus_distance", &lens.focus_distance},
+                        {"focus_range", &lens.focus_range}, {"aperture", &lens.aperture},
+                        {"shutter", &lens.shutter}, {"max_blur", &lens.max_blur}}) {
+                    const auto value =
+                        context.read_optional_field<float>(node, key, "a finite number", location);
+                    if(!value)
+                        return LoadResult::failure(value.error());
+                    *target = value.value().value_or(*target);
+                }
+            }
+            const auto trace_node = context.find(post_process_node, "path_trace");
+            if(!trace_node)
+                return LoadResult::failure(trace_node.error());
+            if(trace_node.value()) {
+                constexpr std::string_view location = "post_process.path_trace";
+                const auto node = *trace_node.value();
+                if(auto valid = context.validate_keys(node,
+                       {"enabled", "dynamic", "denoise", "samples", "bounces", "seed",
+                           "max_dimension", "history_weight", "medium_density", "medium_anisotropy",
+                           "medium_color"},
+                       location);
+                    !valid)
+                    return LoadResult::failure(valid.error());
+                auto& trace = settings.path_trace;
+                for(const auto& [key, target] : {std::pair{"enabled", &trace.enabled},
+                        {"dynamic", &trace.dynamic}, {"denoise", &trace.denoise}}) {
+                    const auto value =
+                        context.read_optional_field<bool>(node, key, "a boolean", location);
+                    if(!value)
+                        return LoadResult::failure(value.error());
+                    *target = value.value().value_or(*target);
+                }
+                for(const auto& [key, target] :
+                    {std::pair{"samples", &trace.samples}, {"bounces", &trace.bounces},
+                        {"seed", &trace.seed}, {"max_dimension", &trace.max_dimension}}) {
+                    const auto value = context.read_optional_field<uint32_t>(
+                        node, key, "an unsigned integer", location);
+                    if(!value)
+                        return LoadResult::failure(value.error());
+                    *target = value.value().value_or(*target);
+                }
+                for(const auto& [key, target] : {std::pair{"history_weight", &trace.history_weight},
+                        {"medium_density", &trace.medium_density},
+                        {"medium_anisotropy", &trace.medium_anisotropy}}) {
+                    const auto value =
+                        context.read_optional_field<float>(node, key, "a finite number", location);
+                    if(!value)
+                        return LoadResult::failure(value.error());
+                    *target = value.value().value_or(*target);
+                }
+                const auto color_node = context.find(node, "medium_color");
+                if(!color_node)
+                    return LoadResult::failure(color_node.error());
+                if(color_node.value()) {
+                    const auto color = Json::read_vector<Math::Vec3>(
+                        *color_node.value(), context, "post_process.path_trace.medium_color");
+                    if(!color)
+                        return LoadResult::failure(color.error());
+                    trace.medium_color = color.value();
                 }
             }
             content.post_process = settings;

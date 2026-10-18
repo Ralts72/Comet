@@ -8,6 +8,8 @@
 #include "scene/systems/audio_system.h"
 #include "scene/systems/script_system.h"
 #include "support/audio_fixture.h"
+#include "physics/physics_access.h"
+#include <set>
 
 #include <algorithm>
 #include <array>
@@ -27,6 +29,45 @@ namespace Comet::Tests {
             EXPECT_TRUE(
                 std::ranges::any_of(samples, [](float value) { return std::abs(value) > 1e-6f; }));
         }
+
+        class OcclusionProbe final: public PhysicsAccess {
+        public:
+            mutable std::vector<EntityUuid> queried;
+            std::optional<QueryHit> hit;
+
+        private:
+            bool enqueue_command(
+                EntityUuid, EntityId, CommandKind, Math::Vec3, std::optional<Math::Vec3>) override {
+                return false;
+            }
+            std::optional<Velocity> read_velocity(EntityUuid, EntityId) const override {
+                return {};
+            }
+            bool enqueue_character_move(EntityUuid, EntityId, CharacterMove) override {
+                return false;
+            }
+            bool enqueue_character_velocity(EntityUuid, EntityId, CharacterVelocity) override {
+                return false;
+            }
+            std::optional<CharacterState> read_character_state(
+                EntityUuid, EntityId) const override {
+                return {};
+            }
+            Result<std::optional<QueryHit>> query_shape(const ColliderComponent&,
+                const TransformComponent&, Math::Vec3, const QueryFilter&) const override {
+                return Result<std::optional<QueryHit>>::success({});
+            }
+            Result<std::optional<QueryHit>> query_ray(
+                Math::Vec3, Math::Vec3, const QueryFilter& filter) const override {
+                queried.push_back(filter.ignored);
+                return Result<std::optional<QueryHit>>::success(hit);
+            }
+            Result<std::vector<EntityUuid>> query_overlap(
+                Math::Vec3, float, const QueryFilter&) const override {
+                return Result<std::vector<EntityUuid>>::success({});
+            }
+            void reset() noexcept override {}
+        };
 
         class FailAfterRequest final: public System {
         public:
@@ -122,6 +163,66 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.advance(0));
         EXPECT_TRUE(old_clip.expired());
         ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST_F(AudioServiceTest, OcclusionBudgetServicesAllSourcesAndIgnoresTheirParentBodies) {
+        scene.create_entity("listener").add_component<AudioListenerComponent>();
+        std::set<EntityUuid> expected;
+        for(int index = 0; index < 64; ++index) {
+            auto parent = scene.create_entity();
+            parent.add_component<RigidBodyComponent>();
+            expected.insert(parent.get_uuid());
+            auto child = scene.create_entity();
+            ASSERT_TRUE(scene.set_parent(child, parent));
+            child.edit_transform([](auto& transform) { transform.translation.z = -1; });
+            auto& source = child.add_component<AudioSourceComponent>();
+            source.clip = cue_handle;
+            source.loop = source.spatial = source.occlusion = true;
+        }
+        OcclusionProbe physics;
+        SceneRuntime playing;
+        ASSERT_TRUE(playing.set_services({.audio = &audio, .physics = &physics}));
+        ASSERT_TRUE(playing.add_system(std::make_unique<AudioSystem>(audio)));
+        ASSERT_TRUE(playing.start(scene));
+        for(int frame = 0; frame < 60; ++frame) {
+            const auto before = physics.queried.size();
+            ASSERT_TRUE(playing.advance(1.0 / 60));
+            EXPECT_LE(physics.queried.size() - before, 8u);
+        }
+        EXPECT_EQ(std::set(physics.queried.begin(), physics.queried.end()), expected);
+    }
+
+    TEST_F(AudioServiceTest, ListenerParentBodyDoesNotOccludeItsOwnListener) {
+        auto parent = scene.create_entity();
+        parent.add_component<RigidBodyComponent>();
+        auto listener = scene.create_entity();
+        ASSERT_TRUE(scene.set_parent(listener, parent));
+        listener.add_component<AudioListenerComponent>();
+        auto entity = scene.create_entity();
+        entity.edit_transform([](auto& transform) { transform.translation.z = -1; });
+        auto& source = entity.add_component<AudioSourceComponent>();
+        source.clip = cue_handle;
+        source.loop = source.spatial = source.occlusion = true;
+        OcclusionProbe physics;
+        SceneRuntime playing;
+        ASSERT_TRUE(playing.set_services({.audio = &audio, .physics = &physics}));
+        ASSERT_TRUE(playing.add_system(std::make_unique<AudioSystem>(audio)));
+        const auto read = [&](bool enabled) {
+            source.occlusion = enabled;
+            EXPECT_TRUE(playing.start(scene));
+            for(int frame = 0; frame < 30; ++frame)
+                EXPECT_TRUE(playing.advance(1.0 / 60));
+            Samples samples{};
+            EXPECT_TRUE(audio.read_frames(samples));
+            EXPECT_TRUE(playing.stop());
+            return samples;
+        };
+        const auto clear = read(false);
+        physics.hit = PhysicsAccess::QueryHit{.entity = parent.get_uuid()};
+        const auto self_hit = read(true);
+        expect_sound(clear);
+        for(std::size_t index = 0; index < clear.size(); ++index)
+            EXPECT_NEAR(self_hit[index], clear[index], 1e-6f);
     }
 
     TEST_F(AudioServiceTest, SpatialAudioRequiresOneListenerAndDuplicateListenersFailClearly) {
