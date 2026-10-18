@@ -51,7 +51,7 @@ namespace Comet {
         [[nodiscard]] Statistics get_statistics() const { return m_statistics; }
         void reset_statistics() { m_statistics = {}; }
         enum class LodSelection { PerView, AlreadySelected };
-        // 相机使用所属主视图已选级的几何；阴影独立维护每个 View 的历史。
+        // 同一颜色视图的相机深度与阴影共用已选级几何，各深度 View 独立裁剪。
         [[nodiscard]] Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> render(
             FrameScheduler& frames, std::span<const View> views, const RenderGeometry& geometry,
             LodSelection lod = LodSelection::PerView);
@@ -109,6 +109,7 @@ namespace Comet {
         bool m_outline = false;
         std::vector<DrawItem> m_draw_queue;
         std::vector<PushConstant> m_transforms;
+        std::vector<uint32_t> m_visible;
         std::vector<RenderGeometry> m_view_geometry;
         Statistics m_statistics;
     };

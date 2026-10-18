@@ -39,7 +39,7 @@ namespace Comet {
         [[nodiscard]] uint64_t gpu_bytes(const std::shared_ptr<Mesh>&) const override;
         [[nodiscard]] uint64_t gpu_bytes(const std::shared_ptr<Texture>&) const override;
 
-        // Owner 在帧交接边界同步创建资产；独立 CPU 产品在 Worker 消费后释放。
+        // Owner 同步创建资产时先收回已交付帧；CPU 产品在 Worker 消费后释放。
         [[nodiscard]] GpuResourceResult<std::shared_ptr<Mesh>> try_create_mesh(
             MeshData data) override;
         [[nodiscard]] GpuResourceResult<std::shared_ptr<Texture>> try_create_texture(
@@ -77,6 +77,15 @@ namespace Comet {
             static_cast<void>(take_result(lock));
             lock.unlock();
             return guarded_work([&] { return outcome.get(); });
+        }
+
+        template<typename Work> auto create_resource(Work work) {
+            using Outcome = decltype(work());
+            // 流式资产可在模拟中请求创建；普通 Renderer 操作仍须由宿主在空闲边界调用。
+            if(!is_current())
+                if(auto completed = complete(); !completed)
+                    return failed_work<Outcome>(completed.error());
+            return invoke(std::move(work));
         }
 
         template<typename Outcome> static Outcome failed_work(GraphicsError error) {

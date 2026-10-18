@@ -115,7 +115,8 @@ namespace Comet {
             const auto& shadow = lighting.shadows[i];
             views[i] = {shadow.view_projection, shadow.atlas_rect, shadow.light_index >= 0};
         }
-        auto result = m_depth->render(frames, views, geometry);
+        auto result =
+            m_depth->render(frames, views, geometry, DepthPass::LodSelection::AlreadySelected);
         static_cast<DepthPass::Statistics&>(m_statistics) = m_depth->get_statistics();
         ++m_statistics.rendered_passes;
         m_statistics.cascades = uint32_t(lighting.shadow_cascade_count);

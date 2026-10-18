@@ -202,6 +202,8 @@ namespace Comet {
         add(registry,
             describe_component<CameraControllerComponent>("camera_controller", "Camera Controller")
                 .field(COMET_FIELD(CameraControllerComponent, enabled), "Enabled")
+                .field(COMET_FIELD(CameraControllerComponent, capture_mouse), "直接鼠标观察",
+                    {.required = false})
                 .enum_field(COMET_FIELD(CameraControllerComponent, mode), "Control Mode",
                     {{CameraControllerComponent::Mode::Free, {"free", "Free"}},
                         {CameraControllerComponent::Mode::Orbit, {"orbit", "Orbit"}}},

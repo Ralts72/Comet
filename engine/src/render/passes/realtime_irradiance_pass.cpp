@@ -358,9 +358,7 @@ namespace Comet {
         const auto& result = history->volumes[output];
         const bool refresh = history->visibility_refresh_remaining > 0;
         const Parameters parameters{{result->origin, volume.max_distance},
-            {result->spacing,
-                refresh ? std::min(volume.history_weight, .5f) : volume.history_weight},
-            {Math::Vec3(result->dimensions), 0},
+            {result->spacing, volume.history_weight}, {Math::Vec3(result->dimensions), 0},
             {2.f * std::max({result->spacing.x, result->spacing.y, result->spacing.z}),
                 refresh ? 0.f : volume.history_weight, volume.bounce_strength, volume.normal_bias},
             Math::Vec4(scene->background, 1),

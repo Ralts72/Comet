@@ -35,7 +35,8 @@ namespace Comet::Tests {
                 SCOPED_TRACE(frame);
                 RenderWorld world;
                 world.render_items.push_back({.entity_id = 1,
-                    .model_matrix = Math::scale(Math::Mat4(1), {.4f, .4f, 1}),
+                    .model_matrix = Math::translate(Math::Mat4(1), {0, .4f, 0})
+                                    * Math::scale(Math::Mat4(1), {.4f, .4f, 1}),
                     .mesh = mesh,
                     .material = {.resource = black},
                     .outline = {.enabled = frame != 4,
@@ -45,7 +46,7 @@ namespace Comet::Tests {
                         .through_walls = frame == 3}});
                 if(frame == 2 || frame == 3)
                     world.render_items.push_back({.entity_id = 2,
-                        .model_matrix = Math::translate(Math::Mat4(1), {0, 0, .5f})
+                        .model_matrix = Math::translate(Math::Mat4(1), {0, .4f, .5f})
                                         * Math::scale(Math::Mat4(1), {.8f, .8f, 1}),
                         .mesh = mesh,
                         .material = {.resource = green}});
@@ -75,12 +76,13 @@ namespace Comet::Tests {
                     expected_green = 1;
                 else if(frame == 3)
                     expected_green = .5f;
-                EXPECT_NEAR(channel(32, 32, 0), mapped_byte(expected_red), 3);
-                EXPECT_NEAR(channel(32, 32, 1), mapped_byte(expected_green), 3);
+                EXPECT_NEAR(channel(32, 19, 0), mapped_byte(expected_red), 3);
+                EXPECT_NEAR(channel(32, 19, 1), mapped_byte(expected_green), 3);
+                EXPECT_LT(channel(32, 45, 0), 8);
                 if(frame == 0 || frame == 1 || frame == 3)
-                    EXPECT_GT(channel(46, 32, 0), 100);
+                    EXPECT_GT(channel(46, 19, 0), 100);
                 else
-                    EXPECT_LT(channel(46, 32, 0), 8);
+                    EXPECT_LT(channel(46, 19, 0), 8);
             }
         }
     }

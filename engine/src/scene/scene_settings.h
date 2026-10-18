@@ -88,6 +88,7 @@ namespace Comet {
 
     struct COMET_API PathTraceSettings {
         uint32_t samples = 256;
+        uint32_t samples_per_frame = 1;
         uint32_t bounces = 4;
         uint32_t seed = 0;
         uint64_t reset_generation = 0;

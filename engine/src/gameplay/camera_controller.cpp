@@ -101,8 +101,10 @@ namespace Comet::Gameplay {
     bool CameraController::wants_cursor_capture(
         Scene& scene, const Entity camera, const InputState& input) {
         const auto look = input.read_action("camera.look", InputState::Action::Type::Button, false);
-        return input.focused() && input.physical().pointer_enabled && look && look.value().down
-               && controlled_camera(scene, camera).has_value();
+        return input.focused() && input.physical().pointer_enabled
+               && controlled_camera(scene, camera).has_value()
+               && (camera.get_component<CameraControllerComponent>().capture_mouse
+                   || (look && look.value().down));
     }
 
     Result<void, Error> CameraController::update(Scene& scene, Entity camera,
@@ -123,7 +125,9 @@ namespace Comet::Gameplay {
         const auto& controls = read.value();
         auto turn = controls.look_rate * controller.look_speed * delta_time;
         // 本帧位移可能包含按下前的移动；开始拖动时跳过，下一帧再转向。
-        const bool mouse_look = controls.look.down && !controls.look.pressed;
+        const bool mouse_look =
+            input.physical().pointer_enabled
+            && (controller.capture_mouse || (controls.look.down && !controls.look.pressed));
         if(mouse_look)
             turn += controls.look_delta * controller.look_sensitivity;
         if(mouse_look || turn.x != 0 || turn.y != 0) {

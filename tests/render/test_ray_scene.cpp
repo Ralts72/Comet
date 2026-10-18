@@ -502,6 +502,12 @@ namespace Comet::Tests {
         EXPECT_TRUE(settings.validate());
         EXPECT_EQ(settings.image_size({1920, 1080}), Math::Vec2u(512, 288));
         EXPECT_EQ(settings.image_size({64, 96}), Math::Vec2u(64, 96));
+        settings.samples_per_frame = 0;
+        EXPECT_FALSE(settings.validate());
+        settings.samples_per_frame = 9;
+        EXPECT_FALSE(settings.validate());
+        settings.samples_per_frame = 2;
+        EXPECT_TRUE(settings.validate());
         settings.samples = 0;
         EXPECT_FALSE(settings.validate());
         settings.samples = 4096;

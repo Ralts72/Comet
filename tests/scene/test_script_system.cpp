@@ -2121,7 +2121,7 @@ namespace Comet::Tests {
             input.gamepad_sample(0, pad);
             ASSERT_TRUE(runtime.advance(0.01, &input.publish_frame()));
             EXPECT_NEAR(camera.get_component<TransformComponent>().rotation.y, yaw - 1.2f, 1e-5f);
-            EXPECT_FALSE(runtime.wants_cursor_capture());
+            EXPECT_TRUE(runtime.wants_cursor_capture());
             EXPECT_EQ(
                 player.get_component<TransformComponent>().translation, player_position_at_score);
             pad.axes[static_cast<size_t>(Input::GamepadAxis::RightX)] = 0;

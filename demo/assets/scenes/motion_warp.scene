@@ -51,8 +51,9 @@
       "uuid": "038e03ca-58a9-4b28-a743-f6d4796b45ec",
       "components": {
         "name": "动作对位",
+        "script": {"asset": 6729301842000001301, "parameters": {"model": {"entity": "12386287-5223-476b-9d5a-a512e80be63b"}}},
         "transform": {
-          "translation": [-2, 1, 2],
+          "translation": [-2, 0, 2],
           "rotation": [0, 0, 0],
           "scale": [1, 1, 1]
         },
@@ -96,7 +97,7 @@
               "speed": 1,
               "loop": false,
               "transition": 0,
-              "controller": 0,
+              "controller": 6729301842000001300,
               "parameters": {}
             },
             "root_motion": {
@@ -451,8 +452,9 @@
       "uuid": "cb56dc23-cd92-467f-aa41-e722547c414e",
       "components": {
         "name": "原地攻击对照",
+        "script": {"asset": 6729301842000001301, "parameters": {"model": {"entity": "448c746e-1224-4f5b-b528-3568b487ba19"}}},
         "transform": {
-          "translation": [-2, 1, -2],
+          "translation": [-2, 0, -2],
           "rotation": [0, 0, 0],
           "scale": [1, 1, 1]
         },
@@ -496,7 +498,7 @@
               "speed": 1,
               "loop": false,
               "transition": 0,
-              "controller": 0,
+              "controller": 6729301842000001300,
               "parameters": {}
             },
             "root_motion": {

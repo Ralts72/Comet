@@ -122,7 +122,8 @@ void main() {
     }
     barrier();
     // 每个八面体方向格单独测距；跨帧累积一、二阶矩，供表面采样的可见性权重使用。
-    vec2 coordinate = (vec2(lane % 8, lane / 8) + vec2(random_float(), random_float())) / 8.0;
+    // 遮挡使用固定方向；动画每帧刷新可见性时也不让静态墙面因随机抖动闪烁。
+    vec2 coordinate = (vec2(lane % 8, lane / 8) + vec2(.5)) / 8.0;
     vec3 direction = irradiance_oct_direction(coordinate);
     float distance = min(parameters.origin_distance.w, parameters.visibility.x);
     uint index;

@@ -91,8 +91,7 @@ namespace Comet {
         [[nodiscard]] const std::shared_ptr<const ParticleSnapshot>& get_particles() const {
             return m_particles;
         }
-        // Main 发布 Runtime／编辑预览的瞬时数据，不进入场景保存或克隆。
-        // 仅呈现输出，不进入场景内容；共享坐标系的子网格继承此弯曲。
+        // Main 发布瞬时弯曲，共享坐标系的子网格继承；不进入场景保存或克隆。
         void set_vertex_bend(Entity entity, Math::Vec4 bend);
         [[nodiscard]] Math::Vec4 get_vertex_bend(Entity entity) const;
         void set_particles(std::shared_ptr<const ParticleSnapshot> particles);

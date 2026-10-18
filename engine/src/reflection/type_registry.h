@@ -24,7 +24,6 @@ namespace Comet::Reflection {
         std::unique_ptr<Data> m_data;
     };
 
-    // 查询已显式注册的 Comet 类型，无第二份全局类型表或静态注册顺序。
     [[nodiscard]] COMET_API std::optional<TypeDescriptor> find_type(std::string_view id);
     [[nodiscard]] COMET_API std::vector<std::string> registered_types();
     [[nodiscard]] COMET_API std::vector<std::string> methods(std::string_view id);

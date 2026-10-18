@@ -81,13 +81,13 @@ namespace Comet {
     }
 
     GpuResourceResult<std::shared_ptr<Mesh>> RenderThread::try_create_mesh(MeshData data) {
-        return invoke([this, data = std::move(data)]() mutable {
+        return create_resource([this, data = std::move(data)]() mutable {
             return m_renderer.get_render_resources().try_create_mesh(std::move(data));
         });
     }
 
     GpuResourceResult<std::shared_ptr<Texture>> RenderThread::try_create_texture(TextureData data) {
-        return invoke([this, data = std::move(data)]() mutable {
+        return create_resource([this, data = std::move(data)]() mutable {
             return m_renderer.get_render_resources().try_create_texture(std::move(data));
         });
     }

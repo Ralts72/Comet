@@ -97,6 +97,7 @@ namespace Comet::Tests {
             const auto player_camera =
                 scene.find_entity(std::get<EntityUuid>(parameters.at("camera")));
             ASSERT_TRUE(player_camera);
+            EXPECT_TRUE(player_camera.get_component<CameraControllerComponent>().capture_mouse);
             if(std::get<bool>(parameters.at("intro"))) {
                 ASSERT_TRUE(guide.has_component<SplineFollowerComponent>());
                 EXPECT_EQ(guide.get_component<SplineFollowerComponent>().finished_event,
@@ -111,6 +112,12 @@ namespace Comet::Tests {
                 // 延迟到达的开场事件不能覆盖用户手动选择的参考视角。
                 ASSERT_TRUE(invoke(ScriptInstance::Phase::Event, "finish_intro"));
                 EXPECT_FALSE(player_camera.get_component<CameraComponent>().primary);
+                ASSERT_TRUE(invoke(ScriptInstance::Phase::Event, "reference_view"));
+                EXPECT_TRUE(player_camera.get_component<CameraComponent>().primary);
+            }
+            if(!parameters.contains("reference_camera")) {
+                EXPECT_FALSE(
+                    std::get<bool>(*runtime.get_session().get_value("tour.has_reference")));
                 ASSERT_TRUE(invoke(ScriptInstance::Phase::Event, "reference_view"));
                 EXPECT_TRUE(player_camera.get_component<CameraComponent>().primary);
             }

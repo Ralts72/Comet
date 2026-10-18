@@ -21,7 +21,7 @@ local function settings(options)
             "ui.settings element must be an id; only open can be false")
         elements[role] = id
     end
-    local shortcuts = {open = "F1", close = "Escape", reload = "F6",
+    local shortcuts = {open = "F1", open_secondary = false, close = "Escape", reload = "F6",
         gamepad_open = "Start", gamepad_close = "East"}
     for role, control in pairs(options.shortcuts or {}) do
         assert(shortcuts[role] ~= nil, "Unknown ui.settings shortcut: " .. role)
@@ -30,7 +30,7 @@ local function settings(options)
     end
     local reserved_keys = input_options.reserved_keys or {}
     if not input_options.reserved_keys then
-        for _, role in ipairs({"open", "close", "reload"}) do
+        for _, role in ipairs({"open", "open_secondary", "close", "reload"}) do
             if shortcuts[role] then reserved_keys[#reserved_keys + 1] = shortcuts[role] end
         end
     end
@@ -618,6 +618,7 @@ local function settings(options)
             if not status.capturing and pressed(ui, "key", shortcuts.reload) then ui.reload() end
             if not self.state.open then
                 if pressed(ui, "key", shortcuts.open)
+                    or pressed(ui, "key", shortcuts.open_secondary)
                     or pressed(ui, "gamepad_button", shortcuts.gamepad_open) then
                     open(self, ui)
                 end

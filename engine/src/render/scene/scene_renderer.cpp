@@ -101,7 +101,6 @@ namespace Comet {
         RenderState& state;
         FrameScheduler& frames;
         const RenderSubmission& submission;
-        const RenderGeometry& geometry;
         const RenderGeometry& main_geometry;
         const LineDrawList& lines;
         const LightingData& lighting;
@@ -335,7 +334,7 @@ namespace Comet {
             shadow_pass.uses.push_back({shadow, ResourceUsage::DepthStencilAttachmentWrite, {}});
             add_pass(std::move(shadow_pass), [](RecordContext& context, RenderGraph::PassId) {
                 return context.collect_waits(context.renderer.m_shadow->render(
-                    context.frames, context.lighting, context.geometry));
+                    context.frames, context.lighting, context.main_geometry));
             });
         }
         std::optional<RenderGraph::ResourceId> view_depth_resource;
@@ -1154,7 +1153,7 @@ namespace Comet {
             m_state->view_geometry.clear_frame();
             m_state->particles->clear_draws();
         });
-        // 主颜色与相机深度共用一次选级；各 Pass 仍保留自己的可见性和材质规则。
+        // 颜色与深度共用选级，避免曲面的简化网格投影到自身；保留视口外投影者。
         const RenderGeometry* main_geometry = &geometry;
         if(submission.view_project_matrix) {
             const auto& camera = *submission.view_project_matrix;
@@ -1217,8 +1216,8 @@ namespace Comet {
         }
         m_state->graph.transient_resources.bind_resources(bindings, image);
         auto waits = std::move(prepared).value();
-        RenderState::RecordContext context{*this, *m_state, frames, submission, geometry,
-            *main_geometry, lines, lighting, waits, image};
+        RenderState::RecordContext context{
+            *this, *m_state, frames, submission, *main_geometry, lines, lighting, waits, image};
         const auto recorder = [&](RenderGraph::PassId pass, CommandBuffer&) {
             return m_state->graph.recorders[pass](context, pass);
         };

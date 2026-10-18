@@ -239,15 +239,18 @@ namespace Comet {
                     view_geometry.get_view_statistics().culled_items;
                 m_statistics.lod_selections += view_geometry.get_view_statistics().lod_selections;
             }
-            for(const auto& prepared : selected.get_items()) {
+            const auto items = selected.get_items();
+            if(frustum) {
+                selected.visible_indices(*frustum, m_visible);
+                m_statistics.coarse_culled_items += items.size() - m_visible.size();
+            }
+            const auto count = frustum ? m_visible.size() : items.size();
+            for(size_t index = 0; index < count; ++index) {
+                const auto& prepared = items[frustum ? m_visible[index] : index];
                 if(m_outline && !prepared.source->outline.active())
                     continue;
                 if(!prepared.world_bounds)
                     continue;
-                if(frustum && !frustum->intersects(*prepared.world_bounds)) {
-                    ++m_statistics.coarse_culled_items;
-                    continue;
-                }
                 const auto& input = prepared.source->material;
                 const auto& source = input.resource;
                 const auto surface = source ? source->get_surface() : MaterialSurface{};
@@ -318,8 +321,7 @@ namespace Comet {
         using Draw = Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>;
         if(!frames.is_recording_frame() || &frames.get_device() != &m_device
             || frames.get_current_frame_slot_index() >= m_frame_slots
-            || views.size() != m_view_geometry.size()
-            || (lod == LodSelection::AlreadySelected && views.size() != 1))
+            || views.size() != m_view_geometry.size())
             return Draw::failure({"Invalid depth pass frame"});
         m_statistics = {};
         m_draw_queue.clear();
@@ -328,6 +330,7 @@ namespace Comet {
             m_motion_history.clear();
         const ScopeExit release_draws([&] {
             m_draw_queue.clear();
+            m_visible.clear();
             for(auto& view : m_view_geometry)
                 view.clear_frame();
         });

@@ -192,11 +192,6 @@ namespace {
             const Comet::Engine::FrameContext& frame) override {
             if(auto expired = m_player_settings.expire_display(); !expired)
                 return Comet::Result<void, Comet::Error>::failure({expired.error()});
-            if((!m_ui || !m_ui->is_modal()) && !m_ui_blocked
-                && frame.physical_input.key(Comet::Input::Key::Escape).pressed) {
-                get_engine().get_window().request_close();
-                return Comet::Result<void, Comet::Error>::success();
-            }
             const auto fps = static_cast<int>(std::round(frame.update.fps));
             if(!m_pending_scene && frame.update.fps > 0.0f && fps != m_displayed_fps) {
                 get_engine().get_window().set_title(

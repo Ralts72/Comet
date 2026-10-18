@@ -626,6 +626,53 @@ namespace Comet::Tests {
         EXPECT_EQ(navigation->get_statistics().path_queries, 0u);
         EXPECT_EQ(runtime.get_timing().fixed_index, 0u);
     }
+    TEST(NavigationDemoTest, SerializedJumpCoursePatrolCrossesBothPlatformsWithoutPlayerInput) {
+        const auto project = Project::load(COMET_SAMPLE_PROJECT_DIRECTORY);
+        ASSERT_TRUE(project) << project.error();
+        const auto components = create_scene_component_registry();
+        auto loaded =
+            SceneSerializer(components)
+                .load(
+                    (project.value().paths().assets() / "scenes/navigation_links.scene").string());
+        ASSERT_TRUE(loaded) << loaded.error();
+        auto& scene = *loaded.value();
+        Entity npc;
+        for(const auto entity : scene.get_entities()) {
+            if(entity.get_component<NameComponent>().name == "巡逻 NPC")
+                npc = entity;
+            else if(entity.has_component<ScriptComponent>())
+                entity.remove_component<ScriptComponent>();
+        }
+        ASSERT_TRUE(npc);
+        AssetRegistry assets;
+        auto script = Script::load(project.value().paths().assets() / "scripts/npc_patrol.lua");
+        ASSERT_TRUE(script) << script.error().message;
+        ASSERT_TRUE(assets.register_asset(AssetHandle(6729301842000000021ull), script.value()));
+        PhysicsService physics;
+        SceneRuntime runtime;
+        auto navigation = std::make_unique<NavigationSystem>(
+            [&](Math::Vec3 a, Math::Vec3 b) { return physics.static_triangles(a, b); });
+        ASSERT_TRUE(
+            runtime.set_services({.physics = &physics, .navigation = &navigation->service()}));
+        ASSERT_TRUE(runtime.add_system(std::move(navigation)));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(assets)));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
+        ASSERT_TRUE(runtime.start(scene));
+        float height = 0, rightmost = -3;
+        bool returned = false;
+        for(int frame = 0; frame < 900 && !returned; ++frame) {
+            const auto advanced = runtime.advance(1.0 / 60);
+            ASSERT_TRUE(advanced) << advanced.error().message;
+            const auto position = Math::Vec3(scene.get_world_matrix(npc)[3]);
+            height = std::max(height, position.y);
+            rightmost = std::max(rightmost, position.x);
+            returned = rightmost > 1.8f && position.x < -1.8f && std::abs(position.y) < .1f;
+        }
+        EXPECT_GT(height, 1.1f);
+        EXPECT_GT(rightmost, 1.8f);
+        EXPECT_TRUE(returned);
+    }
+
     TEST(NavigationDemoTest, SerializedScenePatrolsChasesReturnsAndClones) {
         const auto project = Project::load(COMET_SAMPLE_PROJECT_DIRECTORY);
         ASSERT_TRUE(project) << project.error();

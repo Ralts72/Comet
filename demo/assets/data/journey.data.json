@@ -139,7 +139,7 @@
       "section": "动作 · 动画",
       "title": "攻击对位",
       "description": "左右演员分别展示原始根运动攻击和朝目标扭曲的攻击。",
-      "task": "比较两条攻击路径与落点，观察动作对位后的接近距离。",
+      "task": "每 3.5 秒重演：近排角色向绿色落点对齐，远排保持原动作位移；按 V 切参考镜头比较。",
       "requires_deferred": false,
       "collection_challenge": false
     },
@@ -259,7 +259,7 @@
       "section": "反弹 · 全局光照",
       "title": "会变化的间接光",
       "description": "实时探针逐步接纳移动光源、门与蒙皮遮挡的变化。",
-      "task": "站在不同墙面附近，观察移动门后间接光的响应与收敛。",
+      "task": "光源会平滑移动，间接光逐步跟随；短暂收敛可见，但持续闪烁和黑块不是预期效果。",
       "requires_deferred": false,
       "collection_challenge": false
     },
@@ -269,7 +269,7 @@
       "section": "反弹 · 全局光照",
       "title": "穿过红蓝两室",
       "description": "两个实时 GI 区域分别保留历史，在门洞与交叠处归一化混合。",
-      "task": "穿过门洞，在两室之间往返，观察颜色平滑变化与多跳反馈。",
+      "task": "穿过两室观察红蓝间接光与重叠过渡；停下等探针收敛，不应持续出现黑块或闪烁。",
       "requires_deferred": false,
       "collection_challenge": false
     },
@@ -279,7 +279,7 @@
       "section": "追光 · 路径追踪",
       "title": "逐条追踪光线",
       "description": "软件路径追踪直接积分多次反弹；旅程中启用动态采样和 GPU 时空降噪。",
-      "task": "移动角色与相机，观察红蓝墙的间接照明。软件追踪开销较高，可在设置中降低渲染比例。",
+      "task": "围绕物体查看光照与反射；软件路径追踪使用较低分辨率，停下后观察降噪。V 可切参考镜头。",
       "requires_deferred": false,
       "collection_challenge": false
     },
@@ -289,7 +289,7 @@
       "section": "追光 · 路径追踪",
       "title": "穿过玻璃的光",
       "description": "路径追踪采样 PBR 贴图、环境、透明覆盖和粗糙介质折射。",
-      "task": "绕过两块玻璃，比较清晰／粗糙折射，再查看金属和裁切树叶。",
+      "task": "靠近玻璃与粗糙折射材质；高频噪点仍受每帧采样预算限制，V 可切参考镜头。",
       "requires_deferred": false,
       "collection_challenge": false
     },
@@ -359,7 +359,7 @@
       "section": "远行 · 世界制作",
       "title": "边走边加载",
       "description": "按相机距离准备地形 Prefab 单元，离开后撤销子树与无需求资产。",
-      "task": "从起点平台走向四片地形，再远离原区域；返回时应能重新加载。",
+      "task": "从起点走向四片预制地形，远离后卸载、返回后重载；此关不做无限地形生成。",
       "requires_deferred": false,
       "collection_challenge": false
     },
@@ -369,7 +369,7 @@
       "section": "远行 · 世界制作",
       "title": "天气中的庭园",
       "description": "样条镜头、世界风、降水、水面波纹与植被交互共同构成庭园。",
-      "task": "从小径走近植物与水面；移动交互体沿路径演示弯曲与恢复。",
+      "task": "庭园使用 10 分钟昼夜周期；走近植物与水面，观察风、弯曲和天气，R 可重开。",
       "requires_deferred": false,
       "collection_challenge": false
     },

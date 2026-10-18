@@ -8,13 +8,13 @@
         <div id="combat-health">{{ combat_health }}</div>
         <div id="combat-status">{{ combat_status }}</div>
         <div id="combat-target">{{ combat_target }}</div>
-        <div>J / 鼠标左键 / X 攻击 · WASD / 左摇杆移动 · 朝向目标后出拳</div>
-        <div>右键拖动 / 右摇杆转向 · 空格 / A 跳跃 · R / Start 重开</div>
+        <div>J / 鼠标左键 / 手柄 X 攻击 · WASD / 左摇杆移动 · 朝向目标后出拳</div>
+        <div>鼠标 / 右摇杆转向 · Esc 菜单 · 空格 / A 跳跃 · R / Start 重开</div>
     </div>
     <div id="game-hint" data-if="character_game">
         <div id="game-status">{{ character_status }}</div>
         <div>WASD / 左摇杆移动 · 空格 / A 跳跃 · Shift / LB 跑步 · Ctrl / RB 蹲伏</div>
-        <div>右键拖动 / 右摇杆转向 · 滚轮 / 方向键上下缩放 · R / Start 重开</div>
+        <div>鼠标 / 右摇杆转向 · Esc 菜单 · 滚轮 / 方向键上下缩放 · R / Start 重开</div>
     </div>
     <div id="course-actions" data-if="course_actions">
         <button id="course-next" data-if="next_level" data-event-click="command('course_next')">进入第二关</button>
@@ -39,7 +39,7 @@
         <button id="tour-previous" data-event-click="command('tour_previous')">上一关</button>
         <button id="tour-next" data-event-click="command('tour_next')">下一关</button>
         <button id="tour-open" data-event-click="command('tour_menu')">章节 / F2</button>
-        <div class="tour-controls">WASD 移动 · 空格 跳跃 · Shift 跑步 · 右键转向 · 滚轮缩放 · R 重开</div>
+        <div class="tour-controls">WASD 移动 · 空格 跳跃 · Shift 跑步 · 鼠标转向 · Esc 菜单 · 滚轮缩放 · R 重开</div>
         <div class="tour-controls">PageUp / PageDown 切关 · V 参考镜头 · 完成标记由你确认体验结果</div>
     </div>
     <div id="tour-menu" style="display: none;">
@@ -49,6 +49,7 @@
             <p>{{ tour_progress }}</p>
             <div id="tour-chapters"></div>
             <div class="tour-footer">
+                <button id="tour-menu-complete" data-event-click="command('tour_complete')" data-attrif-disabled="tour_done">标记本关体验完成</button>
                 <button id="tour-save" data-event-click="command('tour_save')">保存旅程</button>
                 <button id="tour-continue" data-event-click="command('tour_continue')">继续存档</button>
                 <button id="tour-close" class="primary" data-event-click="command('tour_close')">返回游戏 / Esc</button>

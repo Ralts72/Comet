@@ -75,6 +75,72 @@ namespace Comet::Tests {
         }
     }
 
+    TEST_F(RenderGraphGpuTest, DynamicAlphaSortBoundsSmallBatchesAndSurvivesSceneRestart) {
+        auto& context = engine->get_renderer().get_render_context();
+        auto& device = context.get_device();
+        auto depth = engine->get_render_resources().try_create_texture(
+            TextureData{.width = 1, .height = 1, .pixels = {255, 255, 255, 255}});
+        ASSERT_TRUE(depth);
+        GpuParticleSimulation simulation(device, 2);
+        FrameScheduler frames(device, 2);
+        frames.initialize_swapchain_images(2);
+        FrameWait wait{device, frames};
+        const ViewProjectMatrix camera{
+            Math::look_at({0, 0, 100}, {}, {0, 1, 0}), Math::ortho(-1, 1, -1, 1, .1f, 10)};
+        unsigned frame = 0;
+        for(const uint32_t count : {1u, 3u, 65u, 7u, 129u}) {
+            SCOPED_TRACE(count);
+            GpuParticleEmitter emitter;
+            emitter.id = 7;
+            emitter.settings.simulation = ParticleSimulation::GPU;
+            emitter.settings.gpu_dynamics = true;
+            emitter.settings.blend = ParticleBlend::Alpha;
+            emitter.settings.capacity = 256;
+            emitter.settings.speed = 0;
+            emitter.settings.acceleration = {};
+            emitter.settings.lifetime = 10;
+            emitter.count = count;
+            emitter.time = .2 + .01 * frame;
+            const auto near_count = (count + 1) / 2;
+            emitter.spawns = {{Math::translate(Math::Mat4(1), {0, 0, 1}), 0, 0, 0, near_count}};
+            if(count > near_count)
+                emitter.spawns.push_back({Math::translate(Math::Mat4(1), {0, 0, -1}), 0, 0,
+                    near_count, count - near_count});
+            begin_frame(frames);
+            const auto prepared = simulation.prepare(frames, camera, std::span(&emitter, 1), true,
+                depth.value()->get_image_view(), frame < 3 ? 1 : 2);
+            ASSERT_TRUE(prepared) << prepared.error();
+            const auto output = simulation.outputs().front();
+            auto readback =
+                std::make_shared<Readback>(device, context.get_context().get_physical_device(),
+                    sizeof(vk::DrawIndirectCommand) + count * sizeof(ParticleInstance));
+            const auto command = frames.get_current_command_buffer().get();
+            const vk::MemoryBarrier readable(
+                vk::AccessFlagBits::eShaderWrite, vk::AccessFlagBits::eTransferRead);
+            command.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
+                vk::PipelineStageFlagBits::eTransfer, {}, readable, {}, {});
+            command.copyBuffer(output.indirect->get(), readback->get(),
+                vk::BufferCopy(0, 0, sizeof(vk::DrawIndirectCommand)));
+            command.copyBuffer(output.instances->get(), readback->get(),
+                vk::BufferCopy(
+                    0, sizeof(vk::DrawIndirectCommand), count * sizeof(ParticleInstance)));
+            frames.retain_current_frame_resource(readback);
+            submit(device, frames, {});
+            frames.wait_for_all_slots();
+            const auto bytes = readback->read();
+            vk::DrawIndirectCommand draw;
+            std::memcpy(&draw, bytes.data(), sizeof(draw));
+            EXPECT_EQ(draw.vertexCount, 6u);
+            EXPECT_EQ(draw.instanceCount, count);
+            std::vector<ParticleInstance> instances(count);
+            std::memcpy(
+                instances.data(), bytes.data() + sizeof(draw), count * sizeof(ParticleInstance));
+            for(size_t index = 1; index < instances.size(); ++index)
+                EXPECT_LE(instances[index - 1].position_size.z, instances[index].position_size.z);
+            ++frame;
+        }
+    }
+
     TEST_F(RenderGraphGpuTest, GpuParticlesReachForwardAndDeferredColorWithoutCpuInstances) {
         auto& context = engine->get_renderer().get_render_context();
         auto& device = context.get_device();

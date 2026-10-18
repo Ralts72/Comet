@@ -33,6 +33,8 @@ namespace Comet {
                 .field(COMET_FIELD(PathTraceSettings, dynamic), "动态模式", {.required = false})
                 .field(COMET_FIELD(PathTraceSettings, denoise), "降噪", {.required = false})
                 .field(COMET_FIELD(PathTraceSettings, samples), "样本上限", {.required = false})
+                .field(COMET_FIELD(PathTraceSettings, samples_per_frame), "每帧样本",
+                    {.required = false})
                 .field(COMET_FIELD(PathTraceSettings, bounces), "反弹上限", {.required = false})
                 .field(COMET_FIELD(PathTraceSettings, seed), "随机种子", {.required = false})
                 .field(COMET_FIELD(PathTraceSettings, max_dimension), "最长边像素",

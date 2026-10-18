@@ -30,7 +30,7 @@
       "samples": 1,
       "bounces": 4,
       "seed": 0,
-      "max_dimension": 384,
+      "max_dimension": 640, "samples_per_frame": 2,
       "history_weight": 0.85,
       "medium_density": 0,
       "medium_anisotropy": 0,

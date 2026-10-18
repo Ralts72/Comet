@@ -69,10 +69,10 @@ namespace Comet {
     }
 
     Result<void> PathTraceSettings::validate() const {
-        if(samples == 0 || samples > 4096 || bounces == 0 || bounces > 8 || max_dimension < 32
-            || max_dimension > 2048)
+        if(samples == 0 || samples > 4096 || samples_per_frame == 0 || samples_per_frame > 8
+            || bounces == 0 || bounces > 8 || max_dimension < 32 || max_dimension > 2048)
             return Result<void>::failure(
-                "路径追踪参数超出范围（采样 1～4096，反弹 1～8，尺寸 32～2048）");
+                "路径追踪参数超出范围（总采样 1～4096，每帧 1～8，反弹 1～8，尺寸 32～2048）");
         if(!std::isfinite(history_weight) || history_weight < 0 || history_weight > .98f
             || !std::isfinite(medium_density) || medium_density < 0 || medium_density > 2
             || !Math::is_finite(medium_color) || Math::any_less(medium_color, Math::Vec3(0))

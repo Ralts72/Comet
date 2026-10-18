@@ -336,6 +336,16 @@ namespace Comet::Tests {
         click("tour-open");
         click("tour-close");
         EXPECT_FALSE(ui->is_modal());
+        click("tour-open");
+        queue_key(GLFW_KEY_ESCAPE);
+        ASSERT_TRUE(submit_frame());
+        EXPECT_FALSE(ui->is_modal());
+        queue_key(GLFW_KEY_ESCAPE);
+        ASSERT_TRUE(submit_frame());
+        EXPECT_TRUE(ui->is_modal());
+        queue_key(GLFW_KEY_ESCAPE);
+        ASSERT_TRUE(submit_frame());
+        EXPECT_FALSE(ui->is_modal());
         session_values.clear();
         ASSERT_TRUE(submit_frame());
         EXPECT_FALSE(guide->IsVisible());

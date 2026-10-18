@@ -1278,7 +1278,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(rebuilt);
         check(*rebuilt, {1, 0, 1});
     }
-    TEST_F(RenderGraphGpuTest, StaticLodSelectsBeforeInstancingAndShadowUsesItsOwnProjection) {
+    TEST_F(RenderGraphGpuTest, StaticLodSelectsBeforeInstancingAndSharesMeshWithShadow) {
         auto& device = engine->get_renderer().get_render_context().get_device();
         auto high = lit_quad();
         auto low = engine->get_render_resources()
@@ -1326,8 +1326,7 @@ namespace Comet::Tests {
             EXPECT_EQ(shadow.cascades, 4u);
             EXPECT_EQ(shadow.draw_calls, 4u);
             EXPECT_EQ(shadow.drawn_instances, 16u);
-            // 各级的投影范围比主相机大，近景主绘制恢复原网格时阴影仍用简化网格。
-            EXPECT_EQ(shadow.drawn_triangles, 16u);
+            EXPECT_EQ(shadow.drawn_triangles, frame == 1 ? 32u : 16u);
             submit(device, frames, drawn.value());
         }
     }

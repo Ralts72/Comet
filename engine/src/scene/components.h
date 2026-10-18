@@ -306,6 +306,7 @@ namespace Comet {
         enum class Mode { Free, Orbit };
         bool enabled = true;
         Mode mode = Mode::Free;
+        bool capture_mouse = false;
         float move_speed = 3.0f;
         // 每个窗口逻辑像素对应的转角，单位为度。
         float look_sensitivity = 0.2f;

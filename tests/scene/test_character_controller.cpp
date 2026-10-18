@@ -941,7 +941,7 @@ namespace Comet::Tests {
             pad.axes[static_cast<size_t>(Input::GamepadAxis::RightX)] = 1;
             input.gamepad_sample(0, pad);
             ASSERT_TRUE(tick(45));
-            EXPECT_FALSE(runtime.wants_cursor_capture());
+            EXPECT_TRUE(runtime.wants_cursor_capture());
             pad.axes[static_cast<size_t>(Input::GamepadAxis::RightX)] = 0;
             input.gamepad_sample(0, pad);
             ASSERT_TRUE(tick());

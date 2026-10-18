@@ -355,7 +355,7 @@ namespace Comet {
                 const auto found = std::ranges::find(leaf.members, *name, &PropertyDescriptor::id);
                 if(leaf.type != PropertyType::Object || found == leaf.members.end())
                     return std::nullopt;
-                // Copy before assigning: found points into leaf's existing member storage.
+                // found 借用 leaf 的成员存储，覆盖 leaf 前先复制。
                 auto child = *found;
                 leaf = std::move(child);
             } else {

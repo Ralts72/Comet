@@ -89,6 +89,26 @@ namespace Comet::Tests {
         expect_position(Math::Vec3(0));
     }
 
+    TEST_F(CameraControllerTest, CapturedMouseTurnsWithoutDraggingAndYieldsToUiAndFocus) {
+        entity.get_component<CameraControllerComponent>().capture_mouse = true;
+        update();
+        EXPECT_TRUE(CameraControllerSystem{}.wants_cursor_capture(scene, input_state));
+        input.cursor_event({10, -20});
+        update();
+        expect_rotation({4, -2, 0});
+        input.cursor_event({20, -30});
+        auto blocked = input.publish_frame();
+        blocked.pointer_enabled = false;
+        actions.evaluate(blocked, input_state);
+        EXPECT_FALSE(CameraControllerSystem{}.wants_cursor_capture(scene, input_state));
+        ASSERT_TRUE(CameraControllerSystem{}.update(scene, {0.1, 0, 0, input_state, session}));
+        expect_rotation({4, -2, 0});
+        input.focus_event(false);
+        update();
+        EXPECT_FALSE(CameraControllerSystem{}.wants_cursor_capture(scene, input_state));
+        expect_rotation({4, -2, 0});
+    }
+
     TEST_F(CameraControllerTest, GamepadLookUsesRuntimeTimeWithoutMouseCapture) {
         Input::GamepadSample pad;
         pad.axes[static_cast<size_t>(Input::GamepadAxis::RightX)] = 1;

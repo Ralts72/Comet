@@ -49,7 +49,9 @@ function script:on_start()
     comet.session_set("tour.entries", table.concat(entries, "\n"))
     comet.session_set("tour.visited", self.visited)
     comet.session_set("tour.completed", self.completed)
-    comet.session_set("tour.has_reference", self.parameters.reference_camera ~= nil)
+    self.has_reference = self.parameters.reference_camera
+        and self.parameters.reference_camera:is_valid()
+    comet.session_set("tour.has_reference", self.has_reference == true)
     self.intro = self.parameters.intro
     self:set_reference(self.intro)
     local _, start_y = self.parameters.player:position()
@@ -99,6 +101,7 @@ function script:continue_journey()
     comet.load_checkpoint()
 end
 function script:set_reference(reference)
+    reference = reference and self.has_reference == true
     comet.set_primary_camera(reference and self.parameters.reference_camera or self.parameters.camera)
     comet.session_set("tour.reference", reference)
     comet.session_set("tour.cinematic", reference)
@@ -109,7 +112,7 @@ function script:finish_intro()
     self:set_reference(false)
 end
 function script:reference_view()
-    if not self.parameters.reference_camera then return end
+    if not self.has_reference then return end
     self.intro = false
     self:set_reference(not comet.session_get("tour.reference"))
 end

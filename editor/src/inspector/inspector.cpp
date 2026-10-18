@@ -936,6 +936,7 @@ namespace CometEditor {
             toggle("GPU 时空降噪###Scene trace denoise", trace.denoise);
             for(const auto& [label, target, minimum, maximum] :
                 {std::tuple{"样本上限###Trace samples", &trace.samples, 1, 4096},
+                    {"每帧样本###Trace per frame", &trace.samples_per_frame, 1, 8},
                     {"反弹上限###Trace bounces", &trace.bounces, 1, 8},
                     {"最长边像素###Trace resolution", &trace.max_dimension, 32, 2048}}) {
                 int value = int(*target);

@@ -1,4 +1,6 @@
 #include "asset/project_prepare.h"
+#include "common/scope_exit.h"
+#include "gameplay/game_session.h"
 #include "asset/runtime/prefab_loader.h"
 #include "scene/systems/audio_system.h"
 #include "scene/systems/physics_system.h"
@@ -152,6 +154,76 @@ namespace Comet::Tests {
 
     TEST_F(EngineSceneActivationTest, ExportedCharacterDemoRendersAfterSourceAndCacheAreRemoved) {
         check_character_demo(engine.get(), true);
+    }
+
+    TEST_F(EngineSceneActivationTest, WorldAuthoringRestartKeepsRealAssetsValidAcrossFrames) {
+        const auto project = Project::load(COMET_SAMPLE_PROJECT_DIRECTORY);
+        ASSERT_TRUE(project) << project.error();
+        AssetManager assets(project.value().paths(), engine->get_asset_registry(),
+            engine->get_render_resource_factory(), engine->get_task_scheduler());
+        const ScopeExit shutdown([&] { engine->prepare_shutdown(); });
+        ASSERT_TRUE(assets.scan().succeeded());
+        const auto components = create_scene_component_registry();
+        const SceneSerializer serializer(components, assets.scene_sources(components));
+        const std::string path = "scenes/world_authoring.scene";
+        auto authored = serializer.load((project.value().paths().assets() / path).string());
+        ASSERT_TRUE(authored) << authored.error();
+        GameSession game(serializer);
+        game.begin(std::move(authored).value(), path);
+        auto prepared = game.prepare({});
+        ASSERT_TRUE(prepared) << prepared.error();
+        std::optional<GameSession::Transition> pending{std::move(prepared).value()};
+        auto references = assets.prepare_scene(*pending->scene, components);
+        ASSERT_TRUE(references) << references.error();
+        ASSERT_TRUE(engine->set_input_actions(project.value().input_actions()));
+        ASSERT_TRUE(engine->add_default_scene_systems(
+            {.read = [&](AssetHandle handle) { return assets.read_mesh_data(handle); },
+                .revision =
+                    [&](AssetHandle handle) { return assets.mesh_data_revision(handle); }}));
+        unsigned activations = 0, active_frames = 0, frames = 0;
+        const auto result = engine->run({.update = [&](const Engine::FrameContext&) {
+            using Updated = Result<void, Error>;
+            if(++frames > 400)
+                return Updated::failure({"World restart did not finish"});
+            if(auto completed = assets.process_completions(); !completed)
+                return Updated::failure(completed.error());
+            if(pending) {
+                const auto ready = assets.references_ready(
+                    references.value(), AssetManager::MissingAssetPolicy::FailRequired);
+                if(!ready)
+                    return Updated::failure(ready.error());
+                if(!ready.value())
+                    return Updated::success();
+                if(auto stopped = engine->stop_scene_runtime(); !stopped)
+                    return stopped;
+                auto previous = engine->replace_scene(std::move(pending->scene));
+                if(auto warmed = engine->prepare_scene_rendering(); !warmed)
+                    return warmed;
+                if(auto started = engine->start_scene_runtime(); !started)
+                    return started;
+                game.accept(std::move(*pending));
+                pending.reset();
+                ++activations;
+                active_frames = 0;
+            }
+            if(++active_frames == 8) {
+                if(activations == 3) {
+                    engine->get_window().request_close();
+                } else {
+                    auto next = game.prepare({});
+                    if(!next)
+                        return Updated::failure({next.error()});
+                    pending = std::move(next).value();
+                    references = assets.prepare_scene(*pending->scene, components);
+                    if(!references)
+                        return Updated::failure(references.error());
+                }
+            }
+            return Updated::success();
+        }});
+        ASSERT_TRUE(result) << result.error() << "; activations=" << activations
+                            << ", frames=" << frames;
+        EXPECT_EQ(activations, 3u);
     }
 
     TEST_F(RenderThreadTest, AssetFactoryRemainsValidBeforeAndAfterRunUntilShutdown) {

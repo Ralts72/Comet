@@ -13,6 +13,8 @@
 #include "scene/scene_runtime.h"
 #include "scene/scene_serializer.h"
 #include "scene/systems/physics_system.h"
+#include "scene/systems/script_system.h"
+#include "scene/script_component.h"
 
 #include <gtest/gtest.h>
 
@@ -142,11 +144,31 @@ namespace Comet::Tests {
         ASSERT_TRUE(definition) << definition.error();
         const auto controller =
             std::make_shared<AnimationController>(std::move(definition).value());
+        auto replay =
+            AnimationControllerSerializer{}.load(root / "demo/assets/animations/motion_warp.ani");
+        ASSERT_TRUE(replay) << replay.error();
+        const auto replay_controller =
+            std::make_shared<AnimationController>(std::move(replay).value());
+        AssetRegistry assets;
+        auto replay_script = Script::load(root / "demo/assets/scripts/motion_warp_demo.lua");
+        ASSERT_TRUE(replay_script) << replay_script.error().message;
+        ASSERT_TRUE(
+            assets.register_asset(AssetHandle(6729301842000001301ull), replay_script.value()));
+        ASSERT_TRUE(assets.register_asset(AssetHandle(6729301842000001300ull), replay_controller));
+        for(const auto entity : scene.value()->get_entities())
+            if(entity.has_component<ScriptComponent>()
+                && entity.get_component<ScriptComponent>().asset
+                       != AssetHandle(6729301842000001301ull))
+                entity.remove_component<ScriptComponent>();
         PhysicsService physics;
         SceneRuntime runtime;
         ASSERT_TRUE(runtime.set_services({.physics = &physics}));
-        ASSERT_TRUE(runtime.add_system(
-            root_system(mesh.value().animation, [controller](AssetHandle) { return controller; })));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(assets)));
+        ASSERT_TRUE(runtime.add_system(root_system(
+            mesh.value().animation, [controller, replay_controller](AssetHandle handle) {
+                return handle == AssetHandle(6729301842000001300ull) ? replay_controller
+                                                                     : controller;
+            })));
         ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         ASSERT_TRUE(runtime.start(*scene.value()));
         for(int i = 0; i < 120; ++i) {
@@ -169,6 +191,12 @@ namespace Comet::Tests {
             EXPECT_TRUE(physics.get_character_state(actor));
         });
         EXPECT_EQ(models, 2u);
+        for(int frame = 0; frame < 120; ++frame)
+            ASSERT_TRUE(runtime.advance(1.0 / 60));
+        scene.value()->each<const MotionWarpComponent>([&](Entity model, const auto&) {
+            const auto actor = scene.value()->get_parent(model);
+            EXPECT_NEAR(scene.value()->get_world_matrix(actor)[3].x, -2, .03);
+        });
         ASSERT_TRUE(runtime.stop());
     }
 

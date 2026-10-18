@@ -7,6 +7,11 @@ local function journey_frame(self, api, frame)
     api.set("tour_visible", active)
     api.set("tour_collection", active and api.session_get("tour.collection") == true)
     if not active then self.state.journey_open = false; return end
+    -- 章节菜单先处理返回，避免同一按键又打开设置菜单。
+    if self.state.journey_open and self.state.open and api.pressed("key", "Escape") then
+        self:on_event(api, "cancel")
+        self.state.journey_open = false
+    end
     local number = math.floor(api.session_get("tour.number") or 1)
     local total = math.floor(api.session_get("tour.total") or 1)
     local completed = api.session_get("tour.completed") or ""
@@ -32,7 +37,9 @@ local function journey_frame(self, api, frame)
     elseif not self.state.journey_open then
         if api.pressed("key", "PageDown") then api.emit("tour.next")
         elseif api.pressed("key", "PageUp") then api.emit("tour.previous")
-        elseif api.pressed("key", "V") then api.emit("tour.reference") end
+        elseif api.session_get("tour.has_reference") and api.pressed("key", "V") then
+            api.emit("tour.reference")
+        end
     end
     local entries = api.session_get("tour.entries") or ""
     local signature = tostring(number) .. completed .. visited .. entries
@@ -89,6 +96,7 @@ end
 -- Engine 管理设置草稿、录入、应用和焦点；页面与游戏策略留在项目中。
 local motions = {idle = "站立", walk = "行走", run = "跑步", crouch = "蹲伏", jump = "跳跃", fall = "下落"}
 return ui.settings {
+    shortcuts = {open = "Escape", open_secondary = "F1"},
     display = {sizes = {{960, 720}, {1280, 720}, {1920, 1080}}},
     audio = true,
     quality = {

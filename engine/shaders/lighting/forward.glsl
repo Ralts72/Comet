@@ -97,13 +97,23 @@ float sample_shadow_view(int shadow_view, vec3 position, vec3 position_dx, vec3 
             if(any(lessThan(sample_uv, vec2(0.0))) || any(greaterThan(sample_uv, vec2(1.0))))
                 visible += 1.0;
             else {
-                float receiver_depth = projected.z + dot(depth_gradient, offset) - bias;
                 // Clamp inside this tile: PCF must not read another light or cascade.
-                float inset = 0.5 * shadow.texel_size;
+                float inset = shadow.texel_size;
                 sample_uv = clamp(sample_uv, vec2(inset), vec2(1.0 - inset));
-                vec2 atlas_uv = sample_uv * shadow.atlas_rect.xy + shadow.atlas_rect.zw;
-                float sampled_depth = textureLod(shadow_map, atlas_uv, 0.0).r;
-                visible += receiver_depth <= sampled_depth ? 1.0 : 0.0;
+                vec2 texel = sample_uv / shadow.texel_size - .5;
+                vec2 weight = fract(texel);
+                vec2 center = (floor(texel) + 1.0) * shadow.texel_size;
+                vec2 atlas_uv = center * shadow.atlas_rect.xy + shadow.atlas_rect.zw;
+                // 四个纹素分别沿接收平面修正深度，坡面不能共用采样中心的深度。
+                vec2 corner = center - vec2(0.5 * shadow.texel_size);
+                float receiver_depth = projected.z + dot(depth_gradient, corner - uv) - bias;
+                vec2 depth_step = depth_gradient * shadow.texel_size;
+                vec4 receivers = receiver_depth + vec4(depth_step.y,
+                    depth_step.x + depth_step.y, depth_step.x, 0.0);
+                // 先比较四个深度，再双线性合成可见度，避免最近采样造成整格跳变。
+                vec4 comparison = step(receivers, textureGather(shadow_map, atlas_uv));
+                visible += mix(mix(comparison.w, comparison.z, weight.x),
+                    mix(comparison.x, comparison.y, weight.x), weight.y);
             }
         }
     }

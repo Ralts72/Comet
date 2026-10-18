@@ -261,7 +261,7 @@ namespace Comet {
                     return true;
                 };
             }
-            // Captures a complete value schema, never a pointer into a movable registry.
+            // 按值保存完整描述，避免借用可移动的注册表节点。
             property.default_value = [shape = property] {
                 const T value{};
                 return shape.copy_value(&value).value();

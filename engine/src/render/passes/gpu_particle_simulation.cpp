@@ -122,7 +122,7 @@ namespace Comet {
                 return Initialized::failure(descriptors.error());
             next->descriptors = std::move(descriptors).value();
             const auto set = next->descriptors->get();
-            const vk::PushConstantRange constants(vk::ShaderStageFlagBits::eCompute, 0, 8);
+            const vk::PushConstantRange constants(vk::ShaderStageFlagBits::eCompute, 0, 12);
             const vk::PipelineLayoutCreateInfo layout_info({}, 1, &set, 1, &constants);
             auto layout = Graphics::create_handle<vk::PipelineLayout>(
                 m_device.get(), "Create particle simulation layout", [&](auto* out) noexcept {
@@ -483,7 +483,7 @@ namespace Comet {
                     for(uint32_t stride = stage / 2; stride; stride /= 2) {
                         command.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
                             vk::PipelineStageFlagBits::eComputeShader, {}, between, {}, {});
-                        const std::array constants{stage, stride};
+                        const std::array constants{stage, stride, padded};
                         command.pushConstants(program->layout.get(),
                             vk::ShaderStageFlagBits::eCompute, 0, sizeof(constants),
                             constants.data());

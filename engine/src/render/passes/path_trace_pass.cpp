@@ -281,11 +281,17 @@ namespace Comet {
             && settings.medium_anisotropy == m_settings.medium_anisotropy;
         auto previous = history_valid ? m_previous_buffers : m_resources->buffers;
         m_resources->previous[slot] = previous;
+        if(settings.dynamic)
+            m_samples = 0;
+        const auto samples = settings.dynamic
+                                 ? settings.samples_per_frame
+                                 : std::min(settings.samples_per_frame,
+                                       settings.samples - std::min(m_samples, settings.samples));
         const CameraParameters camera_parameters{view_projection,
             m_previous_camera.projection * m_previous_camera.view,
             {settings.medium_density, settings.medium_anisotropy, 100, 0},
             Math::Vec4(settings.medium_color, 0),
-            {history_valid ? 1u : 0u, settings.denoise ? 1u : 0u, 0, 0}};
+            {history_valid ? 1u : 0u, settings.denoise ? 1u : 0u, samples, 0}};
         m_resources->cameras[slot]->write(&camera_parameters);
         const vk::DescriptorBufferInfo old_triangles(
             previous->buffers[1]->get(), 0, previous->sizes[1]);
@@ -297,8 +303,6 @@ namespace Comet {
             vk::WriteDescriptorSet(m_resources->descriptors[slot].get(), 12, 0, 1,
                 vk::DescriptorType::eUniformBuffer, nullptr, &camera_buffer)};
         m_device.get().updateDescriptorSets(buffer_writes, {});
-        if(settings.dynamic)
-            m_samples = 0;
         if(settings.denoise && !m_filter) {
             auto filter = RadianceFilter::create(m_device);
             if(!filter)
@@ -411,7 +415,7 @@ namespace Comet {
             m_previous_buffers = m_resources->buffers;
             m_settings = settings;
             m_recorded_serial = frames.get_current_frame_serial();
-            m_samples += dispatch ? 1 : 0;
+            m_samples += dispatch ? samples : 0;
             m_dispatches += dispatch ? 1 : 0;
         }
         return recorded;

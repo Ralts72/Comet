@@ -247,6 +247,28 @@ namespace Comet::Tests {
         EXPECT_EQ(samples(), 1u);
     }
 
+    TEST_F(PathTraceGpuTest, BatchesSamplesWithoutOvershootingAndSupportsDynamicBudgets) {
+        source.render_items.clear();
+        source.environment.background_color = {.25f, .5f, .75f};
+        ASSERT_NO_FATAL_FAILURE(capture_source());
+        view.path_trace_settings.samples = 3;
+        view.path_trace_settings.samples_per_frame = 2;
+        ASSERT_NO_FATAL_FAILURE(draw());
+        EXPECT_EQ(samples(), 2u);
+        ASSERT_NO_FATAL_FAILURE(draw());
+        EXPECT_EQ(samples(), 3u);
+        ASSERT_NO_FATAL_FAILURE(draw());
+        EXPECT_EQ(samples(), 3u);
+        for(const auto pixel : pixels())
+            EXPECT_EQ(pixel, Math::Vec4(.25f, .5f, .75f, 1));
+        view.path_trace_settings.dynamic = true;
+        view.path_trace_settings.samples = 1;
+        ASSERT_NO_FATAL_FAILURE(draw(3));
+        EXPECT_EQ(samples(), 2u);
+        for(const auto pixel : pixels())
+            EXPECT_EQ(pixel, Math::Vec4(.25f, .5f, .75f, 1));
+    }
+
     TEST_F(PathTraceGpuTest, UnlitEmissionAndImageOrientationMatchTheCamera) {
         material = std::make_shared<Material>("emitter", "unlit_color");
         ASSERT_TRUE(material->set_vector_property("color", {1, .2f, 0, 1}));

@@ -169,8 +169,7 @@ namespace Comet::Tests {
         EXPECT_EQ(entity.get_component<ReflectedComponent>().settings.targets[0].weight, 7);
     }
     TEST(ReflectionTest, RuntimeDiscoveryAndConstructionShareRegistrationsAcrossEngineBoundary) {
-        const auto schema =
-            settings_schema(); // Registered by the executable, queried inside engine.
+        const auto schema = settings_schema(); // 可执行文件注册，由 engine 动态库查询。
         const auto found = Reflection::find_type("settings");
         ASSERT_TRUE(found);
         EXPECT_EQ(found->properties.size(), schema.properties.size());
@@ -242,7 +241,7 @@ namespace Comet::Tests {
         EXPECT_EQ(created.value().copy_property("mode"),
             std::optional<PropertyValue>(std::string("second")));
 
-        (void)post_process_descriptor(); // Production schema and native const methods.
+        (void)post_process_descriptor();
         auto effects = Reflection::create("post_process");
         ASSERT_TRUE(effects) << effects.error();
         const auto methods = Reflection::methods("post_process");

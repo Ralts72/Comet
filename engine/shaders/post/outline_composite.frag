@@ -12,6 +12,8 @@ const ivec2 directions[8] = ivec2[8](ivec2(1,0),ivec2(-1,0),ivec2(0,1),ivec2(0,-
     ivec2(1,1),ivec2(-1,1),ivec2(1,-1),ivec2(-1,-1));
 bool present(ivec2 p, ivec2 size, float foreground, out vec4 tint, out vec4 style) {
     if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,size))) return false;
+    // 几何深度与遮罩使用正高度 viewport，场景颜色使用负高度 viewport。
+    p.y = size.y - 1 - p.y;
     tint = texelFetch(IMAGE(color_image),p,0);
     if(tint.a<=0) return false;
     style = texelFetch(IMAGE(style_image),p,0);
@@ -22,7 +24,7 @@ bool present(ivec2 p, ivec2 size, float foreground, out vec4 tint, out vec4 styl
 void main() {
     ivec2 p=ivec2(gl_FragCoord.xy), size=textureSize(IMAGE(scene_image),0);
     color=texelFetch(IMAGE(scene_image),p,0);
-    float depth=texelFetch(IMAGE(scene_depth_image),p,0).r;
+    float depth=texelFetch(IMAGE(scene_depth_image),ivec2(p.x,size.y-1-p.y),0).r;
     vec4 tint, style;
     if(present(p,size,depth,tint,style)) {
         color.rgb=mix(color.rgb,tint.rgb,tint.a*style.y);

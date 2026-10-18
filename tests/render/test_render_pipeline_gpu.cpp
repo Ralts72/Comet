@@ -39,11 +39,10 @@ namespace Comet::Tests {
         renderer.cancel_viewport_pick();
         RenderThread recording(renderer);
         ASSERT_TRUE(recording.submit(std::move(captured)));
-        const auto busy =
-            recording.try_create_texture({.width = 1, .height = 1, .pixels = {255, 255, 255, 255}});
-        EXPECT_FALSE(busy);
-        EXPECT_EQ(busy.result(), vk::Result::eNotReady);
         EXPECT_FALSE(recording.submit({}));
+        const auto created =
+            recording.try_create_texture({.width = 1, .height = 1, .pixels = {255, 255, 255, 255}});
+        ASSERT_TRUE(created) << created.result();
         const auto completed = recording.complete();
         ASSERT_TRUE(completed) << completed.error();
         const auto next = render_frontend->resolve(scene);
@@ -700,6 +699,77 @@ void main() { color = texture(unsupported_view_resource, vec2(0.5)); }
                 EXPECT_NEAR(std::to_integer<int>(pixels[0][lit]),
                     std::to_integer<int>(pixels[index][lit]), 2);
             }
+        }
+    }
+
+    TEST_F(RenderGraphGpuTest, CurvedLodSurfaceDoesNotShadowItselfAsCameraMoves) {
+        auto& context = engine->get_renderer().get_render_context();
+        auto& device = context.get_device();
+        MaterialPrograms programs;
+        auto owner = create_scene(programs, {65, 65});
+        ASSERT_TRUE(owner) << owner.error();
+        auto& scene = *owner.value();
+        MeshData data;
+        constexpr uint32_t cells = 16, edge = cells + 1;
+        for(uint32_t y = 0; y <= cells; ++y)
+            for(uint32_t x = 0; x <= cells; ++x) {
+                const float u = 2.f * x / cells - 1, v = 2.f * y / cells - 1;
+                data.vertices.push_back(
+                    {{u, v, .5f + .15f * std::sin(3 * u) * std::sin(3 * v)}, {}, {0, 0, 1}});
+            }
+        for(uint32_t y = 0; y < cells; ++y)
+            for(uint32_t x = 0; x < cells; ++x) {
+                const uint32_t a = y * edge + x;
+                data.indices.insert(
+                    data.indices.end(), {a, a + 1, a + edge, a + 1, a + edge + 1, a + edge});
+            }
+        auto created = engine->get_render_resources().try_create_mesh(data);
+        ASSERT_TRUE(created) << created.error().message;
+        created.value()->get_ready_completion().wait();
+        auto material = std::make_shared<Material>("terrain", "pbr");
+        auto lod = std::make_shared<ResolvedMeshLod>();
+        lod->settings.level1 = AssetHandle(782);
+        lod->settings.level1_height = .5f;
+        lod->meshes[0] = lit_quad();
+        RenderWorld world{.scene_lifetime = 1,
+            .render_items = {{.entity_id = EntityId(1),
+                .mesh = created.value(),
+                .material = {AssetHandle(783), material},
+                .lod = lod}},
+            .lights = {{.direction = {.2f, -.3f, -1}, .intensity = 4}}};
+        FrameScheduler frames(device, 2);
+        frames.initialize_swapchain_images(2);
+        FrameWait wait{device, frames};
+        for(const float eye_x : {-.4f, 0.f, .4f}) {
+            SCOPED_TRACE(eye_x);
+            std::array<std::vector<std::byte>, 2> outputs;
+            for(unsigned shadow = 0; shadow < outputs.size(); ++shadow) {
+                world.lights[0].casts_shadow = shadow != 0;
+                RenderSubmission submission{
+                    world, ViewProjectMatrix{Math::look_at({eye_x, 0, 5}, {0, 0, .5f}, {0, 1, 0}),
+                               Math::ortho(-1, 1, -1, 1, .1f, 30)}};
+                begin_frame(frames);
+                RenderGeometry geometry;
+                geometry.prepare(world);
+                const auto drawn = scene.render(frames, submission, geometry);
+                ASSERT_TRUE(drawn) << drawn.error();
+                auto output = std::make_shared<Readback>(
+                    device, context.get_context().get_physical_device(), 65 * 65 * 4);
+                ASSERT_NO_FATAL_FAILURE(
+                    finish_readback(scene, frames, output, {65, 65}, drawn.value()));
+                outputs[shadow] = output->read();
+            }
+            int darkest = 0;
+            int minimum_lit = 255;
+            for(unsigned y = 12; y < 53; ++y)
+                for(unsigned x = 12; x < 53; ++x) {
+                    const auto pixel = (y * 65 + x) * 4;
+                    minimum_lit = std::min(minimum_lit, std::to_integer<int>(outputs[0][pixel]));
+                    darkest = std::max(darkest, std::to_integer<int>(outputs[0][pixel])
+                                                    - std::to_integer<int>(outputs[1][pixel]));
+                }
+            EXPECT_GT(minimum_lit, 50);
+            EXPECT_LE(darkest, 3) << "同一曲面不能被另一层级的网格遮挡";
         }
     }
 

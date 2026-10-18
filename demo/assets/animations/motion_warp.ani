@@ -1,0 +1,56 @@
+{
+  "initial": "idle",
+  "parameters": {
+    "perform": false
+  },
+  "states": [
+    {
+      "name": "idle",
+      "loop": true,
+      "motions": [
+        {
+          "threshold": 0,
+          "clip": "idle"
+        }
+      ]
+    },
+    {
+      "name": "attack",
+      "loop": false,
+      "motions": [
+        {
+          "threshold": 0,
+          "clip": "attack"
+        }
+      ]
+    }
+  ],
+  "transitions": [
+    {
+      "from": "idle",
+      "to": "attack",
+      "duration": 0,
+      "after_finished": false,
+      "conditions": [
+        {
+          "parameter": "perform",
+          "compare": "==",
+          "value": true
+        }
+      ]
+    },
+    {
+      "from": "attack",
+      "to": "idle",
+      "duration": 0,
+      "after_finished": false,
+      "conditions": [
+        {
+          "parameter": "perform",
+          "compare": "==",
+          "value": false
+        }
+      ]
+    }
+  ]
+}

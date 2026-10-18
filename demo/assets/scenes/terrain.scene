@@ -1,12 +1,12 @@
 {
   "version": 3,
   "environment": {
-    "asset": 0,
+    "asset": 6729301842000000104,
     "background": false,
     "intensity": 1,
     "rotation": 0,
-    "lighting": false,
-    "lighting_intensity": 1,
+    "lighting": true,
+    "lighting_intensity": 0.35,
     "background_color": [0.16, 0.27, 0.4],
     "fog_enabled": false,
     "fog_color": [0.5, 0.5, 0.5],
@@ -811,7 +811,7 @@
         "light": {
           "type": "directional",
           "enabled": true,
-          "casts_shadow": false,
+          "casts_shadow": true,
           "shadow_distance": 100,
           "color": [1, 1, 1],
           "intensity": 2,

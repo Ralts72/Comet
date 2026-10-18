@@ -153,6 +153,7 @@
             "camera_controller": {
               "enabled": true,
               "mode": "orbit",
+              "capture_mouse": true,
               "move_speed": 3,
               "look_sensitivity": 0.2,
               "look_speed": 120,
@@ -279,7 +280,7 @@
           "enabled": true,
           "radius": 0.3,
           "height": 1.8,
-          "move_speed": 2,
+          "move_speed": 3,
           "run_speed": 3,
           "crouch_speed": 2,
           "crouch_height_ratio": 0.6,
