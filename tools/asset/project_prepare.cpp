@@ -1,4 +1,5 @@
 #include "asset/runtime/prefab_loader.h"
+#include "asset/runtime/scene_dependencies.h"
 #include "asset/data/navigation_data.h"
 #include "asset/project_prepare.h"
 #include "asset/data/game_data.h"
@@ -31,43 +32,42 @@ namespace Comet {
         Result<std::vector<AssetReference>> collect_runtime_references(
             Scene& scene, const ComponentRegistry& components, const AssetDatabase& database) {
             std::map<AssetHandle, std::shared_ptr<Script>> scripts;
-            const auto references = components.collect_runtime_references(
-                scene,
-                [&](AssetHandle handle) -> Result<std::shared_ptr<Script>, Error> {
-                    using Loaded = Result<std::shared_ptr<Script>, Error>;
-                    if(const auto found = scripts.find(handle); found != scripts.end())
-                        return Loaded::success(found->second);
-                    const auto* record = database.find(handle);
-                    if(!record || record->type != AssetType::Script)
-                        return Loaded::failure({"Script dependency is missing or mistyped"});
-                    const std::array entry{record->path};
-                    auto loaded = Script::load_group(database.paths().assets(), entry);
-                    if(!loaded)
-                        return Loaded::failure({loaded.error().message});
-                    auto script = loaded.value().front();
-                    scripts.emplace(handle, script);
-                    return Loaded::success(std::move(script));
-                },
-                [&](AssetHandle handle) -> Result<std::shared_ptr<Prefab>, Error> {
-                    using Loaded = Result<std::shared_ptr<Prefab>, Error>;
-                    const auto* record = database.find(handle);
-                    if(!record || record->type != AssetType::Prefab)
-                        return Loaded::failure({"Prefab dependency is missing or mistyped"});
-                    auto prefab = read_prefab_content(database, handle, components);
-                    if(!prefab)
-                        return Loaded::failure({prefab.error()});
-                    return Loaded::success(std::make_shared<Prefab>(std::move(prefab).value()));
-                },
-                [&](AssetHandle handle) -> Result<std::shared_ptr<GameData>, Error> {
-                    using Loaded = Result<std::shared_ptr<GameData>, Error>;
-                    const auto* record = database.find(handle);
-                    if(!record || record->type != AssetType::Data)
-                        return Loaded::failure({"Data dependency is missing or mistyped"});
-                    auto data = GameData::load(database.paths().assets() / record->path);
-                    if(!data)
-                        return Loaded::failure({data.error()});
-                    return Loaded::success(std::make_shared<GameData>(std::move(data).value()));
-                });
+            const auto references = collect_scene_dependencies(scene, components,
+                {.script = [&](AssetHandle handle) -> Result<std::shared_ptr<Script>, Error> {
+                     using Loaded = Result<std::shared_ptr<Script>, Error>;
+                     if(const auto found = scripts.find(handle); found != scripts.end())
+                         return Loaded::success(found->second);
+                     const auto* record = database.find(handle);
+                     if(!record || record->type != AssetType::Script)
+                         return Loaded::failure({"Script dependency is missing or mistyped"});
+                     const std::array entry{record->path};
+                     auto loaded = Script::load_group(database.paths().assets(), entry);
+                     if(!loaded)
+                         return Loaded::failure({loaded.error().message});
+                     auto script = loaded.value().front();
+                     scripts.emplace(handle, script);
+                     return Loaded::success(std::move(script));
+                 },
+                    .prefab = [&](AssetHandle handle) -> Result<std::shared_ptr<Prefab>, Error> {
+                        using Loaded = Result<std::shared_ptr<Prefab>, Error>;
+                        const auto* record = database.find(handle);
+                        if(!record || record->type != AssetType::Prefab)
+                            return Loaded::failure({"Prefab dependency is missing or mistyped"});
+                        auto prefab = read_prefab_content(database, handle, components);
+                        if(!prefab)
+                            return Loaded::failure({prefab.error()});
+                        return Loaded::success(std::make_shared<Prefab>(std::move(prefab).value()));
+                    },
+                    .data = [&](AssetHandle handle) -> Result<std::shared_ptr<GameData>, Error> {
+                        using Loaded = Result<std::shared_ptr<GameData>, Error>;
+                        const auto* record = database.find(handle);
+                        if(!record || record->type != AssetType::Data)
+                            return Loaded::failure({"Data dependency is missing or mistyped"});
+                        auto data = GameData::load(database.paths().assets() / record->path);
+                        if(!data)
+                            return Loaded::failure({data.error()});
+                        return Loaded::success(std::make_shared<GameData>(std::move(data).value()));
+                    }});
             if(!references)
                 return Result<std::vector<AssetReference>>::failure(references.error().message);
             return Result<std::vector<AssetReference>>::success(references.value());

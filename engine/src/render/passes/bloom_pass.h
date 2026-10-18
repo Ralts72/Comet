@@ -12,7 +12,6 @@ namespace Comet {
     class Pipeline;
     class DescriptorSetLayout;
     class Sampler;
-    struct SampledImageBinding;
 
     // 半分辨率 HDR 高亮提取与横纵模糊；最终合成由 OutputPass 负责。
     class COMET_API BloomPass {
@@ -32,13 +31,15 @@ namespace Comet {
         BloomPass(const BloomPass&) = delete;
         BloomPass& operator=(const BloomPass&) = delete;
 
-        // 图分配和 framebuffer 全部成功后才发布；旧代由在途帧保活。
-        Result<void, GraphicsError> prepare(
-            const RenderGraph::Resources& resources, const Passes& passes, Math::Vec2u source_size);
-        [[nodiscard]] std::shared_ptr<ImageView> get_output(uint32_t slot) const;
+        struct Resources;
+        // 返回独立候选；图 owner 在整份计划成功后提交，旧代由在途帧保活。
+        [[nodiscard]] Result<std::shared_ptr<Resources>, GraphicsError> create_resources(
+            const RenderGraph::Resources& resources, const Passes& passes,
+            Math::Vec2u source_size) const;
+        [[nodiscard]] static std::shared_ptr<ImageView> output(const Resources&, uint32_t slot);
         [[nodiscard]] Result<void, GraphicsError> render(FrameScheduler& frames,
-            RenderGraph::PassId pass, const Passes& passes, const std::shared_ptr<ImageView>& hdr,
-            float threshold);
+            RenderGraph::PassId pass, const std::shared_ptr<Resources>& resources,
+            const std::shared_ptr<ImageView>& hdr, float threshold);
 
     private:
         BloomPass(Device& device, uint32_t frame_slots);
@@ -49,8 +50,5 @@ namespace Comet {
         std::shared_ptr<DescriptorSetLayout> m_layout;
         std::shared_ptr<Sampler> m_sampler;
         std::shared_ptr<Pipeline> m_pipeline;
-        struct Targets;
-        std::shared_ptr<Targets> m_targets;
-        std::vector<std::array<std::shared_ptr<SampledImageBinding>, 3>> m_bindings;
     };
 }

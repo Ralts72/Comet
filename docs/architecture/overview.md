@@ -2,6 +2,20 @@
 
 本文描述当前模块、所有权和关键时序。功能规划与验收见[路线图](../engine-roadmap.md)，构建入口见 [README](../../README.md)，具体操作见[使用手册](../usage.md)。
 
+## 从入口理解项目
+
+| 调用链 | 阅读入口与责任 |
+| --- | --- |
+| 启动与装配 | `app/game_app.cpp`／`editor/editor.cpp` → `Application` → `Engine::run`；宿主选择项目与工作流，Engine 组合服务并安排帧阶段 |
+| 模拟 | `Engine::tick` → `SceneRuntime::advance` → System 固定／后置固定／普通更新；Scene 保存内容和有阶段寿命的请求、输出，服务拥有后端对象 |
+| 内容依赖 | `ComponentRegistry::collect_asset_references` 查询直接引用 → `asset/runtime/scene_dependencies` 展开脚本属性、GameData 与 Prefab 闭包 → App／Play 准备或工具导出 |
+| 资产发布 | `AssetManager` → ImportService／任务队列 → RenderResourceFactory 候选 → Main 复核并注册；格式算法不进入发布 owner |
+| 画面 | Main 的 SceneExtractor → SceneResolver → 自有帧快照 → RenderThread → Renderer → SceneRenderer／Pass → Graphics；Worker 和 GPU 不回读活动 Scene |
+| 编辑 | Inspector／Viewport → 属性事务、命令与 SceneDocument → Entity 内容写入；EditorSceneSession 切换 Edit／Play，GameSession 管运行关卡和检查点 |
+| 游戏界面 | 项目 RML／Lua → ProjectUi 服务与命名事件 → 当前运行域脚本；游戏规则留在项目，App／Editor 适配各自窗口和输入授权 |
+
+`ComponentRegistry` 集中声明组件与属性，SceneRuntime 集中维护阶段，Engine／Editor 集中装配模块。它们可以有较长的声明或编排代码；是否拆分取决于领域算法、独立生命周期或依赖是否混入，不按行数决定。Scene 的持久内容、阶段请求、Edit／Play 共用呈现输出也不能为了字段更少而统一塞进 RuntimeSession。
+
 ## 构建模块
 
 项目使用 `build/`、`build-editor/`、`build-release/` 三个构建目录，对外提供一个 `engine` 动态库和 `Comet::Engine` 目标。
@@ -15,14 +29,14 @@
 | ShaderContracts | 后端无关 Shader 契约与 SPIR-V 反射 | Foundation、SPIRV-Reflect |
 | AssetData | Handle、Registry、CPU 产品数据、脚本定义和资产字段序列化 | Serialization、ShaderContracts |
 | Input | 采样值、动作、输入组、运行域求值、改键草稿和覆盖 | Serialization |
-| World | 实体、组件、描述符、层级、呈现变换、场景内容保存与复制 | AssetData、EnTT |
+| World | 实体、组件、描述符、直接引用、层级、呈现变换、场景内容保存与复制 | AssetData、EnTT |
 | Runtime | 时间、暂停／单步、会话、System 生命周期与通用动画实例推进 | World、Input |
 | Audio | AudioService、Voice、播放设备与 AudioSystem | Runtime、miniaudio |
 | Physics | PhysicsService、刚体世界与 PhysicsSystem | Runtime、Jolt |
 | Gameplay | 可复用角色／相机控制、角色动画参数与导航，借用输入快照和 PhysicsAccess | Runtime、Recast／Detour |
 | Scripting | 行为 VM、Lua 校验与 ScriptSystem，以及 Gameplay 桥接 | Runtime、Gameplay、Lua |
 | AssetPipeline | 扫描、索引、源导入、Artifact 与任务队列 | AssetData、stb_image、fastgltf |
-| RuntimeAssets | 需求、加载、失效、版本编排和资源发布契约 | AssetPipeline、Audio／Script 定义 |
+| RuntimeAssets | 内容依赖闭包、需求、加载、失效、版本编排和资源发布契约 | AssetPipeline、World、Audio／Script 定义 |
 | Platform | Window、GLFW 事件、输入采样与剪贴板 | Input、GLFW |
 | Graphics | Vulkan／VMA、设备、资源、命令、同步与 Surface | ShaderContracts、Platform |
 | Render | 帧、呈现、场景提取、渲染与资产 GPU 候选创建 | Graphics、World、Platform |
@@ -45,6 +59,7 @@ flowchart TD
     Host --> Runtime
     Host --> Render
     Host --> GameUi
+    RuntimeAssets --> World
     RuntimeAssets --> AssetPipeline
     AssetPipeline --> AssetData
     World --> AssetData
@@ -693,7 +708,7 @@ Presentation 的等待列表与 Queue 的提交／呈现参数转换使用调用
 首版逻辑图像是单 mip、单层 2D；其他图像和子资源继续 import。这里复用物理对象，不将不同对象绑定到同一块裸内存。
 `Plan::allocate` 创建各 GPU slot 独立的资源集合，SceneRenderer 缓存并在图变化时整体替换；Pass 只根据逻辑身份建立自己的 view／framebuffer。
 录制前核对绑定、范围和设备，再保活资源并执行 barrier／pass／export；回调失败立即退出该帧，已录命令不回滚。
-SceneRenderer 保存编译计划，每帧绑定当前 slot 目标；resize 更换 owner，旧目标由在途帧保留。
+SceneRenderer 在声明每个阶段的资源使用时注册对应录制回调；回调是无捕获函数，只在同步执行期间借用当前帧上下文，不保存帧数据或候选资源引用。编译计划、回调、逻辑身份、临时分配与效果资源保存在同一 GraphState，候选完整成功后一次替换；每帧只填充当前 slot 绑定。Pass 对象持有程序／管线，图代次持有对应图像／framebuffer／描述符，Bloom 与其他效果遵守同一规则。准备失败不改变活动效果目标；resize 更换 owner，旧目标由在途帧保留。
 复用目标即使以 Undefined 丢弃旧内容，也保留先前逻辑使用者和该 slot 上一轮执行的读写范围；丢弃不代表资源从未使用过。
 图负责场景／阴影／Bloom 的同步；最终输出 RenderPass、ImGui、WSI 与 upload completion 仍有独立职责。
 `IndependentCompute` 图仅接受 HostWrite／Undefined 的初始输入，避免把尚未执行的当帧 GPU 生产者错误移到另一队列。绑定验证和保活在 RenderThread 完成；自有录制回调及原生 barrier 可以交给既有 TaskScheduler，任务各用独立 CommandPool。最终提交先接纳全部录制结果；设备有额外 graphics 同族队列时独立提交并以 timeline 连接，只有一条队列时把命令缓冲按序放入原提交。GPU 实例剔除是实际消费者。
@@ -712,9 +727,9 @@ LensSettings 是场景内容，经原有事务、序列化和渲染快照传递�
 
 ### Bloom
 
-BloomPass 声明高亮提取、横纵模糊三个逻辑输出，图编译将第一与第三个输出复用为两个物理目标；view、framebuffer、采样绑定和绘制归 BloomPass。
+BloomPass 声明高亮提取、横纵模糊三个逻辑输出，图编译将第一与第三个输出复用为两个物理目标；BloomPass 创建 view、framebuffer 和采样绑定候选，由 GraphState 持有，录制显式接收该代资源。
 这保持原来手动 ping-pong 的两个目标成本，不把三个逻辑输出都分配显存；资源规划不另建一套 Pass 内存池。
-启停／尺寸／画质通过完整 RenderState 候选替换，失败保留旧状态；当前没有自动曝光或局部后处理区域。
+图变化以完整 GraphState 提交，尺寸／画质先准备配套目标，失败保留旧状态；当前没有自动曝光或局部后处理区域。
 
 ## Swapchain 与关闭
 

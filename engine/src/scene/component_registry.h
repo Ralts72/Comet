@@ -17,7 +17,6 @@
 #include <vector>
 
 namespace Comet {
-    class Script;
     struct ComponentDescriptor {
         std::string id;
         std::string display_name;
@@ -92,14 +91,6 @@ namespace Comet {
         [[nodiscard]] bool covers_entity(const Entity& entity) const;
         [[nodiscard]] std::vector<AssetReference> collect_asset_references(
             Scene& scene, ReferenceScope scope = ReferenceScope::All) const;
-
-        // 展开脚本参数与可生成子树的资源闭包；宿主决定从源项目或只读产品加载。
-        [[nodiscard]] Result<std::vector<AssetReference>, Error> collect_runtime_references(
-            Scene& scene,
-            const std::function<Result<std::shared_ptr<Script>, Error>(AssetHandle)>& load_script,
-            const std::function<Result<std::shared_ptr<Prefab>, Error>(AssetHandle)>& load_prefab,
-            const std::function<Result<std::shared_ptr<GameData>, Error>(AssetHandle)>& load_data,
-            bool allow_missing = false, bool include_streamed = true) const;
 
         [[nodiscard]] const std::vector<ComponentDescriptor>& components() const {
             return m_components;

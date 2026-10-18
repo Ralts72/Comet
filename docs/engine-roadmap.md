@@ -109,7 +109,7 @@ GI／路径追踪在基础材质与场景输入满足各自首例后即可开启
 
 ### 工程审查与收敛计划
 
-当前模块、公共工具和发布协议只在[架构文档](architecture/overview.md)维护；下表保留持续约束和未完成工作。
+当前模块、公共工具和发布协议只在[架构文档](architecture/overview.md)维护，阅读入口见[主要调用链](architecture/overview.md#从入口理解项目)；下表保留持续约束和未完成工作。
 
 | 范围 | 后续工作与验收 |
 | --- | --- |
@@ -129,7 +129,8 @@ GI／路径追踪在基础材质与场景输入满足各自首例后即可开启
 - JSON 解析、字段定位与文件流程共用 `common/json`；二进制基础读写共用 `common/binary`，Schema 和领域校验由调用方负责。
 - 显示／画质／音量共用完整值存储；输入保留稀疏覆盖语义。身份版本、变化批次与写时复制分别复用算法，不合成通用“脏状态”框架。
 - 新抽象应消除重复规则或明确所有权；不以机械合文件、减少成员数量或增加 Manager／target 衡量改进。
-- 继续扩展资产种类时，AssetManager 保留版本复核与原子发布，源解析和产品读取归各自 importer／loader；不再向发布 owner 加入格式算法。SceneRenderer 保留逐视图资源代际和图执行，新增效果的算法、管线和缓存归 pass；后续让图声明与录制入口就近绑定，减少 `rebuild_graph`／`record_pass` 两处维护。Editor 宿主负责装配与阶段顺序，编辑事务继续归 SceneDocument、EditorSceneSession 和资产工作流。
+- 继续扩展资产种类时，AssetManager 保留版本复核与原子发布，源解析和产品读取归各自 importer／loader；不再向发布 owner 加入格式算法。SceneRenderer 保留逐视图资源代际和图执行，新增效果的算法与管线归 pass，尺寸／图代次相关资源随同一图候选一起提交；图声明与录制回调在同一阶段注册，随图候选一起提交；新增效果沿用这个入口，不再维护第二套 Pass ID 与执行分支。Editor 宿主负责装配与阶段顺序，编辑事务继续归 SceneDocument、EditorSceneSession 和资产工作流。
+- 组件注册表只解释元数据和直接引用；脚本属性、GameData 与 Prefab 依赖展开归 RuntimeAssets，运行需求和导出共用算法，保留 streamed 需求与完整导出闭包的差别。
 - Scene 同时服务 Edit 与 Runtime 的姿态／变换输出仍有实际消费者；只有新增行为造成独立生命周期或重复清理时再移动 owner。PhysicsService 的后端世界、接触、角色和约束保持同一 Jolt 生命周期，不按文件行数拆成互相借用私有状态的类。
 
 <a id="运行时基础架构主线待完成"></a>

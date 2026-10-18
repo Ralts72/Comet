@@ -1,6 +1,4 @@
 #include "scene/component_registry.h"
-#include "asset/data/game_data.h"
-#include "asset/script.h"
 #include <unordered_set>
 
 #include "scene/components.h"
@@ -10,7 +8,6 @@
 #include "diagnostics/logger.h"
 #include <algorithm>
 #include <cmath>
-#include <unordered_set>
 #include <utility>
 
 namespace Comet {
@@ -227,77 +224,6 @@ namespace Comet {
         std::ranges::sort(references);
         references.erase(std::unique(references.begin(), references.end()), references.end());
         return references;
-    }
-
-    Result<std::vector<AssetReference>, Error> ComponentRegistry::collect_runtime_references(
-        Scene& scene,
-        const std::function<Result<std::shared_ptr<Script>, Error>(AssetHandle)>& load_script,
-        const std::function<Result<std::shared_ptr<Prefab>, Error>(AssetHandle)>& load_prefab,
-        const std::function<Result<std::shared_ptr<GameData>, Error>(AssetHandle)>& load_data,
-        bool allow_missing, bool include_streamed) const {
-        using Collected = Result<std::vector<AssetReference>, Error>;
-        std::vector<AssetReference> references;
-        const auto append = [&](Scene& content) -> Result<void, Error> {
-            const auto direct = collect_asset_references(
-                content, include_streamed ? ReferenceScope::Runtime : ReferenceScope::Resident);
-            references.insert(references.end(), direct.begin(), direct.end());
-            for(const auto entity : content.get_entities()) {
-                if(!entity.has_component<ScriptComponent>())
-                    continue;
-                const auto& binding = entity.get_component<ScriptComponent>();
-                if(!binding.asset)
-                    continue;
-                auto script = load_script(binding.asset);
-                if(!script) {
-                    if(allow_missing)
-                        continue;
-                    return Result<void, Error>::failure(script.error());
-                }
-                const auto inputs = script.value()->asset_references(binding.parameters);
-                if(!inputs) {
-                    if(allow_missing)
-                        continue;
-                    return Result<void, Error>::failure(inputs.error());
-                }
-                references.insert(references.end(), inputs.value().begin(), inputs.value().end());
-            }
-            return Result<void, Error>::success();
-        };
-        if(auto added = append(scene); !added)
-            return Collected::failure(added.error());
-        std::unordered_set<AssetHandle> expanded;
-        for(std::size_t index = 0; index < references.size(); ++index) {
-            const auto reference = references[index];
-            if(reference.type != AssetType::Prefab && reference.type != AssetType::Data)
-                continue;
-            if(!expanded.insert(reference.handle).second)
-                continue;
-            if(reference.type == AssetType::Data) {
-                auto data = load_data(reference.handle);
-                if(!data) {
-                    if(allow_missing)
-                        continue;
-                    return Collected::failure(data.error());
-                }
-                const auto& inputs = data.value()->references();
-                references.insert(references.end(), inputs.begin(), inputs.end());
-                continue;
-            }
-            const auto prefab = load_prefab(reference.handle);
-            if(!prefab) {
-                if(allow_missing)
-                    continue;
-                return Collected::failure(prefab.error());
-            }
-            Scene content;
-            if(auto instance = prefab.value()->instantiate(content, *this); !instance)
-                return Collected::failure({instance.error()});
-            if(auto added = append(content); !added)
-                return Collected::failure(added.error());
-        }
-        std::ranges::sort(references);
-        references.erase(std::unique(references.begin(), references.end()), references.end());
-        return Collected::success(std::move(references));
     }
 
     ComponentRegistry create_scene_component_registry() {

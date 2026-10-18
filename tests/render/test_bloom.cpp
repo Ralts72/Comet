@@ -213,8 +213,13 @@ namespace Comet::Tests {
                         ASSERT_TRUE(plan) << plan.error();
                         const auto resources = plan.value().allocate(device, 2);
                         ASSERT_TRUE(resources);
-                        if(passes)
-                            ASSERT_TRUE(bloom.value()->prepare(resources.value(), *passes, size));
+                        std::shared_ptr<BloomPass::Resources> bloom_resources;
+                        if(passes) {
+                            auto prepared =
+                                bloom.value()->create_resources(resources.value(), *passes, size);
+                            ASSERT_TRUE(prepared);
+                            bloom_resources = std::move(prepared).value();
+                        }
                         EXPECT_EQ(
                             plan.value().get_passes().size(), settings.uses_bloom() ? 4u : 1u);
                         frames.wait_for_current_slot();
@@ -227,15 +232,15 @@ namespace Comet::Tests {
                         std::shared_ptr<ImageView> glow;
                         if(passes) {
                             resources.value().bind_resources(bindings, slot);
-                            glow = bloom.value()->get_output(slot);
+                            glow = BloomPass::output(*bloom_resources, slot);
                         }
                         const auto recorded =
                             plan.value().record(frames, bindings, [&](auto pass, CommandBuffer&) {
                                 if(pass == display_id)
                                     return display.value()->render(
                                         frames, output, source_view, settings, glow);
-                                return bloom.value()->render(
-                                    frames, pass, *passes, source_view, settings.bloom_threshold);
+                                return bloom.value()->render(frames, pass, bloom_resources,
+                                    source_view, settings.bloom_threshold);
                             });
                         ASSERT_TRUE(recorded) << recorded.error().message;
                         const size_t stride = hdr_output ? 8 : 4;
@@ -332,13 +337,12 @@ namespace Comet::Tests {
         }
     }
 
-    TEST_F(BloomGpuTest, TargetsResizeAtomicallyAndBindingsOutliveThePass) {
+    TEST_F(BloomGpuTest, ResourceCandidatesRemainIndependentAndBindingsOutliveThePass) {
         auto& context = engine->get_renderer().get_render_context();
         auto& device = context.get_device();
         EXPECT_FALSE(BloomPass::create(device, 0));
         auto bloom = BloomPass::create(device, 2);
         ASSERT_TRUE(bloom);
-        EXPECT_FALSE(bloom.value()->get_output(0));
         RenderGraph graph;
         const auto hdr =
             graph.import_image("hdr", *resolve_image_state(ResourceUsage::SampledRead,
@@ -349,14 +353,16 @@ namespace Comet::Tests {
         ASSERT_TRUE(plan);
         const auto resources = plan.value().allocate(device, 2);
         ASSERT_TRUE(resources);
-        ASSERT_TRUE(bloom.value()->prepare(resources.value(), passes, {17, 9}));
-        auto first = bloom.value()->get_output(0);
+        auto prepared = bloom.value()->create_resources(resources.value(), passes, {17, 9});
+        ASSERT_TRUE(prepared);
+        auto active = std::move(prepared).value();
+        auto first = BloomPass::output(*active, 0);
         EXPECT_EQ(first->get_image()->get_info().extent, Math::Vec3u(9, 5, 1));
-        EXPECT_FALSE(bloom.value()->get_output(2));
-        EXPECT_FALSE(bloom.value()->prepare(resources.value(), passes, {0, 9}));
-        EXPECT_EQ(bloom.value()->get_output(0), first);
-        EXPECT_FALSE(bloom.value()->prepare(resources.value(), passes, {33, 25}));
-        EXPECT_EQ(bloom.value()->get_output(0), first);
+        EXPECT_FALSE(BloomPass::output(*active, 2));
+        EXPECT_FALSE(bloom.value()->create_resources(resources.value(), passes, {0, 9}));
+        EXPECT_EQ(BloomPass::output(*active, 0), first);
+        EXPECT_FALSE(bloom.value()->create_resources(resources.value(), passes, {33, 25}));
+        EXPECT_EQ(BloomPass::output(*active, 0), first);
 
         TextureData data{.width = 17, .height = 9, .format = Format::R16G16B16A16_SFLOAT};
         data.pixels.resize(17 * 9 * 8);
@@ -367,28 +373,22 @@ namespace Comet::Tests {
         frames.initialize_swapchain_images(2);
         FrameWait wait{device, frames};
         EXPECT_FALSE(bloom.value()->render(
-            frames, passes.ids[0], passes, source.value()->get_image_view(), 1));
+            frames, passes.ids[0], active, source.value()->get_image_view(), 1));
         frames.wait_for_current_slot();
         frames.begin_frame(0);
         frames.get_current_command_buffer().begin();
         EXPECT_FALSE(
-            bloom.value()->render(frames, 9999, passes, source.value()->get_image_view(), 1));
-        EXPECT_FALSE(bloom.value()->render(frames, passes.ids[0], passes, {}, 1));
+            bloom.value()->render(frames, 9999, active, source.value()->get_image_view(), 1));
+        EXPECT_FALSE(bloom.value()->render(frames, passes.ids[0], active, {}, 1));
         for(const auto invalid : {-1.0f, std::numeric_limits<float>::infinity(),
                 std::numeric_limits<float>::quiet_NaN()})
             EXPECT_FALSE(bloom.value()->render(
-                frames, passes.ids[0], passes, source.value()->get_image_view(), invalid));
+                frames, passes.ids[0], active, source.value()->get_image_view(), invalid));
         std::vector<RenderGraph::Binding> bindings(plan.value().resource_count());
         bindings[hdr.index] = source.value()->get_image_view()->get_image();
         resources.value().bind_resources(bindings, 0);
         EXPECT_EQ(
             std::get<std::shared_ptr<Image>>(bindings[passes.extracted.index]), first->get_image());
-        ASSERT_TRUE(plan.value().record(frames, bindings, [&](auto pass, CommandBuffer&) {
-            return bloom.value()->render(frames, pass, passes, source.value()->get_image_view(), 1);
-        }));
-        const std::weak_ptr<ImageView> retained = first;
-        first.reset();
-        bindings.clear();
         RenderGraph resized_graph;
         const auto resized_hdr = resized_graph.import_image(
             "hdr", *resolve_image_state(ResourceUsage::SampledRead,
@@ -399,7 +399,22 @@ namespace Comet::Tests {
         ASSERT_TRUE(resized_plan);
         const auto resized_resources = resized_plan.value().allocate(device, 2);
         ASSERT_TRUE(resized_resources);
-        ASSERT_TRUE(bloom.value()->prepare(resized_resources.value(), resized_passes, {33, 25}));
+        auto candidate =
+            bloom.value()->create_resources(resized_resources.value(), resized_passes, {33, 25});
+        ASSERT_TRUE(candidate);
+        EXPECT_EQ(
+            BloomPass::output(*active, 0)->get_image()->get_info().extent, Math::Vec3u(9, 5, 1));
+        EXPECT_EQ(BloomPass::output(*candidate.value(), 0)->get_image()->get_info().extent,
+            Math::Vec3u(17, 13, 1));
+        candidate.value().reset();
+        // 候选尚未提交／即使随后丢弃，旧图仍能使用原资源完成录制。
+        ASSERT_TRUE(plan.value().record(frames, bindings, [&](auto pass, CommandBuffer&) {
+            return bloom.value()->render(frames, pass, active, source.value()->get_image_view(), 1);
+        }));
+        const std::weak_ptr<ImageView> retained = first;
+        first.reset();
+        bindings.clear();
+        active.reset();
         EXPECT_FALSE(retained.expired());
         bloom.value().reset();
         EXPECT_FALSE(retained.expired());

@@ -19,14 +19,15 @@
 #include <cassert>
 
 namespace Comet {
-    struct BloomPass::Targets {
+    struct BloomPass::Resources {
         Passes passes;
         Math::Vec2u source_size;
         std::vector<std::array<std::shared_ptr<ImageView>, 3>> views;
         std::vector<std::array<std::shared_ptr<FrameBuffer>, 3>> framebuffers;
+        std::vector<std::array<std::shared_ptr<SampledImageBinding>, 3>> bindings;
     };
     BloomPass::BloomPass(Device& device, const uint32_t frame_slots)
-        : m_device(device), m_frame_slots(frame_slots), m_bindings(frame_slots) {}
+        : m_device(device), m_frame_slots(frame_slots) {}
 
     Result<std::unique_ptr<BloomPass>, GraphicsError> BloomPass::create(
         Device& device, const uint32_t frame_slots) {
@@ -107,17 +108,18 @@ namespace Comet {
         return {output, extracted, horizontal_output, {extract, horizontal, vertical}};
     }
 
-    Result<void, GraphicsError> BloomPass::prepare(const RenderGraph::Resources& resources,
-        const Passes& passes, const Math::Vec2u source_size) {
+    Result<std::shared_ptr<BloomPass::Resources>, GraphicsError> BloomPass::create_resources(
+        const RenderGraph::Resources& resources, const Passes& passes,
+        const Math::Vec2u source_size) const {
+        using Creation = Result<std::shared_ptr<Resources>, GraphicsError>;
         if(source_size.x == 0 || source_size.y == 0)
-            return Result<void, GraphicsError>::failure(
-                {"Bloom source size must be greater than zero"});
+            return Creation::failure({"Bloom source size must be greater than zero"});
         const Math::Vec2u size = source_size / 2u + source_size % 2u;
         const std::array ids{passes.extracted, passes.intermediate, passes.output};
         for(const auto id : ids)
             if(id.index >= resources.get_bindings(0).size())
-                return Result<void, GraphicsError>::failure({"Invalid Bloom logical target"});
-        auto next = std::make_shared<Targets>();
+                return Creation::failure({"Invalid Bloom logical target"});
+        auto next = std::make_shared<Resources>();
         next->passes = passes;
         next->source_size = source_size;
         for(uint32_t slot = 0; slot < m_frame_slots; ++slot) {
@@ -127,58 +129,59 @@ namespace Comet {
             for(size_t index = 0; index < ids.size(); ++index) {
                 const auto* image =
                     std::get_if<std::shared_ptr<Image>>(&bindings[ids[index].index]);
-                if(!image || !*image
+                if(!image || !*image || &(*image)->get_device() != &m_device
                     || (*image)->get_info().extent != Math::Vec3u(size.x, size.y, 1)
                     || (*image)->get_info().format != Format::R16G16B16A16_SFLOAT)
-                    return Result<void, GraphicsError>::failure(
-                        {"Invalid Bloom target description"});
+                    return Creation::failure({"Invalid Bloom target description"});
                 auto view =
                     ImageView::try_create(m_device, *image, Flags<ImageAspect>(ImageAspect::Color));
                 if(!view)
-                    return Result<void, GraphicsError>::failure(view.error());
+                    return Creation::failure(view.error());
                 views[index] = std::move(view).value();
                 auto framebuffer = FrameBuffer::try_create(
                     m_device, *m_render_pass, {views[index]}, size.x, size.y);
                 if(!framebuffer)
-                    return Result<void, GraphicsError>::failure(framebuffer.error());
+                    return Creation::failure(framebuffer.error());
                 framebuffers[index] = std::move(framebuffer).value();
             }
             next->views.push_back(std::move(views));
             next->framebuffers.push_back(std::move(framebuffers));
         }
-        m_targets = std::move(next);
-        for(auto& bindings : m_bindings)
-            bindings = {};
-        return Result<void, GraphicsError>::success();
+        next->bindings.resize(m_frame_slots);
+        return Creation::success(std::move(next));
     }
 
-    std::shared_ptr<ImageView> BloomPass::get_output(const uint32_t slot) const {
-        if(!m_targets || slot >= m_frame_slots)
+    std::shared_ptr<ImageView> BloomPass::output(const Resources& resources, const uint32_t slot) {
+        if(slot >= resources.views.size())
             return nullptr;
-        return m_targets->views[slot][2];
+        return resources.views[slot][2];
     }
 
     Result<void, GraphicsError> BloomPass::render(FrameScheduler& frames,
-        const RenderGraph::PassId pass, const Passes& passes, const std::shared_ptr<ImageView>& hdr,
-        const float threshold) {
+        const RenderGraph::PassId pass, const std::shared_ptr<Resources>& resources,
+        const std::shared_ptr<ImageView>& hdr, const float threshold) {
+        if(!resources)
+            return Result<void, GraphicsError>::failure(
+                {"Bloom requires prepared graph resources"});
+        const auto& passes = resources->passes;
         const auto found = std::ranges::find(passes.ids, pass);
         if(!frames.is_recording_frame() || &frames.get_device() != &m_device
-            || frames.get_current_frame_slot_index() >= m_frame_slots || !m_targets || !hdr
-            || passes != m_targets->passes || found == passes.ids.end() || !std::isfinite(threshold)
-            || threshold < 0 || threshold > 65504)
+            || frames.get_current_frame_slot_index() >= resources->views.size() || !hdr
+            || found == passes.ids.end() || !std::isfinite(threshold) || threshold < 0
+            || threshold > 65504)
             return Result<void, GraphicsError>::failure(
                 {"Invalid bloom frame, input, pass or threshold"});
         const auto& info = hdr->get_image()->get_info();
-        if(&hdr->get_image()->get_device() != &m_device || info.extent.x != m_targets->source_size.x
-            || info.extent.y != m_targets->source_size.y
+        if(&hdr->get_image()->get_device() != &m_device || info.extent.x != resources->source_size.x
+            || info.extent.y != resources->source_size.y
             || info.format != Format::R16G16B16A16_SFLOAT || !(info.usage & ImageUsage::Sampled))
             return Result<void, GraphicsError>::failure({"Invalid bloom source image"});
         const auto mode = static_cast<uint32_t>(found - passes.ids.begin());
         const auto slot = frames.get_current_frame_slot_index();
         auto input = hdr;
         if(mode > 0)
-            input = m_targets->views[slot][mode - 1];
-        auto& binding = m_bindings[slot][mode];
+            input = resources->views[slot][mode - 1];
+        auto& binding = resources->bindings[slot][mode];
         if(!binding || binding->images.front() != input) {
             auto candidate = SampledImageBinding::create(m_device, {input}, m_layout, m_sampler);
             if(!candidate)
@@ -188,11 +191,11 @@ namespace Comet {
         frames.retain_current_frame_resource(binding);
         frames.retain_current_frame_resource(m_pipeline);
         frames.retain_current_frame_resource(m_render_pass);
-        frames.retain_current_frame_resource(m_targets);
+        frames.retain_current_frame_resource(resources);
         auto& command = frames.get_current_command_buffer();
         command.begin_render_pass(
-            *m_render_pass, *m_targets->framebuffers[slot][mode], {ClearValue(Math::Vec4(0))});
-        const auto size = m_targets->source_size / 2u + m_targets->source_size % 2u;
+            *m_render_pass, *resources->framebuffers[slot][mode], {ClearValue(Math::Vec4(0))});
+        const auto size = resources->source_size / 2u + resources->source_size % 2u;
         command.set_viewport(vk::Viewport(0, 0, float(size.x), float(size.y), 0, 1));
         command.set_scissor(Graphics::get_scissor(float(size.x), float(size.y)));
         command.bind_pipeline(*m_pipeline);

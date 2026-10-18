@@ -7,6 +7,7 @@
 #include "scene/component_registry.h"
 #include "scene/prefab.h"
 #include "asset/runtime/asset_loader.h"
+#include "asset/runtime/scene_dependencies.h"
 #include "asset/runtime/render_asset_factory.h"
 #include "graphics/error.h"
 #include "asset/import/asset_task_queue.h"
@@ -362,11 +363,13 @@ namespace Comet {
 
     Result<std::vector<AssetReference>, Error> AssetManager::collect_scene_references(
         Scene& scene, const ComponentRegistry& components, MissingAssetPolicy policy) {
-        return components.collect_runtime_references(
-            scene, [this](AssetHandle handle) { return load_script(handle); },
-            [this, &components](AssetHandle handle) { return load_prefab(handle, components); },
-            [this](AssetHandle handle) { return load_data(handle); },
-            policy == MissingAssetPolicy::AllowMissing, false);
+        return collect_scene_dependencies(scene, components,
+            {.script = [this](AssetHandle handle) { return load_script(handle); },
+                .prefab = [this, &components](
+                              AssetHandle handle) { return load_prefab(handle, components); },
+                .data = [this](AssetHandle handle) { return load_data(handle); }},
+            {.allow_missing = policy == MissingAssetPolicy::AllowMissing,
+                .include_streamed = false});
     }
 
     Result<std::vector<AssetReference>, Error> AssetManager::prepare_scene(

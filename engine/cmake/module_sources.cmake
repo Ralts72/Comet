@@ -190,6 +190,7 @@ set(COMET_RUNTIME_ASSETS_SOURCES
     src/asset/runtime/script_loader.cpp
     src/asset/runtime/asset_loader.cpp
     src/asset/runtime/asset_loader.h
+    src/asset/runtime/scene_dependencies.cpp
     src/asset/runtime/prefab_loader.cpp
     src/asset/runtime/prefab_loader.h
     src/asset/runtime/render_asset_factory.h

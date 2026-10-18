@@ -163,6 +163,10 @@ check_module_closure(PlayerSettings
     "src/config/player_settings.cpp;src/config/display_settings.cpp;src/config/display_settings_preview.cpp"
     "${INPUT_HEADERS}|${AUDIO_DATA_HEADERS}|graphics/enums\\.h$|core/window_settings\\.h$|config/(display_settings(_preview)?|player_settings)\\.h$|render/(output_settings|quality_settings)\\.h$")
 check_module_closure(World "${COMET_WORLD_SOURCES}" "${WORLD_HEADERS}")
+set(WORLD_FILES ${COMET_WORLD_SOURCES})
+list(TRANSFORM WORLD_FILES REPLACE "^src/" "")
+check_includes("${ENGINE_SOURCE}" "${WORLD_FILES}"
+    "asset/(runtime/|script\\.h|data/game_data\\.h)" "World describes content; RuntimeAssets expands dependencies")
 check_module_closure(Runtime "${COMET_RUNTIME_SOURCES}" "${RUNTIME_HEADERS}")
 check_module_closure(Audio "${COMET_AUDIO_SOURCES}" "${AUDIO_HEADERS}")
 check_module_closure(Physics "${COMET_PHYSICS_SOURCES}" "${PHYSICS_HEADERS}")
