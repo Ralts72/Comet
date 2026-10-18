@@ -31,6 +31,9 @@ set(COMET_SHADER_CONTRACTS_SOURCES
 )
 
 set(COMET_ASSET_DATA_SOURCES
+    src/reflection/type.cpp
+    src/reflection/type_registry.cpp
+    src/reflection/type_json.cpp
     src/asset/content_fwd.h
     src/animation/animation_data.cpp
     src/animation/animation_ik.cpp
@@ -72,10 +75,10 @@ set(COMET_INPUT_SOURCES
 )
 
 set(COMET_WORLD_SOURCES
+    src/scene/component_registration.cpp
     src/particles/particle_data.cpp
     src/scene/entity.cpp
     src/scene/component_registry.cpp
-    src/scene/property.cpp
     src/scene/scene.cpp
     src/scene/entity_tree.cpp
     src/scene/prefab.cpp
@@ -85,16 +88,20 @@ set(COMET_WORLD_SOURCES
     src/scene/scene_format.h
     src/scene/scene_serializer.cpp
     src/scene/scene_settings.cpp
+    src/scene/settings_registration.cpp
     src/scene/script_component.cpp
     src/scene/audio_source_component.cpp
 )
 
 set(COMET_RUNTIME_SOURCES
+    src/particles/component_registration.cpp
+    src/animation/component_registration.cpp
     src/particles/particle_system.cpp
     src/animation/animation_system.cpp
     src/scene/runtime_session.cpp
     src/scene/runtime_session.h
     src/scene/runtime_services.h
+    src/gameplay/navigation_access.h
     src/audio/audio_commands.h
     src/physics/physics_access.cpp
     src/physics/physics_access.h
@@ -104,6 +111,7 @@ set(COMET_RUNTIME_SOURCES
 )
 
 set(COMET_AUDIO_SOURCES
+    src/audio/component_registration.cpp
     src/audio/audio_category.h
     src/audio/audio_settings.cpp
     src/audio/audio_settings.h
@@ -117,6 +125,7 @@ set(COMET_AUDIO_SOURCES
 )
 
 set(COMET_PHYSICS_SOURCES
+    src/physics/component_registration.cpp
     src/physics/physics_service.cpp
     src/physics/physics_service.h
     src/scene/systems/physics_system.cpp
@@ -124,8 +133,9 @@ set(COMET_PHYSICS_SOURCES
 )
 
 set(COMET_GAMEPLAY_SOURCES
+    src/gameplay/component_registration.cpp
     src/gameplay/navigation_mesh.cpp
-    src/gameplay/navigation_system.cpp
+    src/gameplay/navigation_service.cpp
     src/gameplay/character_animation.cpp
     src/gameplay/root_motion.cpp
     src/gameplay/root_motion.h
@@ -189,6 +199,7 @@ set(COMET_RUNTIME_ASSETS_SOURCES
     src/asset/asset_manager_scripts.cpp
     src/asset/runtime/script_loader.cpp
     src/asset/runtime/asset_loader.cpp
+    src/asset/import/project_products.cpp
     src/asset/runtime/asset_loader.h
     src/asset/runtime/scene_dependencies.cpp
     src/asset/runtime/prefab_loader.cpp
@@ -238,6 +249,7 @@ set(COMET_GRAPHICS_SOURCES
 )
 
 set(COMET_RENDER_SOURCES
+    src/render/component_registration.cpp
     src/render/particle_collision_scene.cpp
     src/render/particle_collision_scene.h
     src/render/ray_scene.cpp
@@ -266,6 +278,7 @@ set(COMET_RENDER_SOURCES
     src/render/passes/volumetric_fog_pass.cpp
     src/render/passes/shadow_pass.cpp
     src/render/renderer.cpp
+    src/render/scene/render_frontend.cpp
     src/render/render_thread.cpp
     src/render/overlay_record_context.cpp
     src/render/debug/line_draw_list.cpp

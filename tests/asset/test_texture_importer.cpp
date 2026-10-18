@@ -196,6 +196,20 @@ namespace Comet::Tests {
         EXPECT_EQ(linear.value().pixels[10], 218);
     }
 
+    TEST(TextureImporterTest, OpposingNormalsUseNeutralFallbackBeforeByteQuantization) {
+        const TemporaryDirectory directory;
+        const auto source = directory.path() / "opposing.tga";
+        write_rgba(source, 2, 1, {{0, 0, 0, 0}, {255, 255, 255, 255}});
+        const auto result = TextureImporter{}.import(source, {.normal_map = true});
+        ASSERT_TRUE(result) << result.error();
+        const auto& pixels = result.value().pixels;
+        ASSERT_EQ(pixels.size(), 12u);
+        EXPECT_EQ(pixels[8], 128);
+        EXPECT_EQ(pixels[9], 128);
+        EXPECT_EQ(pixels[10], 255);
+        EXPECT_EQ(pixels[11], 128);
+    }
+
     TEST(TextureImporterTest, MipChainPreservesOddEdgesAndOneDimensionalTextures) {
         const TemporaryDirectory directory;
         const auto source = directory.path() / "odd.tga";
@@ -230,6 +244,36 @@ namespace Comet::Tests {
         limits.texture_working_bytes = bytes.value() - 1;
         EXPECT_FALSE(TextureImporter::working_bytes(source, limits));
         EXPECT_FALSE(TextureImporter{}.import(source, {}, bytes.value(), limits));
+    }
+
+    TEST(TextureImporterTest, ReservesSamplerMemoryForWideAndTallTextures) {
+        constexpr int length = 262144;
+        for(const auto& [width, height] : {std::pair{length, 1}, {1, length}}) {
+            SCOPED_TRACE(std::to_string(width) + "x" + std::to_string(height));
+            // PPM 支持超过 TGA 16 位维度的有效单行图像，不依赖额外编码器。
+            std::string encoded =
+                "P6\n" + std::to_string(width) + " " + std::to_string(height) + "\n255\n";
+            for(int i = 0; i < length; ++i)
+                encoded.append("\x80\x80\xff", 3);
+            const auto memory = std::as_bytes(std::span(encoded));
+            const auto estimate = TextureImporter::working_bytes(memory);
+            ASSERT_TRUE(estimate) << estimate.error();
+            AssetImportLimits limits;
+            limits.texture_working_bytes = 24ull * 1024 * 1024;
+            EXPECT_FALSE(TextureImporter::working_bytes(memory, limits));
+            for(const bool normal_map : {false, true}) {
+                const auto result =
+                    TextureImporter{}.import(memory, {.normal_map = normal_map}, estimate.value());
+                ASSERT_TRUE(result) << result.error();
+                const auto& data = result.value();
+                EXPECT_EQ(data.mip_levels, 19u);
+                EXPECT_EQ(data.pixels[data.pixels.size() - 4], 128);
+                EXPECT_EQ(data.pixels[data.pixels.size() - 3], 128);
+                EXPECT_EQ(data.pixels[data.pixels.size() - 2], 255);
+                EXPECT_EQ(data.pixels.back(), 255);
+                EXPECT_FALSE(TextureImporter{}.import(memory, {}, estimate.value() - 1));
+            }
+        }
     }
 
     TEST(TextureImporterTest, RejectsHugeDimensionsBeforeDecodingPixels) {

@@ -13,7 +13,7 @@
 namespace Comet {
     class COMET_API TextureImporter final {
     public:
-        static constexpr uint32_t VERSION = 2;
+        static constexpr uint32_t VERSION = 3;
         [[nodiscard]] static Result<std::size_t> working_bytes(
             const std::filesystem::path& source_path, const AssetImportLimits& limits = {});
         [[nodiscard]] static Result<std::size_t> working_bytes(

@@ -7,6 +7,7 @@
 #include "scene/component_registry.h"
 #include "scene/prefab.h"
 #include "asset/runtime/asset_loader.h"
+#include "asset/import/project_products.h"
 #include "asset/runtime/scene_dependencies.h"
 #include "asset/runtime/render_asset_factory.h"
 #include "graphics/error.h"
@@ -90,9 +91,9 @@ namespace Comet {
           m_import_service(std::make_unique<ImportService>(m_database.paths(), m_limits)),
           m_registry(registry),
           m_render_factory(std::make_unique<RenderAssetFactory>(resource_factory)),
-          m_loader(std::make_unique<AssetLoader>(m_database, registry, *m_import_service,
-              *m_render_factory, limits.mesh_working_bytes, limits.texture_working_bytes,
-              limits.async.working_bytes)),
+          m_products(make_project_product_reader(m_database, *m_import_service, limits)),
+          m_loader(std::make_unique<AssetLoader>(m_database, registry, *m_products,
+              *m_render_factory, limits.mesh_working_bytes, limits.texture_working_bytes)),
           m_task_queue(std::make_unique<AssetTaskQueue>(m_database, task_scheduler, limits.async)) {
     }
 
@@ -103,9 +104,9 @@ namespace Comet {
           m_import_service(std::make_unique<ImportService>(m_database.paths(), m_limits)),
           m_registry(registry),
           m_render_factory(std::make_unique<RenderAssetFactory>(resource_factory)),
-          m_loader(std::make_unique<AssetLoader>(m_database, registry, *m_import_service,
-              *m_render_factory, limits.mesh_working_bytes, limits.texture_working_bytes,
-              limits.async.working_bytes)),
+          m_products(make_project_product_reader(m_database, *m_import_service, limits)),
+          m_loader(std::make_unique<AssetLoader>(m_database, registry, *m_products,
+              *m_render_factory, limits.mesh_working_bytes, limits.texture_working_bytes)),
           m_task_queue(std::make_unique<AssetTaskQueue>(m_database, task_scheduler, limits.async)) {
     }
 

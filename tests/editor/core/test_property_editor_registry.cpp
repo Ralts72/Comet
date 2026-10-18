@@ -1,3 +1,4 @@
+#include "reflection/registration.h"
 #include "inspector/property_editor_registry.h"
 
 #include <gtest/gtest.h>
@@ -20,7 +21,7 @@ namespace {
 
         TestComponent component;
         const Comet::PropertyDescriptor property =
-            Comet::make_property_descriptor("value", "Value", &TestComponent::value);
+            Comet::make_property_descriptor<&TestComponent::value>("value", "Value");
 
         EXPECT_TRUE(registry.edit_property(property, &component.value).changed);
         EXPECT_TRUE(editor_called);
@@ -38,8 +39,9 @@ namespace {
             }));
 
         TestComponent component;
-        const Comet::PropertyDescriptor property = Comet::make_property_descriptor(
-            "value", "Value", &TestComponent::value, {}, [](float& value) { value = 5.0f; });
+        const Comet::PropertyDescriptor property =
+            Comet::make_property_descriptor<&TestComponent::value>(
+                "value", "Value", {}, [](float& value) { value = 5.0f; });
 
         EXPECT_TRUE(registry.edit_property(property, &component.value).changed);
         EXPECT_FLOAT_EQ(component.value, 12.0f);
@@ -56,7 +58,7 @@ namespace {
             }));
         TestComponent component;
         const auto property =
-            Comet::make_property_descriptor("vector", "Vector", &TestComponent::vector);
+            Comet::make_property_descriptor<&TestComponent::vector>("vector", "Vector");
         EXPECT_EQ(property.type, Comet::PropertyType::Vec4);
         EXPECT_TRUE(registry.edit_property(property, &component.vector).changed);
         const Comet::Math::Vec4 expected{2.0f, -0.5f, 0.25f, 1.5f};
@@ -73,7 +75,7 @@ namespace {
         EXPECT_FALSE(registry.register_editor(Comet::PropertyType::Float, editor));
 
         const Comet::PropertyDescriptor property =
-            Comet::make_property_descriptor("value", "Value", &TestComponent::value);
+            Comet::make_property_descriptor<&TestComponent::value>("value", "Value");
         EXPECT_FALSE(registry.edit_property(property, nullptr).changed);
     }
 }

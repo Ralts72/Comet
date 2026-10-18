@@ -15,7 +15,7 @@
 #include "asset/artifact/texture_artifact.h"
 #include "asset/artifact/shader_program_artifact.h"
 #include "asset/database.h"
-#include "asset/import/import_service.h"
+#include "asset/runtime/product_reader.h"
 #include "asset/registry.h"
 #include "asset/runtime/render_asset_factory.h"
 #include "asset/serialization/material_serializer.h"
@@ -92,11 +92,11 @@ namespace Comet {
     }
 
     AssetLoader::AssetLoader(AssetDatabase& database, AssetRegistry& registry,
-        ImportService& imports, RenderAssetFactory& render_factory, std::size_t mesh_bytes,
-        std::size_t texture_bytes, std::size_t environment_bytes)
-        : m_database(database), m_registry(registry), m_imports(imports),
+        AssetProductReader& products, RenderAssetFactory& render_factory, std::size_t mesh_bytes,
+        std::size_t texture_bytes)
+        : m_database(database), m_registry(registry), m_products(products),
           m_render_factory(render_factory), m_mesh_bytes(mesh_bytes),
-          m_texture_bytes(texture_bytes), m_environment_bytes(environment_bytes) {}
+          m_texture_bytes(texture_bytes) {}
 
     Result<std::shared_ptr<const ModelArtifact>, Error> AssetLoader::model_artifact(
         const AssetHandle handle) {
@@ -109,7 +109,7 @@ namespace Comet {
             cached != m_models.end() && cached->second.revision == revision)
             return Loaded::success(cached->second.artifact);
         m_models.erase(handle);
-        auto artifact = m_imports.find_current_model_artifact(*record);
+        auto artifact = m_products.model(*record);
         if(!artifact)
             return Loaded::failure(
                 {"Model artifact is missing or stale; import the model before loading: "
@@ -235,21 +235,9 @@ namespace Comet {
             m_models, [&](const auto& entry) { return !retained.contains(entry.first); });
     }
 
-    Result<std::filesystem::path, Error> AssetLoader::product_path(
-        const AssetRecord& record, const std::filesystem::path& imported_path) {
-        if(m_database.is_read_only()) {
-            auto resolved = m_database.paths().resolve_asset_path(record.path);
-            if(!resolved)
-                return Result<std::filesystem::path, Error>::failure({resolved.error()});
-            return Result<std::filesystem::path, Error>::success(std::move(resolved).value());
-        }
-        if(record.source_asset)
-            return model_product_path(record);
-        return Result<std::filesystem::path, Error>::success(imported_path);
-    }
-
-    Result<std::filesystem::path, Error> AssetLoader::model_product_path(
-        const AssetRecord& record) {
+    Result<std::filesystem::path, Error> AssetLoader::product_path(const AssetRecord& record) {
+        if(!record.source_asset || m_database.is_read_only())
+            return m_products.location(record);
         auto artifact = model_artifact(record.source_asset);
         if(!artifact)
             return Result<std::filesystem::path, Error>::failure(artifact.error());
@@ -260,16 +248,17 @@ namespace Comet {
         const auto& child = artifact.value()->metadata.subresources[found->second];
         if(child.key != record.source_key || child.type != record.type)
             return Result<std::filesystem::path, Error>::failure({"Model child identity is stale"});
-        return Result<std::filesystem::path, Error>::success(artifact.value()->product_path(
-            m_imports.model_artifact_path(record.source_asset), record.handle));
+        const auto* parent = m_database.find(record.source_asset);
+        auto path = m_products.location(*parent);
+        if(!path)
+            return path;
+        return Result<std::filesystem::path, Error>::success(
+            artifact.value()->product_path(path.value(), record.handle));
     }
 
     Result<MeshData, Error> AssetLoader::read_mesh_data(const AssetHandle handle) {
         if(handle == DEFAULT_CHARACTER_MESH && !m_database.is_read_only()) {
-            auto imported = ImportService::prepare_default_character();
-            if(!imported)
-                return Result<MeshData, Error>::failure({imported.error()});
-            return Result<MeshData, Error>::success(std::move(imported).value());
+            return m_products.default_character();
         }
         const auto* record = m_database.find(handle);
         if(!record || record->type != AssetType::Mesh)
@@ -281,7 +270,7 @@ namespace Comet {
     }
 
     Result<MeshData, Error> AssetLoader::read_mesh_data(const AssetRecord& record) {
-        auto path = product_path(record, m_imports.mesh_artifact_path(record.handle));
+        auto path = product_path(record);
         if(!path)
             return Result<MeshData, Error>::failure(path.error());
         auto artifact = MeshArtifact::load(path.value(), record.handle, m_mesh_bytes);
@@ -320,43 +309,21 @@ namespace Comet {
         if(!indexed || indexed->type != AssetType::Texture)
             return Read::failure({"Texture asset is not indexed"});
         const AssetRecord record = *indexed;
-        auto product = product_path(record, m_imports.texture_artifact_path(handle));
-        if(!product)
-            return Read::failure(product.error());
-        std::optional<TextureArtifact> artifact;
-        if(!m_database.is_read_only() && !record.source_asset) {
-            const auto* settings = std::get_if<TextureImportSettings>(&record.import_settings);
-            if(!settings)
-                return Read::failure({"Texture asset has incompatible import settings"});
-            artifact = m_imports.find_current_texture_artifact(record, *settings, m_texture_bytes);
-        } else {
-            artifact = TextureArtifact::load(product.value(), handle, m_texture_bytes);
-        }
+        if(!record.source_asset || m_database.is_read_only())
+            return m_products.texture(record, nullptr, false);
+        auto path = product_path(record);
+        if(!path)
+            return Read::failure(path.error());
+        auto artifact = TextureArtifact::load(path.value(), record.handle, m_texture_bytes);
         if(!artifact)
             return Read::failure({"Texture CPU product is missing or stale; wait for import"});
-        if(m_database.is_read_only()) {
-            if(const auto* sampler = m_database.product_sampler(handle))
-                artifact->data.sampler = *sampler;
-        } else if(record.source_asset) {
-            artifact->data.sampler =
-                m_models.at(record.source_asset).artifact->texture_samplers.at(handle);
-        }
+        artifact->data.sampler =
+            m_models.at(record.source_asset).artifact->texture_samplers.at(handle);
         return Read::success(std::move(artifact->data));
     }
 
     Result<EnvironmentData, Error> AssetLoader::read_environment_data(const AssetRecord& record) {
-        using Read = Result<EnvironmentData, Error>;
-        auto path = product_path(record, m_imports.environment_artifact_path(record.handle));
-        if(!path)
-            return Read::failure(path.error());
-        std::optional<EnvironmentArtifact> artifact;
-        if(m_database.is_read_only())
-            artifact = EnvironmentArtifact::load(path.value(), record.handle, m_environment_bytes);
-        else
-            artifact = m_imports.find_current_environment_artifact(record, m_environment_bytes);
-        if(!artifact)
-            return Read::failure({"Environment CPU product is missing or stale; wait for import"});
-        return Read::success(std::move(artifact->data));
+        return m_products.environment(record, false);
     }
 
     Result<TextureData, Error> AssetLoader::read_environment_background(const AssetHandle handle) {
@@ -373,18 +340,11 @@ namespace Comet {
         return load_runtime_asset<Texture>(
             m_database, m_registry, handle, AssetType::Texture,
             [this](const AssetRecord& record) -> Result<std::shared_ptr<Texture>, Error> {
-                if(m_database.is_read_only() || record.source_asset) {
-                    auto data = read_texture_data(record.handle);
-                    if(!data)
-                        return Result<std::shared_ptr<Texture>, Error>::failure(data.error());
-                    return m_render_factory.prepare(std::move(data).value());
-                }
-                const auto* settings = std::get_if<TextureImportSettings>(&record.import_settings);
-                if(!settings) {
-                    return Result<std::shared_ptr<Texture>, Error>::failure(
-                        {"Texture asset has incompatible import settings"});
-                }
-                return prepare_texture(record, *settings);
+                auto data = record.source_asset ? read_texture_data(record.handle)
+                                                : m_products.texture(record, nullptr, true);
+                if(!data)
+                    return Result<std::shared_ptr<Texture>, Error>::failure(data.error());
+                return m_render_factory.prepare(std::move(data).value());
             },
             &m_render_factory);
     }
@@ -393,15 +353,12 @@ namespace Comet {
         const AssetHandle handle) {
         return load_runtime_asset<ShaderProgramArtifact>(m_database, m_registry, handle,
             AssetType::ShaderProgram, [this, handle](const AssetRecord& record) {
-                auto path = product_path(record, m_imports.shader_program_artifact_path(handle));
+                auto path = product_path(record);
                 if(!path)
                     return Result<std::shared_ptr<ShaderProgramArtifact>, Error>::failure(
                         path.error());
                 auto artifact = ShaderProgramArtifact::load(path.value(), handle);
-                if(!artifact
-                    || (!m_database.is_read_only()
-                        && !import_inputs_are_current(
-                            m_database.paths().assets(), artifact->inputs)))
+                if(!artifact || !m_products.shader_current(*artifact))
                     return Result<std::shared_ptr<ShaderProgramArtifact>, Error>::failure(
                         {"Current compiled Shader program artifact is unavailable"});
                 return Result<std::shared_ptr<ShaderProgramArtifact>, Error>::success(
@@ -431,7 +388,7 @@ namespace Comet {
         }
         return load_runtime_asset<Material>(m_database, m_registry, handle, AssetType::Material,
             [this](const AssetRecord& record) -> Result<std::shared_ptr<Material>, Error> {
-                auto path = product_path(record, m_database.paths().assets() / record.path);
+                auto path = product_path(record);
                 if(!path)
                     return Result<std::shared_ptr<Material>, Error>::failure(path.error());
                 const auto data = MaterialSerializer{}.load(path.value());
@@ -446,16 +403,10 @@ namespace Comet {
         return load_runtime_asset<Environment>(
             m_database, m_registry, handle, AssetType::Environment,
             [this](const AssetRecord& record) -> Result<std::shared_ptr<Environment>, Error> {
-                if(m_database.is_read_only()) {
-                    auto data = read_environment_data(record);
-                    if(!data)
-                        return Result<std::shared_ptr<Environment>, Error>::failure(data.error());
-                    return m_render_factory.prepare(std::move(data).value());
-                }
-                auto prepared = m_imports.prepare_environment(record, m_environment_bytes);
-                if(!prepared)
-                    return Result<std::shared_ptr<Environment>, Error>::failure({prepared.error()});
-                return m_render_factory.prepare(std::move(prepared).value().data);
+                auto data = m_products.environment(record, true);
+                if(!data)
+                    return Result<std::shared_ptr<Environment>, Error>::failure(data.error());
+                return m_render_factory.prepare(std::move(data).value());
             },
             &m_render_factory);
     }
@@ -496,9 +447,9 @@ namespace Comet {
 
     Result<std::shared_ptr<Texture>, Error> AssetLoader::prepare_texture(
         const AssetRecord& record, const TextureImportSettings& import_settings) {
-        auto data = m_imports.prepare_texture(record, import_settings, m_texture_bytes);
+        auto data = m_products.texture(record, &import_settings, true);
         if(!data)
-            return Result<std::shared_ptr<Texture>, Error>::failure({data.error()});
+            return Result<std::shared_ptr<Texture>, Error>::failure(data.error());
         return m_render_factory.prepare(std::move(data).value());
     }
 

@@ -83,8 +83,9 @@ namespace Comet::Tests {
                 return physics.static_triangles(minimum, maximum);
             },
             [&](AssetHandle asset) { return registry.resolve<NavigationData>(asset); });
-        const auto* service = navigation.get();
-        ASSERT_TRUE(runtime.set_services({.physics = &physics, .navigation = navigation.get()}));
+        const auto* service = &navigation->service();
+        ASSERT_TRUE(
+            runtime.set_services({.physics = &physics, .navigation = &navigation->service()}));
         ASSERT_TRUE(runtime.add_system(std::move(navigation)));
         ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         const auto started = runtime.start(*loaded.value());

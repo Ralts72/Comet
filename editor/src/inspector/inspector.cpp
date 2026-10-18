@@ -1385,11 +1385,10 @@ namespace CometEditor {
                 return;
             }
         }
+        std::optional<std::uint64_t> drop_generation;
+        if(m_state.mode == EditorMode::Edit && m_history.get_scene() == &m_selection.get_scene())
+            drop_generation = m_history.generation();
         if(property.type == Comet::PropertyType::EntityReference) {
-            std::optional<std::uint64_t> drop_generation;
-            if(m_state.mode == EditorMode::Edit
-                && m_history.get_scene() == &m_selection.get_scene())
-                drop_generation = m_history.generation();
             result.changed = edit_entity_reference(property.display_name.c_str(),
                 std::get<Comet::EntityUuid>(*value), m_selection.get_scene(), drop_generation);
             result.finished = result.changed;
@@ -1408,7 +1407,8 @@ namespace CometEditor {
             }
             result = std::visit(
                 [&](auto& edited) {
-                    return m_property_editor_registry.edit_property(property, &edited);
+                    return m_property_editor_registry.edit_property(
+                        property, &edited, &m_selection.get_scene(), drop_generation);
                 },
                 *value);
         }

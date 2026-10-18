@@ -33,11 +33,14 @@ namespace Comet {
         return Result<void, Error>::success();
     }
 
-    Result<void, Error> SceneRuntime::add_system(std::unique_ptr<System> system) {
+    Result<void, Error> SceneRuntime::add_system(
+        std::unique_ptr<System> system, System::Order order) {
         if(m_executing || is_active())
             return Result<void, Error>::failure({"Stop the scene runtime before adding systems"});
         if(!system)
             return Result<void, Error>::failure({"Cannot add a null system"});
+        m_execution_order.push_back({order, system.get()});
+        std::ranges::stable_sort(m_execution_order, {}, &ScheduledSystem::order);
         m_systems.push_back(std::move(system));
         return Result<void, Error>::success();
     }
@@ -60,6 +63,7 @@ namespace Comet {
     Result<void, Error> SceneRuntime::clear_systems() {
         if(m_executing || is_active())
             return Result<void, Error>::failure({"Stop the scene runtime before clearing systems"});
+        m_execution_order.clear();
         m_systems.clear();
         return Result<void, Error>::success();
     }
@@ -253,13 +257,13 @@ namespace Comet {
             const System::Context context{step, m_timing.fixed_time, m_timing.fixed_index,
                 m_input.consume_fixed(), m_session, m_services};
             m_scene->m_transform_interpolation.begin_fixed(*m_scene);
-            for(auto& system : m_systems)
-                if(auto result = system->fixed_update(*m_scene, context); !result)
+            for(const auto& scheduled : m_execution_order)
+                if(auto result = scheduled.system->fixed_update(*m_scene, context); !result)
                     return result;
             if(!m_scene->commit_entity_requests())
                 return Result<void, Error>::failure({"Cannot commit fixed-step entity requests"});
-            for(auto& system : m_systems)
-                if(auto result = system->post_fixed_update(*m_scene, context); !result)
+            for(const auto& scheduled : m_execution_order)
+                if(auto result = scheduled.system->post_fixed_update(*m_scene, context); !result)
                     return result;
             m_scene->clear_contact_events();
             if(!m_scene->commit_entity_requests())
@@ -276,13 +280,13 @@ namespace Comet {
         ++m_timing.frame_index;
         const System::Context context{delta, m_timing.total_time, m_timing.frame_index,
             m_input.update(), m_session, m_services};
-        for(auto& system : m_systems)
-            if(auto result = system->update(*m_scene, context); !result)
+        for(const auto& scheduled : m_execution_order)
+            if(auto result = scheduled.system->update(*m_scene, context); !result)
                 return result;
         if(!m_scene->commit_entity_requests())
             return Result<void, Error>::failure({"Cannot commit update entity requests"});
-        for(auto& system : m_systems)
-            if(auto result = system->post_update(*m_scene, context); !result)
+        for(const auto& scheduled : m_execution_order)
+            if(auto result = scheduled.system->post_update(*m_scene, context); !result)
                 return result;
         if(!m_scene->commit_entity_requests())
             return Result<void, Error>::failure({"Cannot commit post-update entity requests"});

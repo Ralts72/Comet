@@ -59,6 +59,7 @@ namespace Comet {
         [[nodiscard]] bool operator!=(const Entity& other) const { return !(*this == other); }
 
     private:
+        friend struct ComponentChangeAccess;
         friend class Scene;
         friend class SceneSerializer;
         friend class ComponentRegistry;

@@ -1,3 +1,4 @@
+#include "scene/component_registration.h"
 #include "scene/component_registry.h"
 #include "scene/scene.h"
 
@@ -28,7 +29,7 @@ namespace {
         struct Parameters {
             Comet::Math::Vec4 value{0};
         } parameters;
-        auto property = Comet::make_property_descriptor("value", "Value", &Parameters::value);
+        auto property = Comet::make_property_descriptor<&Parameters::value>("value", "Value");
         EXPECT_EQ(property.type, Comet::PropertyType::Vec4);
         const Comet::Math::Vec4 hdr_value(2, -1, 0.25f, 0.5f);
         ASSERT_TRUE(property.assign_value(&parameters, hdr_value));
@@ -94,13 +95,13 @@ namespace {
     TEST(ComponentRegistryTest, RejectsAssetTypeMetadataOnNonAssetAndUnknownType) {
         Comet::ComponentRegistry registry;
         auto invalid = Comet::make_component_descriptor<Comet::CameraComponent>("camera", "Camera",
-            {Comet::make_property_descriptor("fov", "FOV", &Comet::CameraComponent::fov,
-                {.asset_type = Comet::AssetType::Mesh})});
+            {Comet::make_property_descriptor<&Comet::CameraComponent::fov>(
+                "fov", "FOV", {.asset_type = Comet::AssetType::Mesh})});
         EXPECT_FALSE(registry.register_component(std::move(invalid)));
-        auto unknown = Comet::make_component_descriptor<Comet::MeshRendererComponent>("mesh",
-            "Mesh",
-            {Comet::make_property_descriptor("mesh", "Mesh", &Comet::MeshRendererComponent::mesh,
-                {.asset_type = Comet::AssetType::Unknown})});
+        auto unknown =
+            Comet::make_component_descriptor<Comet::MeshRendererComponent>("mesh", "Mesh",
+                {Comet::make_property_descriptor<&Comet::MeshRendererComponent::mesh>(
+                    "mesh", "Mesh", {.asset_type = Comet::AssetType::Unknown})});
         EXPECT_FALSE(registry.register_component(std::move(unknown)));
     }
 
@@ -178,8 +179,8 @@ namespace {
         Comet::ComponentRegistry registry;
         auto descriptor = Comet::make_component_descriptor<Comet::AudioSourceComponent>(
             "audio_source", "Audio Source",
-            {Comet::make_property_descriptor("volume", "Volume",
-                &Comet::AudioSourceComponent::volume,
+            {Comet::make_property_descriptor<&Comet::AudioSourceComponent::volume>("volume",
+                "Volume",
                 {.numeric = {.minimum = 1.0f, .maximum = 0.0f, .enforce_bounds = true}})});
         EXPECT_FALSE(registry.register_component(std::move(descriptor)));
     }
@@ -360,12 +361,12 @@ namespace {
         Comet::ComponentRegistry registry;
         auto first =
             Comet::make_component_descriptor<Comet::TransformComponent>("transform", "Transform",
-                {Comet::make_property_descriptor(
-                    "translation", "Translation", &Comet::TransformComponent::translation)});
+                {Comet::make_property_descriptor<&Comet::TransformComponent::translation>(
+                    "translation", "Translation")});
         auto duplicate =
             Comet::make_component_descriptor<Comet::CameraComponent>("transform", "Camera",
-                {Comet::make_property_descriptor(
-                    "primary", "Primary", &Comet::CameraComponent::primary)});
+                {Comet::make_property_descriptor<&Comet::CameraComponent::primary>(
+                    "primary", "Primary")});
 
         EXPECT_TRUE(registry.register_component(std::move(first)));
         EXPECT_FALSE(registry.register_component(std::move(duplicate)));

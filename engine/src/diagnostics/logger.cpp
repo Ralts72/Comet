@@ -17,24 +17,6 @@ namespace Comet {
     bool Logger::s_initialized = false;
     std::string Logger::s_current_log_file_path;
 
-    static spdlog::level::level_enum parse_log_level(const std::string& level_str) {
-        if(level_str == "trace")
-            return spdlog::level::trace;
-        if(level_str == "debug")
-            return spdlog::level::debug;
-        if(level_str == "info")
-            return spdlog::level::info;
-        if(level_str == "warn")
-            return spdlog::level::warn;
-        if(level_str == "error")
-            return spdlog::level::err;
-        if(level_str == "critical")
-            return spdlog::level::critical;
-        if(level_str == "off")
-            return spdlog::level::off;
-        return spdlog::level::info;
-    }
-
     static std::shared_ptr<spdlog::sinks::sink> open_log_file(const std::string& filename) {
         try {
             return std::make_shared<spdlog::sinks::basic_file_sink_mt>(filename, false);
@@ -94,9 +76,9 @@ namespace Comet {
                 }
             }
 
-            spdlog::level::level_enum log_level = parse_log_level(config.level);
-
-            s_console_logger->set_level(log_level);
+            const auto level = spdlog::level::from_str(config.level);
+            s_console_logger->set_level(
+                level == spdlog::level::off && config.level != "off" ? spdlog::level::info : level);
             s_console_logger->flush_on(spdlog::level::err);
 
             spdlog::register_logger(s_console_logger);

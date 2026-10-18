@@ -11,6 +11,7 @@
 #include "scene/entity_uuid.h"
 #include "scene/scene_settings.h"
 #include "scene/world_components.h"
+#include "scene/component_changes.h"
 
 #include <string>
 #include <type_traits>
@@ -521,4 +522,101 @@ namespace Comet {
         || std::is_same_v<std::remove_cvref_t<T>, UuidComponent>
         || std::is_same_v<std::remove_cvref_t<T>, RelationshipComponent>
         || std::is_same_v<std::remove_cvref_t<T>, WorldTransformComponent>;
+    template<>
+    inline constexpr ComponentChangeHooks component_change_hooks<TransformComponent>{
+        .changed = ComponentChangeAccess::transform};
+    template<>
+    inline constexpr ComponentChangeHooks component_change_hooks<BoneAttachmentComponent>{
+        .changed = ComponentChangeAccess::attachment};
+    template<>
+    inline constexpr ComponentChangeHooks component_change_hooks<AnimatorComponent>{
+        .changed = ComponentChangeAccess::render};
+    template<>
+    inline constexpr ComponentChangeHooks component_change_hooks<RootMotionComponent>{
+        .changed = ComponentChangeAccess::render};
+    template<>
+    inline constexpr ComponentChangeHooks component_change_hooks<MotionWarpComponent>{
+        .changed = ComponentChangeAccess::render};
+    template<>
+    inline constexpr ComponentChangeHooks component_change_hooks<FootPlacementComponent>{
+        .changed = ComponentChangeAccess::render};
+    template<>
+    inline constexpr ComponentChangeHooks component_change_hooks<HandIKComponent>{
+        .changed = ComponentChangeAccess::render};
+    template<>
+    inline constexpr ComponentChangeHooks component_change_hooks<FullBodyIKComponent>{
+        .changed = ComponentChangeAccess::render};
+    template<>
+    inline constexpr ComponentChangeHooks component_change_hooks<WindSwayComponent>{
+        .changed = ComponentChangeAccess::render, .removing = ComponentChangeAccess::remove_wind};
+    template<>
+    inline constexpr ComponentChangeHooks component_change_hooks<SplineComponent>{
+        .changed = ComponentChangeAccess::render};
+    template<>
+    inline constexpr ComponentChangeHooks component_change_hooks<SplineFollowerComponent>{
+        .changed = ComponentChangeAccess::render};
+    template<>
+    inline constexpr ComponentChangeHooks component_change_hooks<WeatherComponent>{
+        .changed = ComponentChangeAccess::render};
+    template<>
+    inline constexpr ComponentChangeHooks component_change_hooks<WaterSurfaceComponent>{
+        .changed = ComponentChangeAccess::render};
+    template<>
+    inline constexpr ComponentChangeHooks component_change_hooks<StreamCellComponent>{
+        .changed = ComponentChangeAccess::render};
+    template<>
+    inline constexpr ComponentChangeHooks component_change_hooks<VegetationInteractorComponent>{
+        .changed = ComponentChangeAccess::render};
+    template<>
+    inline constexpr ComponentChangeHooks component_change_hooks<ParticleMeshCollisionComponent>{
+        .changed = ComponentChangeAccess::render};
+    template<>
+    inline constexpr ComponentChangeHooks component_change_hooks<MeshRendererComponent>{
+        .changed = ComponentChangeAccess::mesh, .replacing = ComponentChangeAccess::replace_mesh};
+    template<>
+    inline constexpr ComponentChangeHooks component_change_hooks<MeshLodComponent>{
+        .changed = ComponentChangeAccess::render};
+    template<>
+    inline constexpr ComponentChangeHooks component_change_hooks<OutlineComponent>{
+        .changed = ComponentChangeAccess::render};
+    template<>
+    inline constexpr ComponentChangeHooks component_change_hooks<CameraComponent>{
+        .changed = ComponentChangeAccess::render};
+    template<>
+    inline constexpr ComponentChangeHooks component_change_hooks<ParticleEmitterComponent>{
+        .changed = ComponentChangeAccess::particles};
+    template<>
+    inline constexpr ComponentChangeHooks component_change_hooks<TrailComponent>{
+        .changed = ComponentChangeAccess::particles};
+    template<>
+    inline constexpr ComponentChangeHooks component_change_hooks<LightComponent>{
+        .changed = ComponentChangeAccess::render};
+    template<>
+    inline constexpr ComponentChangeHooks component_change_hooks<ReflectionProbeComponent>{
+        .changed = ComponentChangeAccess::render};
+    template<>
+    inline constexpr ComponentChangeHooks component_change_hooks<DecalComponent>{
+        .changed = ComponentChangeAccess::render};
+    template<>
+    inline constexpr ComponentChangeHooks component_change_hooks<IrradianceVolumeComponent>{
+        .changed = ComponentChangeAccess::render};
+    template<>
+    inline constexpr ComponentChangeHooks component_change_hooks<RigidBodyComponent>{
+        .changed = ComponentChangeAccess::body};
+    template<>
+    inline constexpr ComponentChangeHooks component_change_hooks<CharacterControllerComponent>{
+        .changed = ComponentChangeAccess::body};
+    template<>
+    inline constexpr ComponentChangeHooks component_change_hooks<ColliderComponent>{
+        .changed = ComponentChangeAccess::physics};
+    template<>
+    inline constexpr ComponentChangeHooks component_change_hooks<PointJointComponent>{
+        .changed = ComponentChangeAccess::joint};
+    template<>
+    inline constexpr ComponentChangeHooks component_change_hooks<HingeJointComponent>{
+        .changed = ComponentChangeAccess::joint};
+    template<>
+    inline constexpr ComponentChangeHooks component_change_hooks<SliderJointComponent>{
+        .changed = ComponentChangeAccess::joint};
+
 }

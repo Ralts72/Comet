@@ -41,6 +41,7 @@ target_link_libraries(comet_foundation PUBLIC glm spdlog::spdlog Threads::Thread
 target_link_libraries(comet_serialization PUBLIC comet_foundation simdjson::simdjson)
 target_link_libraries(comet_shader_contracts PUBLIC comet_foundation PRIVATE spirv-reflect-static)
 target_link_libraries(comet_asset_data PUBLIC comet_serialization comet_shader_contracts)
+target_link_libraries(comet_asset_data PRIVATE EnTT::EnTT)
 target_link_libraries(comet_input PUBLIC comet_serialization)
 target_link_libraries(comet_world PUBLIC comet_asset_data EnTT::EnTT)
 target_link_libraries(comet_runtime PUBLIC comet_world comet_input)
@@ -49,6 +50,9 @@ target_link_libraries(comet_physics PUBLIC comet_runtime PRIVATE Jolt::Jolt)
 target_link_libraries(comet_gameplay PUBLIC comet_runtime PRIVATE Recast Detour)
 target_link_libraries(comet_scripting PUBLIC comet_runtime PRIVATE comet_gameplay comet_lua)
 target_link_libraries(comet_asset_pipeline PUBLIC comet_asset_data PRIVATE stb_image fastgltf::fastgltf comet_mikktspace)
+set_source_files_properties(src/asset/import/texture_importer.cpp PROPERTIES
+    SKIP_PRECOMPILE_HEADERS ON
+    COMPILE_OPTIONS "$<$<COMPILE_LANG_AND_ID:CXX,Clang,AppleClang,GNU>:-ffp-contract=off>")
 target_compile_definitions(comet_asset_pipeline PRIVATE COMET_DEFAULT_CHARACTER_FILE="${CMAKE_CURRENT_SOURCE_DIR}/resources/characters/default.glb")
 target_link_libraries(comet_runtime_assets PUBLIC comet_asset_pipeline PRIVATE comet_world comet_audio comet_scripting)
 

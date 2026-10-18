@@ -92,6 +92,90 @@ namespace CometEditor {
             return {.changed = changed, .finished = changed};
         }
 
+        PropertyEditResult edit_collection(const PropertyEditorRegistry& registry,
+            const Comet::PropertyDescriptor& property, Comet::PropertyCollection& collection,
+            Comet::Scene* scene, std::optional<std::uint64_t> drop_generation) {
+            PropertyEditResult result;
+            const auto merge = [&](PropertyEditResult item) {
+                result.changed |= item.changed;
+                result.active |= item.active;
+                result.began |= item.began;
+                result.finished |= item.finished;
+                if(item.active_item)
+                    result.active_item = item.active_item;
+            };
+            const auto edit = [&](const Comet::PropertyDescriptor& child,
+                                  Comet::PropertyValue& value) {
+                if(child.read_only || !child.editable) {
+                    ImGui::TextDisabled("%s（只读）", child.display_name.c_str());
+                    return;
+                }
+                if(child.type == Comet::PropertyType::EntityReference && scene) {
+                    auto& reference = std::get<Comet::EntityUuid>(value);
+                    const bool changed = edit_entity_reference(
+                        child.display_name.c_str(), reference, *scene, drop_generation);
+                    merge({.changed = changed, .finished = changed});
+                } else
+                    std::visit(
+                        [&](auto& item) {
+                            merge(registry.edit_property(child, &item, scene, drop_generation));
+                        },
+                        value);
+                if(!child.description.empty() && ImGui::IsItemHovered())
+                    ImGui::SetTooltip("%s", child.description.c_str());
+            };
+            if(!ImGui::TreeNode(property.display_name.c_str()))
+                return result;
+            auto& data = collection.data();
+            if(property.type == Comet::PropertyType::Object) {
+                for(auto& [name, value] : data.fields) {
+                    const auto child =
+                        std::ranges::find(property.members, name, &Comet::PropertyDescriptor::id);
+                    if(child == property.members.end())
+                        continue;
+                    ImGui::PushID(name.c_str());
+                    edit(*child, value);
+                    ImGui::PopID();
+                }
+            } else if(property.type == Comet::PropertyType::Optional) {
+                bool present = !data.elements.empty();
+                if(ImGui::Checkbox("启用值", &present)) {
+                    if(present)
+                        data.elements.push_back(property.element->default_value());
+                    else
+                        data.elements.clear();
+                    merge({.changed = true, .finished = true});
+                }
+                if(present)
+                    edit(*property.element, data.elements.front());
+            } else {
+                std::optional<std::size_t> remove;
+                for(std::size_t index = 0; index < data.elements.size(); ++index) {
+                    ImGui::PushID(int(index));
+                    auto child = *property.element;
+                    child.display_name = "[" + std::to_string(index) + "]";
+                    edit(child, data.elements[index]);
+                    if(!property.fixed_size) {
+                        ImGui::SameLine();
+                        if(ImGui::SmallButton("删除"))
+                            remove = index;
+                    }
+                    ImGui::PopID();
+                }
+                if(remove) {
+                    data.elements.erase(data.elements.begin() + *remove);
+                    merge({.changed = true, .finished = true});
+                }
+                if(!property.fixed_size && data.elements.size() < property.max_elements
+                    && ImGui::SmallButton("添加")) {
+                    data.elements.push_back(property.element->default_value());
+                    merge({.changed = true, .finished = true});
+                }
+            }
+            ImGui::TreePop();
+            return result;
+        }
+
         template<typename T>
         PropertyEditResult edit_parameter_value(const PropertyEditorRegistry& registry,
             const std::string& name, const Comet::Script::Property& property, T& value,
@@ -153,6 +237,7 @@ namespace CometEditor {
 
     PropertyEditorRegistry create_property_editor_registry(const Comet::AssetDatabase& database) {
         PropertyEditorRegistry registry;
+        registry.set_collection_editor(edit_collection);
         const auto register_editor = [&registry](const Comet::PropertyType type,
                                          PropertyEditorRegistry::PropertyEditor editor) {
             if(!registry.register_editor(type, std::move(editor))) {
@@ -166,6 +251,10 @@ namespace CometEditor {
                     ImGui::Checkbox(property.display_name.c_str(), static_cast<bool*>(value)));
             });
         register_editor(Comet::PropertyType::UInt32, edit_integer_property);
+        register_editor(Comet::PropertyType::Int32, [](const auto& property, void* value) {
+            return PropertyEditResult::from_item(
+                ImGui::InputScalar(property.display_name.c_str(), ImGuiDataType_S32, value));
+        });
         register_editor(
             Comet::PropertyType::Float, [](const Comet::PropertyDescriptor& property, void* value) {
                 const float available = ImGui::GetContentRegionAvail().x;

@@ -11,7 +11,6 @@
 #include "render/scene/render_geometry.h"
 #include "render/scene/scene_resolver.h"
 #include "render/ray_scene.h"
-#include "render/particle_collision_scene.h"
 #include "render/passes/skinning_pass.h"
 #include "render/passes/realtime_irradiance_pass.h"
 #include "render/scene/scene_picking.h"
@@ -29,6 +28,7 @@
 #include <vector>
 
 namespace Comet {
+    class RenderFrontend;
     class TaskScheduler;
     class Window;
     class Engine;
@@ -207,7 +207,6 @@ namespace Comet {
         [[nodiscard]] Result<void, GraphicsError> draw_frame(RenderFrame& frame);
         // Main 在一次场景解析之后准备各 View 的只读附加输入。
         void prepare_scene_views(RenderFrame& frame);
-        void prepare_irradiance(RenderFrame& frame);
         Renderer(const Window& window, std::unique_ptr<RenderContext> context,
             std::unique_ptr<RenderResources> resources, std::unique_ptr<FrameScheduler> frames,
             std::unique_ptr<MaterialPrograms> programs, std::unique_ptr<SceneRenderer> scene,
@@ -218,13 +217,8 @@ namespace Comet {
 
         struct ViewState {
             std::unique_ptr<SceneRenderer> scene;
-            RenderView view;
             RenderCameraResolver camera;
-            std::optional<RenderFrame::Pick> pick_request;
             std::optional<ViewportPickResult> pick_result;
-            LineDrawList lines;
-            std::unique_ptr<RaySceneBuilder> path_trace_builder;
-            std::string path_trace_error;
         };
         [[nodiscard]] ViewState& get_view(ViewId id);
         [[nodiscard]] const ViewState& get_view(ViewId id) const;
@@ -244,17 +238,8 @@ namespace Comet {
         std::unique_ptr<MaterialPrograms> m_programs;
         std::map<ViewId, ViewState> m_views;
         ViewId m_next_view_id = 1;
-        ParticleCollisionBuilder m_particle_collision_builder;
-        std::string m_particle_collision_error;
-        RaySceneBuilder::MeshReader m_ray_read;
-        RaySceneBuilder::MeshRevision m_ray_revision;
-        RaySceneBuilder::Images m_ray_images;
-        std::string m_path_trace_support_error;
-        std::unique_ptr<RaySceneBuilder> m_irradiance_builder;
-        std::unique_ptr<RenderWorld> m_irradiance_input;
+        std::unique_ptr<RenderFrontend> m_frontend;
         std::unique_ptr<class RealtimeIrradiancePass> m_realtime_irradiance;
-        std::string m_irradiance_error;
-        std::string m_irradiance_support_error;
         Settings m_settings;
         std::function<OverlayDrawList()> m_capture_overlay;
         std::function<void()> m_shutdown_overlay;

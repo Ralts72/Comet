@@ -1,5 +1,5 @@
 #pragma once
-#include "physics/physics_service.h"
+#include "runtime/world.h"
 #include "common/export.h"
 #include "audio/audio_settings.h"
 #include "render/scene/scene_extractor.h"
@@ -19,8 +19,6 @@
 
 namespace Comet {
     class AssetRegistry;
-    class AudioService;
-    class PhysicsService;
     class Scene;
     class TaskScheduler;
     class Window;
@@ -67,14 +65,17 @@ namespace Comet {
 
         [[nodiscard]] std::unique_ptr<Scene> replace_scene(std::unique_ptr<Scene> scene) noexcept;
 
-        [[nodiscard]] Scene* get_scene() { return m_scene.get(); }
-        [[nodiscard]] const Scene* get_scene() const { return m_scene.get(); }
+        [[nodiscard]] Scene* get_scene() { return m_world->scene(); }
+        [[nodiscard]] const Scene* get_scene() const { return m_world->scene(); }
 
-        [[nodiscard]] Result<void, Error> add_system(std::unique_ptr<System> system);
+        [[nodiscard]] Result<void, Error> add_system(
+            std::unique_ptr<System> system, System::Order order = System::Order::Gameplay);
         [[nodiscard]] Result<void, Error> add_default_scene_systems(
             PhysicsService::MeshSource meshes = {});
         [[nodiscard]] Result<void, Error> apply_audio_settings(AudioSettings settings);
-        [[nodiscard]] const AudioSettings& get_audio_settings() const { return m_audio_settings; }
+        [[nodiscard]] const AudioSettings& get_audio_settings() const {
+            return m_world->audio_settings();
+        }
         [[nodiscard]] Result<void, Error> set_runtime_settings(SceneRuntime::Settings settings);
         [[nodiscard]] Result<void, Error> set_input_actions(InputActions actions);
         [[nodiscard]] Result<void, Error> rebind_input_actions(InputActions actions);
@@ -85,12 +86,12 @@ namespace Comet {
         [[nodiscard]] Result<void, Error> set_runtime_state(SceneRuntime::State state);
         [[nodiscard]] Result<void, Error> request_runtime_step();
         [[nodiscard]] std::optional<RuntimeSession::SceneRequest> take_runtime_scene_request() {
-            return m_scene_runtime.take_scene_request();
+            return m_world->runtime().take_scene_request();
         }
         [[nodiscard]] std::optional<RuntimeSession::CheckpointRequest> take_checkpoint_request() {
-            return m_scene_runtime.take_checkpoint_request();
+            return m_world->runtime().take_checkpoint_request();
         }
-        [[nodiscard]] const SceneRuntime& get_scene_runtime() const { return m_scene_runtime; }
+        [[nodiscard]] const SceneRuntime& get_scene_runtime() const { return m_world->runtime(); }
         [[nodiscard]] AssetRegistry& get_asset_registry() { return *m_asset_registry; }
         [[nodiscard]] const AssetRegistry& get_asset_registry() const { return *m_asset_registry; }
         [[nodiscard]] const MaterialProgramValidator& get_material_parameters() const {
@@ -121,14 +122,10 @@ namespace Comet {
         std::unique_ptr<TaskScheduler> m_task_scheduler;
         std::unique_ptr<Window> m_window;
         std::unique_ptr<AssetRegistry> m_asset_registry;
-        std::unique_ptr<Scene> m_scene;
         std::unique_ptr<Renderer> m_renderer;
         std::unique_ptr<RenderThread> m_render_thread;
         std::unique_ptr<MaterialProgramValidator> m_material_parameters;
-        std::unique_ptr<AudioService> m_audio_service;
-        AudioSettings m_audio_settings;
-        std::unique_ptr<PhysicsService> m_physics_service;
-        SceneRuntime m_scene_runtime;
+        std::unique_ptr<World> m_world;
         FrameDiagnostics m_frame_diagnostics;
         bool m_running = false;
         bool m_shutdown_prepared = false;

@@ -9,82 +9,86 @@
 #include <bit>
 #include <cmath>
 #include <cstddef>
+#include <cstdlib>
 #include <limits>
 #include <memory>
 #include <string>
 #include <system_error>
 #include <vector>
 
+namespace {
+    struct ResizeContext {
+        std::size_t remaining_bytes;
+        std::uint8_t* output;
+        int width;
+    };
+    struct alignas(std::max_align_t) ResizeAllocation {
+        std::size_t bytes;
+    };
+    void* allocate_resize(const std::size_t bytes, void* user_data) {
+        auto& context = *static_cast<ResizeContext*>(user_data);
+        if(context.remaining_bytes < sizeof(ResizeAllocation)
+            || bytes > context.remaining_bytes - sizeof(ResizeAllocation))
+            return nullptr;
+        const auto size = sizeof(ResizeAllocation) + bytes;
+        auto* allocation = static_cast<ResizeAllocation*>(std::malloc(size));
+        if(!allocation)
+            return nullptr;
+        allocation->bytes = size;
+        context.remaining_bytes -= size;
+        return allocation + 1;
+    }
+    void free_resize(void* pointer, void* user_data) {
+        if(!pointer)
+            return;
+        auto* allocation = static_cast<ResizeAllocation*>(pointer) - 1;
+        static_cast<ResizeContext*>(user_data)->remaining_bytes += allocation->bytes;
+        std::free(allocation);
+    }
+}
+
+// 实现只在导入适配内编译；每次缩放的临时分配受该导入任务的预算约束。
+#define STBIR_STATIC
+#define STBIR_MALLOC(bytes, user_data) allocate_resize(bytes, user_data)
+#define STBIR_FREE(pointer, user_data) free_resize(pointer, user_data)
+#define STB_IMAGE_RESIZE_IMPLEMENTATION
+#include <stb_image_resize2.h>
+#undef STB_IMAGE_RESIZE_IMPLEMENTATION
+#undef STBIR_FREE
+#undef STBIR_MALLOC
+#undef STBIR_STATIC
+
 namespace Comet {
     namespace {
         constexpr std::size_t DECODE_OVERHEAD_BYTES = 16ull * 1024 * 1024;
 
-        float decode_srgb(const float value) {
-            if(value <= 0.04045f)
-                return value / 12.92f;
-            return std::pow((value + 0.055f) / 1.055f, 2.4f);
-        }
-
-        float encode_srgb(const float value) {
-            if(value <= 0.0031308f)
-                return value * 12.92f;
-            return 1.055f * std::pow(value, 1.0f / 2.4f) - 0.055f;
-        }
-
-        std::array<std::uint8_t, 4> filter_area(const std::uint8_t* source, const int width,
-            const int height, const float left, const float top, const float right,
-            const float bottom, const bool srgb, const bool normal_map) {
-            static const auto linear_colors = [] {
-                std::array<float, 256> values{};
-                for(std::size_t i = 0; i < values.size(); ++i)
-                    values[i] = decode_srgb(float(i) / 255.0f);
-                return values;
-            }();
-            std::array<float, 4> sum{};
-            for(int y = int(top); y < std::min(int(std::ceil(bottom)), height); ++y) {
-                const float weight_y = std::min(bottom, float(y + 1)) - std::max(top, float(y));
-                for(int x = int(left); x < std::min(int(std::ceil(right)), width); ++x) {
-                    const float weight =
-                        weight_y * (std::min(right, float(x + 1)) - std::max(left, float(x)));
-                    const auto pixel = (std::size_t(y) * width + x) * 4;
-                    for(unsigned channel = 0; channel < 4; ++channel) {
-                        const auto encoded = source[pixel + channel];
-                        float value = float(encoded) / 255.0f;
-                        if(srgb && channel < 3)
-                            value = linear_colors[encoded];
-                        sum[channel] += value * weight;
-                    }
-                }
-            }
-            const float area = (right - left) * (bottom - top);
-            for(auto& value : sum)
-                value /= area;
-            if(normal_map) {
-                std::array<float, 3> direction{sum[0] * 2 - 1, sum[1] * 2 - 1, sum[2] * 2 - 1};
+        void write_normal_row(const void* source, const int count, const int row, void* user_data) {
+            const auto& context = *static_cast<ResizeContext*>(user_data);
+            const auto* pixels = static_cast<const float*>(source);
+            auto* destination = context.output + std::size_t(row) * context.width * 4;
+            for(int x = 0; x < count; ++x) {
+                std::array<float, 4> value{
+                    pixels[x * 4], pixels[x * 4 + 1], pixels[x * 4 + 2], pixels[x * 4 + 3]};
+                std::array<float, 3> direction{
+                    value[0] * 2 - 1, value[1] * 2 - 1, value[2] * 2 - 1};
                 const float length =
                     std::sqrt(direction[0] * direction[0] + direction[1] * direction[1]
                               + direction[2] * direction[2]);
                 if(length > 1e-6f) {
                     for(unsigned channel = 0; channel < 3; ++channel)
-                        sum[channel] = direction[channel] / length * 0.5f + 0.5f;
+                        value[channel] = direction[channel] / length * 0.5f + 0.5f;
                 } else {
-                    sum[0] = sum[1] = 0.5f;
-                    sum[2] = 1.0f;
+                    value[0] = value[1] = 0.5f;
+                    value[2] = 1.0f;
                 }
+                for(unsigned channel = 0; channel < 4; ++channel)
+                    destination[x * 4 + channel] = static_cast<std::uint8_t>(
+                        std::lround(std::clamp(value[channel], 0.0f, 1.0f) * 255.0f));
             }
-            std::array<std::uint8_t, 4> result{};
-            for(unsigned channel = 0; channel < 4; ++channel) {
-                float value = sum[channel];
-                if(srgb && channel < 3)
-                    value = encode_srgb(value);
-                result[channel] =
-                    static_cast<std::uint8_t>(std::lround(std::clamp(value, 0.0f, 1.0f) * 255.0f));
-            }
-            return result;
         }
 
-        // 面积滤波保留奇数边缘像素；RGB 在线性空间平均，Alpha 始终是线性值。
-        void generate_mipmaps(TextureData& data, const bool normal_map) {
+        Result<void> generate_mipmaps(
+            TextureData& data, const bool normal_map, const std::size_t memory_budget) {
             const bool srgb = data.format == Format::R8G8B8A8_SRGB;
             data.mip_levels =
                 std::bit_width(static_cast<unsigned>(std::max(data.width, data.height)));
@@ -93,6 +97,8 @@ namespace Comet {
                 total += std::size_t(std::max(data.width >> mip, 1))
                          * std::max(data.height >> mip, 1) * 4;
             data.pixels.resize(total);
+            if(data.pixels.capacity() > memory_budget)
+                return Result<void>::failure("Texture mip chain exceeds its CPU memory budget");
             std::size_t source_offset = 0;
             int width = data.width;
             int height = data.height;
@@ -100,22 +106,28 @@ namespace Comet {
                 const int next_width = std::max(width / 2, 1);
                 const int next_height = std::max(height / 2, 1);
                 const auto destination_offset = source_offset + std::size_t(width) * height * 4;
-                const float scale_x = float(width) / next_width;
-                const float scale_y = float(height) / next_height;
-                for(int y = 0; y < next_height; ++y) {
-                    for(int x = 0; x < next_width; ++x) {
-                        const auto pixel = filter_area(data.pixels.data() + source_offset, width,
-                            height, x * scale_x, y * scale_y, (x + 1) * scale_x, (y + 1) * scale_y,
-                            srgb, normal_map);
-                        const auto offset =
-                            destination_offset + (std::size_t(y) * next_width + x) * 4;
-                        std::copy(pixel.begin(), pixel.end(), data.pixels.data() + offset);
-                    }
+                ResizeContext context{memory_budget - data.pixels.capacity(),
+                    data.pixels.data() + destination_offset, next_width};
+                STBIR_RESIZE resize;
+                stbir_resize_init(&resize, data.pixels.data() + source_offset, width, height, 0,
+                    context.output, next_width, next_height, 0, STBIR_RGBA_NO_AW,
+                    srgb ? STBIR_TYPE_UINT8_SRGB : STBIR_TYPE_UINT8);
+                // 保留面积滤波与独立 Alpha；不采用 stb 默认的 Mitchell／Alpha 加权。
+                stbir_set_filters(&resize, STBIR_FILTER_BOX, STBIR_FILTER_BOX);
+                stbir_set_user_data(&resize, &context);
+                if(normal_map) {
+                    // 按行消费浮点结果，避免先量化或分配整级浮点图像。
+                    stbir_set_datatypes(&resize, STBIR_TYPE_UINT8, STBIR_TYPE_FLOAT);
+                    stbir_set_pixel_callbacks(&resize, nullptr, write_normal_row);
                 }
+                if(!stbir_resize_extended(&resize))
+                    return Result<void>::failure(
+                        "Texture mip filtering failed or exceeded its CPU memory budget");
                 source_offset = destination_offset;
                 width = next_width;
                 height = next_height;
             }
+            return Result<void>::success();
         }
 
         Result<std::size_t> estimate_working_bytes(const std::size_t source_bytes, const int width,
@@ -125,19 +137,27 @@ namespace Comet {
             if(source_bytes > limits.source_bytes || width <= 0 || height <= 0)
                 return Result<std::size_t>::failure(
                     "Texture source exceeds its configured limit or has invalid dimensions");
+            // BOX／RGBA 的系数与行缓冲按轴长预留，避免超宽图像只按像素数低估。
+            // 这是调度预留；实际分配仍由每次调用的 allocator 强制限制。
+            constexpr std::size_t sampler_bytes_per_axis_pixel = 128;
+            const auto axis_pixels = static_cast<std::size_t>(width) + height;
             if(limits.texture_working_bytes <= DECODE_OVERHEAD_BYTES
-                || source_bytes > limits.texture_working_bytes - DECODE_OVERHEAD_BYTES)
+                || axis_pixels > (limits.texture_working_bytes - DECODE_OVERHEAD_BYTES)
+                                     / sampler_bytes_per_axis_pixel)
                 return Result<std::size_t>::failure(
                     "Texture exceeds its configured CPU working-set budget");
-            const auto available =
-                limits.texture_working_bytes - DECODE_OVERHEAD_BYTES - source_bytes;
+            const auto overhead =
+                DECODE_OVERHEAD_BYTES + axis_pixels * sampler_bytes_per_axis_pixel;
+            if(source_bytes > limits.texture_working_bytes - overhead)
+                return Result<std::size_t>::failure(
+                    "Texture exceeds its configured CPU working-set budget");
+            const auto available = limits.texture_working_bytes - overhead - source_bytes;
             const auto max_pixels = available / bytes_per_pixel;
             if(static_cast<std::size_t>(width) > max_pixels / static_cast<std::size_t>(height))
                 return Result<std::size_t>::failure(
                     "Texture exceeds its configured CPU working-set budget");
             const auto pixels = static_cast<std::size_t>(width) * static_cast<std::size_t>(height);
-            return Result<std::size_t>::success(
-                source_bytes + pixels * bytes_per_pixel + DECODE_OVERHEAD_BYTES);
+            return Result<std::size_t>::success(source_bytes + pixels * bytes_per_pixel + overhead);
         }
     }
 
@@ -233,8 +253,12 @@ namespace Comet {
             }
         }
         pixels.reset();
-        if(settings.generate_mipmaps)
-            generate_mipmaps(data, settings.normal_map);
+        if(settings.generate_mipmaps) {
+            const auto result =
+                generate_mipmaps(data, settings.normal_map, estimate.value() - encoded.size());
+            if(!result)
+                return Result<TextureData>::failure(result.error());
+        }
         return Result<TextureData>::success(std::move(data));
     }
 }

@@ -2,6 +2,7 @@
 #include "render/passes/realtime_irradiance_pass.h"
 #include "render/resource/mesh.h"
 #include "renderer.h"
+#include "render/scene/render_frontend.h"
 #include "render/render_thread.h"
 #include "asset/registry.h"
 #include "common/scope_exit.h"
@@ -65,11 +66,13 @@ namespace Comet {
         : m_window(window), m_render_context(std::move(context)),
           m_render_resources(std::move(resources)), m_frames(std::move(frames)),
           m_programs(std::move(programs)), m_settings(settings) {
+        m_frontend = std::make_unique<RenderFrontend>();
+        m_frontend->add_view(DEFAULT_VIEW);
         m_views.emplace(DEFAULT_VIEW, ViewState{.scene = std::move(scene)});
         const auto irradiance_support =
             RealtimeIrradiancePass::check_support(m_render_context->get_device());
         if(!irradiance_support)
-            m_irradiance_support_error = irradiance_support.error().message;
+            m_frontend->set_irradiance_support_error(irradiance_support.error().message);
         m_diagnostics = std::make_unique<RenderDiagnostics>(*m_frames);
         m_presentation = std::make_unique<Presentation>(*m_render_context, *m_frames,
             Presentation::Dependent{
@@ -128,8 +131,8 @@ namespace Comet {
         if(!scene)
             return Creation::failure(scene.error());
         const auto id = m_next_view_id++;
-        m_views.emplace(
-            id, ViewState{.scene = std::move(scene).value(), .view = {.visible = false}});
+        m_views.emplace(id, ViewState{.scene = std::move(scene).value()});
+        m_frontend->add_view(id, false);
         return Creation::success(id);
     }
 
@@ -143,6 +146,7 @@ namespace Comet {
             return Result<void, GraphicsError>::failure(
                 {"Cannot remove the default or unknown view"});
         m_views.erase(id);
+        m_frontend->remove_view(id);
         return Result<void, GraphicsError>::success();
     }
 
@@ -272,12 +276,13 @@ namespace Comet {
         frame.serial = m_frames->get_current_frame_serial();
         frame.views.reserve(m_views.size());
         for(auto& [id, view] : m_views) {
-            auto parameters = view.view;
+            auto& request = m_frontend->view(id);
+            auto parameters = request.parameters;
             parameters.render_size = view.scene->get_render_target().get_size();
             const bool draw = parameters.visible || !view.scene->is_offscreen();
             frame.views.push_back({id, std::move(parameters), draw,
-                std::exchange(view.pick_request, std::nullopt), std::move(view.lines)});
-            view.lines = {};
+                std::exchange(request.pick_request, std::nullopt), std::move(request.lines)});
+            request.lines = {};
         }
         if(m_capture_overlay)
             frame.overlays = m_capture_overlay();
@@ -286,22 +291,13 @@ namespace Comet {
 
     void Renderer::set_ray_scene_sources(RaySceneBuilder::MeshReader read,
         RaySceneBuilder::MeshRevision revision, RaySceneBuilder::Images images) {
-        m_ray_read = std::move(read);
-        m_ray_revision = std::move(revision);
-        m_ray_images = std::move(images);
-        m_irradiance_builder.reset();
-        m_irradiance_input.reset();
-        m_irradiance_error.clear();
-        auto support = check_path_trace_support();
-        m_path_trace_support_error = support ? std::string{} : support.error().message;
-        for(auto& [id, view] : m_views) {
-            view.path_trace_builder.reset();
-            view.path_trace_error.clear();
-        }
+        const auto support = check_path_trace_support();
+        m_frontend->set_sources(std::move(read), std::move(revision), std::move(images),
+            support ? std::string{} : support.error().message);
     }
 
     const std::string& Renderer::path_trace_error(ViewId id) const {
-        return get_view(id).path_trace_error;
+        return m_frontend->view(id).path_trace_error;
     }
 
     SkinningPass::Statistics Renderer::get_skinning_statistics() const {
@@ -313,123 +309,8 @@ namespace Comet {
                                      : RealtimeIrradiancePass::Statistics{};
     }
 
-    void Renderer::prepare_irradiance(RenderFrame& frame) {
-        frame.irradiance.reset();
-        const auto report = [&](std::string error) {
-            if(error != m_irradiance_error && !error.empty())
-                LOG_ERROR("实时探针 GI 准备失败：{}", error);
-            m_irradiance_error = std::move(error);
-        };
-        std::vector<RenderIrradianceVolume> selected;
-        if(frame.world && frame.has_raster_view())
-            for(const auto& volume : frame.world->irradiance_volumes)
-                if(volume.volume.realtime) {
-                    if(auto valid = RealtimeIrradiancePass::validate_region(volume.volume);
-                        !valid) {
-                        report(valid.error());
-                        return;
-                    }
-                    if(selected.size() == LightingData::MAX_IRRADIANCE_VOLUMES) {
-                        report("实时 GI 最多支持 4 个区域，请禁用多余区域");
-                        return;
-                    }
-                    selected.push_back(volume.volume);
-                }
-        if(selected.empty()) {
-            m_irradiance_builder.reset();
-            m_irradiance_input.reset();
-            report({});
-            return;
-        }
-        if(!frame.world->resolution.pending_asset_slots.empty())
-            return;
-        if(!m_irradiance_support_error.empty()) {
-            report(m_irradiance_support_error);
-            return;
-        }
-        if(!m_irradiance_builder) {
-            m_irradiance_builder = std::make_unique<RaySceneBuilder>(512);
-            m_irradiance_input = std::make_unique<RenderWorld>();
-        }
-        // 从同一份已解析世界筛选追踪几何，不再次提取 Scene，也不按视图重复构建。
-        auto& input = *m_irradiance_input;
-        input.scene_lifetime = frame.world->scene_lifetime;
-        input.environment = frame.world->environment;
-        input.environment.fog_enabled = false;
-        input.environment.background = false;
-        input.environment.background_color = {};
-        input.environment.intensity = 1;
-        input.environment_revision = frame.world->environment_revision;
-        if(!input.environment.lighting)
-            input.environment.asset = {};
-        input.lights = frame.world->lights;
-        input.render_items.clear();
-        for(const auto& item : frame.world->render_items)
-            if(item.contributes_to_gi && item.mesh)
-                input.render_items.push_back(item);
-        auto scene = m_irradiance_builder->update(input, m_ray_read, m_ray_revision, m_ray_images);
-        report(scene ? std::string{} : scene.error());
-        if(scene)
-            frame.irradiance =
-                RenderFrame::IrradianceInput{std::move(selected), std::move(scene).value()};
-    }
-
     void Renderer::prepare_scene_views(RenderFrame& frame) {
-        std::shared_ptr<const RayScene> particle_collisions;
-        if(frame.world && !frame.world->particle_meshes.empty()) {
-            auto built = m_particle_collision_builder.update(frame.world->scene_lifetime,
-                frame.world->particle_meshes, m_ray_read, m_ray_revision);
-            const auto error = built ? std::string{} : built.error().message;
-            if(error != m_particle_collision_error && !error.empty())
-                LOG_ERROR("GPU particle collision: {}", error);
-            m_particle_collision_error = error;
-            if(built)
-                particle_collisions = std::move(built).value();
-        } else {
-            m_particle_collision_builder.reset();
-            m_particle_collision_error.clear();
-        }
-        for(auto& input : frame.views) {
-            auto& view = get_view(input.id);
-            input.parameters.particle_collisions = particle_collisions;
-            view.path_trace_error.clear();
-            if(input.draw && frame.world && !input.parameters.path_trace_override
-                && !input.parameters.path_trace_enabled
-                && frame.world->post_process.path_trace.enabled) {
-                input.parameters.path_trace_enabled = true;
-                input.parameters.path_trace_settings = frame.world->post_process.path_trace;
-            }
-            if(!input.draw || !input.parameters.path_trace_enabled || !frame.world) {
-                view.path_trace_builder.reset();
-                continue;
-            }
-            input.parameters.path_trace.reset();
-            if(frame.world->environment.fog_enabled
-                || (frame.world->particles
-                    && (!frame.world->particles->instances.empty()
-                        || !frame.world->particles->gpu_emitters.empty()))) {
-                view.path_trace_error = "路径追踪暂不支持距离雾／粒子；介质请在路径追踪设置中配置";
-                continue;
-            }
-            if(!m_path_trace_support_error.empty()) {
-                view.path_trace_error = m_path_trace_support_error;
-                continue;
-            }
-            if(!frame.world->resolution.pending_asset_slots.empty()) {
-                view.path_trace_error = "场景资源尚未加载，路径追踪等待导入完成";
-                continue;
-            }
-            if(!view.path_trace_builder)
-                view.path_trace_builder = std::make_unique<RaySceneBuilder>();
-            auto scene = view.path_trace_builder->update(
-                *frame.world, m_ray_read, m_ray_revision, m_ray_images);
-            if(scene)
-                input.parameters.path_trace = std::move(scene).value();
-            else
-                view.path_trace_error = scene.error();
-        }
-        // 路径追踪准备失败时仍绘制光栅；据最终视图路径决定是否需要 GI 输入。
-        prepare_irradiance(frame);
+        m_frontend->prepare(frame);
     }
 
     Result<void, GraphicsError> Renderer::render_frame(std::shared_ptr<const RenderWorld> world) {
@@ -880,7 +761,7 @@ namespace Comet {
                 return resized;
             }
         }
-        found->second.view = std::move(view);
+        m_frontend->view(id).parameters = std::move(view);
         return Result<void, GraphicsError>::success();
     }
 
@@ -888,7 +769,8 @@ namespace Comet {
         const Math::Vec2u image_resolution, const uint64_t scene_lifetime, const ViewId id) {
         auto& view = get_view(id);
         view.pick_result.reset();
-        view.pick_request = RenderFrame::Pick{pixel, image_resolution, scene_lifetime};
+        m_frontend->view(id).pick_request =
+            RenderFrame::Pick{pixel, image_resolution, scene_lifetime};
     }
 
     std::optional<Renderer::ViewportPickResult> Renderer::take_viewport_pick_result(
@@ -900,21 +782,19 @@ namespace Comet {
 
     void Renderer::cancel_viewport_pick(const ViewId id) {
         auto& view = get_view(id);
-        view.pick_request.reset();
+        m_frontend->view(id).pick_request.reset();
         view.pick_result.reset();
     }
 
     void Renderer::submit_lines(const LineDrawList& draw_list, const ViewId id) {
-        if(!get_view(id).lines.append(draw_list))
+        if(!m_frontend->view(id).lines.append(draw_list))
             LOG_WARN("Debug line batch rejected: vertex capacity exceeded");
     }
 
     void Renderer::discard_frame_requests() {
-        for(auto& [id, view] : m_views) {
-            view.pick_request.reset();
+        m_frontend->discard_requests();
+        for(auto& [id, view] : m_views)
             view.pick_result.reset();
-            view.lines.clear();
-        }
     }
 
     void Renderer::prepare_shutdown() noexcept {
@@ -934,8 +814,7 @@ namespace Comet {
         m_diagnostics.reset();
         m_skinning.reset();
         m_realtime_irradiance.reset();
-        m_irradiance_input.reset();
-        m_irradiance_builder.reset();
+        m_frontend.reset();
         m_frames.reset();
         m_views.clear();
         m_render_resources.reset();

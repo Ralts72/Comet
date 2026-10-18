@@ -5,7 +5,7 @@
 #include "asset/script.h"
 #include "scene/prefab.h"
 #include "gameplay/character_controller.h"
-#include "gameplay/navigation_system.h"
+#include "gameplay/navigation_access.h"
 #include "audio/audio_commands.h"
 #include "physics/physics_access.h"
 #include "scene/scene.h"
@@ -799,7 +799,7 @@ namespace Comet::LuaBindings {
                 auto result = context.navigation->move_to(
                     *context.scene, context.entity, physics, target, lua_toboolean(state, 4));
                 if(result)
-                    status = Gameplay::NavigationSystem::name(result.value());
+                    status = NavigationAccess::name(result.value());
                 else
                     context.return_value = result.error();
             }

@@ -30,6 +30,7 @@ namespace Comet {
     struct ModelData;
     class ImportService;
     class AssetLoader;
+    class AssetProductReader;
     class RenderAssetFactory;
     class RenderResourceFactory;
     class TaskScheduler;
@@ -247,6 +248,7 @@ namespace Comet {
         std::unique_ptr<ImportService> m_import_service;
         AssetRegistry& m_registry;
         std::unique_ptr<RenderAssetFactory> m_render_factory;
+        std::unique_ptr<AssetProductReader> m_products;
         std::unique_ptr<AssetLoader> m_loader;
         std::unique_ptr<AssetTaskQueue> m_task_queue;
         std::unordered_map<AssetHandle, AssetRevision> m_refresh_requests;

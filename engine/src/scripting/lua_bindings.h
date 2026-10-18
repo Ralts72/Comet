@@ -21,9 +21,7 @@ namespace Comet {
     class RuntimeSession;
     class AudioCommands;
     class PhysicsAccess;
-    namespace Gameplay {
-        class NavigationSystem;
-    }
+    class NavigationAccess;
     namespace LuaBindings {
         struct Context {
             Entity entity;
@@ -31,7 +29,7 @@ namespace Comet {
             RuntimeSession* session = nullptr;
             AudioCommands* audio = nullptr;
             PhysicsAccess* physics = nullptr;
-            Gameplay::NavigationSystem* navigation = nullptr;
+            NavigationAccess* navigation = nullptr;
             const InputState* input = nullptr;
             const AssetRegistry* assets = nullptr;
             std::shared_ptr<const ComponentRegistry> components;

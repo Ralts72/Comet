@@ -2,7 +2,7 @@
 
 #include "common/json.h"
 #include "asset/metadata.h"
-#include "scene/property.h"
+#include "reflection/type.h"
 #include "scene/entity_id.h"
 #include "scene/scene_settings.h"
 #include <memory>

@@ -148,6 +148,7 @@ namespace Comet::Json {
         void value(std::string_view value);
         void value(const std::string& value) { this->value(std::string_view(value)); }
         void value(const char* value) { this->value(std::string_view(value)); }
+        void null_value();
         void value(bool value);
         void value(std::uint64_t value);
         void value(std::int64_t value);

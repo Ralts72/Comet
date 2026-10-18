@@ -13,6 +13,8 @@ set(SOURCES
     src/diagnostics/diagnostics.cpp
     src/runtime/entry.cpp
     src/runtime/application.cpp
+    src/runtime/world.cpp
+    src/runtime/component_registration.cpp
     src/runtime/player_settings_owner.cpp
     src/core/engine.cpp
 )

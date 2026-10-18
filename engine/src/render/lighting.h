@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/export.h"
+#include "common/result.h"
 #include "core/geometry.h"
 #include "scene/entity_id.h"
 #include "scene/scene_settings.h"
@@ -50,6 +51,7 @@ namespace Comet {
         float history_weight = .9f;
         float bounce_strength = 0;
         float blend_distance = 1;
+        [[nodiscard]] COMET_API Result<Math::Vec3u> realtime_dimensions() const;
     };
 
     // 与 forward.glsl 的 std140 布局匹配；不是 Scene 组件或 GPU owner。

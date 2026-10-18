@@ -15,7 +15,7 @@
 #include "common/export.h"
 #include "common/result.h"
 #include "scene/entity.h"
-#include "scene/property.h"
+#include "reflection/type.h"
 #include "scene/scene_settings.h"
 #include "scene/transform_interpolation.h"
 #include <entt.hpp>
@@ -188,6 +188,7 @@ namespace Comet {
         [[nodiscard]] bool set_post_process(const PostProcessSettings& settings);
 
     private:
+        friend struct ComponentChangeAccess;
         friend class Prefab;
         friend class Entity;
         friend class SceneSerializer;
@@ -255,36 +256,9 @@ namespace Comet {
 
         template<typename Component>
         void component_changed(entt::entity handle, bool structure_changed) {
-            if constexpr(std::is_same_v<Component, TransformComponent>
-                         || std::is_same_v<Component, BoneAttachmentComponent>)
-                mark_transform_dirty(handle);
-            else if constexpr(is_scene_render_component_v<Component>)
-                mark_render_entity_changed(handle);
-
-            if constexpr(std::is_same_v<Component, TransformComponent>
-                         || is_scene_physics_component_v<Component>)
-                mark_physics_dirty(handle);
-
-            if constexpr(is_scene_physics_component_v<Component>)
-                mark_render_dirty(); // GPU 粒子还消费碰撞形状与过滤层。
-
-            if constexpr(is_scene_joint_component_v<Component>)
-                m_physics_joints_changed = true;
-
-            if constexpr(std::is_same_v<Component, ParticleEmitterComponent>
-                         || std::is_same_v<Component, TrailComponent>)
-                ++m_particle_revision;
-
-            if(structure_changed) {
-                if constexpr(std::is_same_v<Component, TransformComponent>)
-                    reset_transform_interpolation(handle);
-                if constexpr(std::is_same_v<Component, TransformComponent>
-                             || std::is_same_v<Component, MeshRendererComponent>)
-                    m_render_structure_changed = true;
-                if constexpr(std::is_same_v<Component, RigidBodyComponent>
-                             || std::is_same_v<Component, CharacterControllerComponent>)
-                    m_physics_structure_changed = true;
-            }
+            if constexpr(component_change_hooks<Component>.changed != nullptr)
+                component_change_hooks<Component>.changed(
+                    *this, Entity(handle, this), structure_changed);
         }
 
         struct RenderChange {
@@ -379,10 +353,8 @@ namespace Comet {
         auto& current = m_scene->m_registry.get<T>(m_handle);
         if(current == component)
             return true;
-        if constexpr(std::is_same_v<T, MeshRendererComponent>) {
-            if(current.material != component.material)
-                m_scene->clear_material_overrides(m_scene->m_registry, m_handle);
-        }
+        if constexpr(component_change_hooks<T>.replacing != nullptr)
+            component_change_hooks<T>.replacing(*m_scene, *this, &current, &component);
         current = component;
         m_scene->component_changed<T>(m_handle, false);
         return true;
@@ -428,8 +400,8 @@ namespace Comet {
     void Entity::remove_component() const {
         if(has_component<T>())
             m_scene->component_changed<T>(m_handle, true);
-        if constexpr(std::is_same_v<T, WindSwayComponent>)
-            m_scene->set_vertex_bend(*this, {});
+        if constexpr(component_change_hooks<T>.removing != nullptr)
+            component_change_hooks<T>.removing(*m_scene, *this);
         m_scene->m_registry.remove<T>(m_handle);
     }
 }

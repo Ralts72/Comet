@@ -28,7 +28,7 @@ namespace Comet::Tests {
         public:
             Entity actor;
             Math::Vec3 target{6, 0, 0};
-            NavigationSystem::Status status = NavigationSystem::Status::NoPath;
+            NavigationAccess::Status status = NavigationAccess::Status::NoPath;
             bool enabled = true;
             Result<void, Error> fixed_update(Scene& scene, const Context& c) override {
                 if(!enabled)
@@ -46,7 +46,7 @@ namespace Comet::Tests {
             Scene scene;
             PhysicsService physics;
             SceneRuntime runtime;
-            NavigationSystem* navigation;
+            Gameplay::NavigationService* navigation;
             Navigate* controller;
             uint64_t geometry_requests = 0;
             std::shared_ptr<const NavigationData> navigation_product;
@@ -68,7 +68,7 @@ namespace Comet::Tests {
                         return physics.static_triangles(a, b);
                     },
                     [&](AssetHandle) { return navigation_product; });
-                navigation = nav.get();
+                navigation = &nav->service();
                 ASSERT_TRUE(runtime.set_services({.physics = &physics, .navigation = navigation}));
                 ASSERT_TRUE(runtime.set_settings({.fixed_delta = 1.0 / 60}));
                 ASSERT_TRUE(runtime.add_system(std::move(nav)));
@@ -151,10 +151,10 @@ namespace Comet::Tests {
             NavigationObstacleComponent{.half_extents = {.5f, 1.5f, 10}});
         ASSERT_TRUE(runtime.start(scene));
         ASSERT_TRUE(step());
-        EXPECT_EQ(controller->status, NavigationSystem::Status::NoPath);
+        EXPECT_EQ(controller->status, NavigationAccess::Status::NoPath);
         door.edit_transform([](auto& transform) { transform.translation.z = 25; });
         ASSERT_TRUE(step(2));
-        EXPECT_EQ(controller->status, NavigationSystem::Status::Moving);
+        EXPECT_EQ(controller->status, NavigationAccess::Status::Moving);
         EXPECT_GT(position().x, -6);
     }
 
@@ -165,10 +165,10 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.start(scene));
         EXPECT_TRUE(navigation->mesh().ready());
         ASSERT_TRUE(step());
-        EXPECT_EQ(controller->status, NavigationSystem::Status::NoPath);
+        EXPECT_EQ(controller->status, NavigationAccess::Status::NoPath);
         scene.destroy_entity(obstacle);
         ASSERT_TRUE(step());
-        EXPECT_EQ(controller->status, NavigationSystem::Status::Moving);
+        EXPECT_EQ(controller->status, NavigationAccess::Status::Moving);
     }
 
     TEST_F(NavigationTest, OffMeshJumpLinksSurviveProductsAndDrivePhysicalCrossLayerMovement) {
@@ -195,20 +195,20 @@ namespace Comet::Tests {
         ASSERT_TRUE(restored_path);
         EXPECT_EQ(restored_path.value().jumps.size(), 1u);
         float highest = 0;
-        for(int i = 0; i < 300 && controller->status != NavigationSystem::Status::Arrived; ++i) {
+        for(int i = 0; i < 300 && controller->status != NavigationAccess::Status::Arrived; ++i) {
             ASSERT_TRUE(step());
             highest = std::max(highest, position().y);
         }
         EXPECT_GT(highest, 1.1f);
-        EXPECT_EQ(controller->status, NavigationSystem::Status::Arrived);
+        EXPECT_EQ(controller->status, NavigationAccess::Status::Arrived);
         EXPECT_NEAR(position().y, 1, .05f);
         EXPECT_NEAR(position().x, controller->target.x, .4f);
         const auto raised_target = controller->target;
         controller->target = {-3, 0, 0};
         ASSERT_TRUE(step());
-        for(int i = 0; i < 300 && controller->status != NavigationSystem::Status::Arrived; ++i)
+        for(int i = 0; i < 300 && controller->status != NavigationAccess::Status::Arrived; ++i)
             ASSERT_TRUE(step());
-        EXPECT_EQ(controller->status, NavigationSystem::Status::Arrived);
+        EXPECT_EQ(controller->status, NavigationAccess::Status::Arrived);
         EXPECT_NEAR(position().y, 0, .05f);
         EXPECT_NEAR(position().x, -3, .4f);
         const auto reverse = restored.find_path(raised_target, {-3, 0, 0});
@@ -253,14 +253,14 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.start(scene));
         float highest = 0;
         unsigned in_flight = 0;
-        for(int i = 0; i < 360 && controller->status != NavigationSystem::Status::Arrived; ++i) {
+        for(int i = 0; i < 360 && controller->status != NavigationAccess::Status::Arrived; ++i) {
             ASSERT_TRUE(step());
             highest = std::max(highest, position().y);
             in_flight += navigation->is_traversing_link(scene, actor);
         }
         EXPECT_GT(highest, 1.1f);
         EXPECT_GT(in_flight, 10u);
-        ASSERT_EQ(controller->status, NavigationSystem::Status::Arrived);
+        ASSERT_EQ(controller->status, NavigationAccess::Status::Arrived);
         EXPECT_NEAR(position().y, 1, .05f);
         EXPECT_NEAR(position().x, controller->target.x, .4f);
         EXPECT_FALSE(navigation->is_traversing_link(scene, actor));
@@ -268,9 +268,9 @@ namespace Comet::Tests {
         model.edit_transform([](auto& value) { value.rotation.y = 180; });
         controller->target = {-3, 0, 0};
         ASSERT_TRUE(step());
-        for(int i = 0; i < 360 && controller->status != NavigationSystem::Status::Arrived; ++i)
+        for(int i = 0; i < 360 && controller->status != NavigationAccess::Status::Arrived; ++i)
             ASSERT_TRUE(step());
-        ASSERT_EQ(controller->status, NavigationSystem::Status::Arrived);
+        ASSERT_EQ(controller->status, NavigationAccess::Status::Arrived);
         EXPECT_NEAR(position().y, 0, .05f);
         EXPECT_NEAR(position().x, -3, .4f);
         EXPECT_FALSE(navigation->is_traversing_link(scene, actor));
@@ -397,7 +397,7 @@ namespace Comet::Tests {
             furthest_z = std::max(furthest_z, std::abs(position().z));
         }
         EXPECT_GT(furthest_z, 3);
-        EXPECT_EQ(controller->status, NavigationSystem::Status::Arrived);
+        EXPECT_EQ(controller->status, NavigationAccess::Status::Arrived);
         EXPECT_NEAR(position().x, 6, 0.4f);
         EXPECT_NEAR(position().z, 0, 0.4f);
     }
@@ -469,11 +469,11 @@ namespace Comet::Tests {
         box({0, 2, 0}, {0.6f, 2, 10});
         ASSERT_TRUE(runtime.start(scene));
         ASSERT_TRUE(step(30));
-        EXPECT_EQ(controller->status, NavigationSystem::Status::NoPath);
+        EXPECT_EQ(controller->status, NavigationAccess::Status::NoPath);
         EXPECT_NEAR(position().x, -6, 0.01f);
         controller->target = {-20, 0, 0};
         ASSERT_TRUE(step());
-        EXPECT_EQ(controller->status, NavigationSystem::Status::NoPath);
+        EXPECT_EQ(controller->status, NavigationAccess::Status::NoPath);
     }
     TEST_F(NavigationTest, DynamicObstacleAvoidanceAndResume) {
         auto obstacle = box({-3, 1, 0}, {0.6f, 1, 0.7f}, BodyMotion::Kinematic);
@@ -484,14 +484,14 @@ namespace Comet::Tests {
         ASSERT_TRUE(path);
         EXPECT_EQ(path.value().points.size(), 2u);
         ASSERT_TRUE(step(480));
-        EXPECT_EQ(controller->status, NavigationSystem::Status::Arrived);
+        EXPECT_EQ(controller->status, NavigationAccess::Status::Arrived);
         EXPECT_GT(position().x, 5.5f);
     }
     TEST_F(NavigationTest, WalkableStepsUseCharacterClimbing) {
         box({0, 0.1f, 0}, {1, 0.1f, 10});
         ASSERT_TRUE(runtime.start(scene));
         ASSERT_TRUE(step(400));
-        EXPECT_EQ(controller->status, NavigationSystem::Status::Arrived);
+        EXPECT_EQ(controller->status, NavigationAccess::Status::Arrived);
         EXPECT_GT(position().x, 5.5f);
     }
     TEST_F(NavigationTest, DynamicFullBlockStopsAndResumesWhenRemoved) {
@@ -499,10 +499,10 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.start(scene));
         ASSERT_TRUE(step(240));
         EXPECT_LT(position().x, -0.8f);
-        EXPECT_NE(controller->status, NavigationSystem::Status::Arrived);
+        EXPECT_NE(controller->status, NavigationAccess::Status::Arrived);
         scene.destroy_entity(wall);
         ASSERT_TRUE(step(240));
-        EXPECT_EQ(controller->status, NavigationSystem::Status::Arrived);
+        EXPECT_EQ(controller->status, NavigationAccess::Status::Arrived);
     }
     TEST_F(NavigationTest, PauseStepStopAndRestartOwnNavigationLifetime) {
         ASSERT_TRUE(runtime.start(scene));
@@ -551,7 +551,7 @@ namespace Comet::Tests {
             auto result = navigation->move_to(scene, actors[i], physics, {6, 0, float(i) - 5});
             ASSERT_TRUE(result);
             if(i >= 8)
-                EXPECT_EQ(result.value(), NavigationSystem::Status::BudgetExceeded);
+                EXPECT_EQ(result.value(), NavigationAccess::Status::BudgetExceeded);
         }
         EXPECT_EQ(navigation->get_statistics().path_queries, 8u);
         EXPECT_EQ(navigation->get_statistics().step_path_queries, 8u);
@@ -559,7 +559,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(step());
         auto retry = navigation->move_to(scene, actors.back(), physics, {6, 0, 4});
         ASSERT_TRUE(retry);
-        EXPECT_EQ(retry.value(), NavigationSystem::Status::Moving);
+        EXPECT_EQ(retry.value(), NavigationAccess::Status::Moving);
         EXPECT_EQ(navigation->get_statistics().path_queries, 9u);
         EXPECT_EQ(navigation->get_statistics().step_path_queries, 1u);
     }
@@ -590,11 +590,11 @@ namespace Comet::Tests {
                 const auto result =
                     navigation->move_to(scene, actors[i], physics, {6, 0, float(i) - 5});
                 ASSERT_TRUE(result) << result.error();
-                if(result.value() == NavigationSystem::Status::Moving) {
+                if(result.value() == NavigationAccess::Status::Moving) {
                     ++served[i];
                     waiting[i] = 0;
                 } else {
-                    EXPECT_EQ(result.value(), NavigationSystem::Status::BudgetExceeded);
+                    EXPECT_EQ(result.value(), NavigationAccess::Status::BudgetExceeded);
                     // 十个持续请求者、每步八个额度：任何角色都不应连续两步得不到查询。
                     EXPECT_LT(++waiting[i], 2u);
                 }
@@ -612,8 +612,8 @@ namespace Comet::Tests {
         SceneRuntime runtime;
         auto nav = std::make_unique<NavigationSystem>(
             [&](Math::Vec3 a, Math::Vec3 b) { return physics.static_triangles(a, b); });
-        const auto* navigation = nav.get();
-        ASSERT_TRUE(runtime.set_services({.physics = &physics, .navigation = nav.get()}));
+        const auto* navigation = &nav->service();
+        ASSERT_TRUE(runtime.set_services({.physics = &physics, .navigation = &nav->service()}));
         ASSERT_TRUE(runtime.add_system(std::move(nav)));
         const auto started = runtime.start(scene);
         ASSERT_FALSE(started);
@@ -681,7 +681,7 @@ namespace Comet::Tests {
         auto nav = std::make_unique<NavigationSystem>(
             [&](Math::Vec3 a, Math::Vec3 b) { return physics.static_triangles(a, b); },
             [&](AssetHandle handle) { return assets.resolve<NavigationData>(handle); });
-        ASSERT_TRUE(runtime.set_services({.physics = &physics, .navigation = nav.get()}));
+        ASSERT_TRUE(runtime.set_services({.physics = &physics, .navigation = &nav->service()}));
         ASSERT_TRUE(runtime.add_system(std::move(nav)));
         ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(assets)));
         ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));

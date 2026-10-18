@@ -1,3 +1,4 @@
+#include "scene/component_registration.h"
 #include "scene/script_component.h"
 #include "asset/data/model_data.h"
 #include "scene/scene_commands.h"
@@ -892,7 +893,7 @@ namespace CometEditor::Tests {
         };
         ASSERT_TRUE(registry.register_component(Comet::make_component_descriptor<ExtraComponent>(
             "extra", "Extra",
-            {Comet::make_property_descriptor("visible", "Visible", &ExtraComponent::visible)})));
+            {Comet::make_property_descriptor<&ExtraComponent::visible>("visible", "Visible")})));
         auto& extra = entity.add_component<ExtraComponent>();
         extra.visible = 9;
         extra.hidden = "owned hidden data";

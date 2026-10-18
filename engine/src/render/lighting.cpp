@@ -1,10 +1,28 @@
 #include "render/lighting.h"
+#include "asset/data/irradiance_data.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
 
 namespace Comet {
+    Result<Math::Vec3u> RenderIrradianceVolume::realtime_dimensions() const {
+        if(!Math::is_finite(center) || !Math::is_finite(half_extents)
+            || Math::any_less_equal(half_extents, Math::Vec3(0)) || !std::isfinite(spacing)
+            || spacing < .01f || !std::isfinite(max_distance) || max_distance <= 0
+            || max_distance > 100000 || !update_budget || update_budget > 4096 || update_rays < 64
+            || update_rays > 256 || !std::isfinite(history_weight) || history_weight < 0
+            || history_weight > .99f || !std::isfinite(normal_bias) || normal_bias < 0
+            || !std::isfinite(bounce_strength) || bounce_strength < 0 || bounce_strength > 1)
+            return Result<Math::Vec3u>::failure("实时探针 GI 的区域或更新预算无效");
+        const auto cells = Math::max(Math::ceil(half_extents * 2.0f / spacing), Math::Vec3(2));
+        if(Math::any_greater(cells, Math::Vec3(64))
+            || double(cells.x) * cells.y * cells.z > IrradianceData::MAX_PROBES)
+            return Result<Math::Vec3u>::failure(
+                "实时探针 GI 超过 4096 探针预算，请增大间距或缩小区域");
+        return Result<Math::Vec3u>::success(Math::Vec3u(cells));
+    }
+
     static_assert(sizeof(LightingData::Light) == 64);
     static_assert(offsetof(LightingData::Light, type) == 12);
     static_assert(offsetof(LightingData::Light, direction) == 16);

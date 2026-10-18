@@ -1,4 +1,7 @@
 #include "scene/scene_runtime.h"
+#include "runtime/world.h"
+#include "asset/registry.h"
+#include "render/material/material_programs.h"
 #include "scene/systems/camera_controller.h"
 #include "scene/scene.h"
 #include "scene/component_registry.h"
@@ -124,6 +127,55 @@ namespace Comet::Tests {
             ASSERT_TRUE(runtime.advance(delta, &frame));
         }
     };
+
+    TEST_F(SceneRuntimeTest, TypedOrderControlsAllUpdatePhasesWithoutChangingLifecycleOrder) {
+        using Order = System::Order;
+        for(const auto& [name, order] :
+            {std::pair{"physics", Order::Physics}, {"first", Order::Gameplay},
+                {"animation", Order::Animation}, {"second", Order::Gameplay}})
+            ASSERT_TRUE(runtime.add_system(std::make_unique<RecordingSystem>(calls, name), order));
+        ASSERT_TRUE(runtime.start(scene));
+        EXPECT_EQ(calls.order, (std::vector<std::string>{"start physics", "start first",
+                                   "start animation", "start second"}));
+        calls.order.clear();
+        advance(.1);
+        EXPECT_EQ(
+            calls.order, (std::vector<std::string>{"fixed first", "fixed second", "fixed animation",
+                             "fixed physics", "post fixed first", "post fixed second",
+                             "post fixed animation", "post fixed physics", "update first",
+                             "update second", "update animation", "update physics"}));
+        calls.order.clear();
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_EQ(calls.order, (std::vector<std::string>{
+                                   "stop second", "stop animation", "stop first", "stop physics"}));
+    }
+
+    TEST(WorldTest, SceneReplacementStopsOnlyItsRuntimeAndReturnsPreviousContent) {
+        AssetRegistry assets;
+        MaterialProgramValidator materials(assets);
+        Calls first_calls, second_calls;
+        World first(assets, materials), second(assets, materials);
+        auto original = std::make_unique<Scene>();
+        auto* original_address = original.get();
+        EXPECT_FALSE(first.replace_scene(std::move(original)));
+        EXPECT_FALSE(second.replace_scene(std::make_unique<Scene>()));
+        ASSERT_TRUE(
+            first.runtime().add_system(std::make_unique<RecordingSystem>(first_calls, "first")));
+        ASSERT_TRUE(
+            second.runtime().add_system(std::make_unique<RecordingSystem>(second_calls, "second")));
+        ASSERT_TRUE(first.runtime().start(*first.scene()));
+        ASSERT_TRUE(second.runtime().start(*second.scene()));
+        auto previous = first.replace_scene(std::make_unique<Scene>());
+        EXPECT_EQ(previous.get(), original_address);
+        EXPECT_FALSE(first.runtime().is_active());
+        EXPECT_TRUE(second.runtime().is_active());
+        EXPECT_EQ(first_calls.order.back(), "stop first");
+        first.shutdown();
+        first.shutdown();
+        EXPECT_TRUE(second.runtime().is_active());
+        second.shutdown();
+        EXPECT_EQ(second_calls.order.back(), "stop second");
+    }
 
     TEST_F(SceneRuntimeTest, SystemQueryFollowsRegistrationAndClearWithoutOwningSystems) {
         EXPECT_EQ(runtime.find_system<RecordingSystem>(), nullptr);

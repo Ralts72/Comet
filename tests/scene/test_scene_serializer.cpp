@@ -1,3 +1,4 @@
+#include "scene/component_registration.h"
 #include <gtest/gtest.h>
 
 #include "scene/component_registry.h"
@@ -1285,8 +1286,8 @@ namespace Comet::Tests {
 
     TEST(SceneSerializerTest, CloneRestoresReadOnlyPropertiesWithoutEditNotifications) {
         auto registry = create_scene_component_registry();
-        auto property = make_property_descriptor("value", "Value",
-            &DescriptorTestComponent::persisted, {.editable = false, .read_only = true});
+        auto property = make_property_descriptor<&DescriptorTestComponent::persisted>(
+            "value", "Value", {.editable = false, .read_only = true});
         property.on_changed = [](void*) { throw std::runtime_error("unexpected edit callback"); };
         ASSERT_TRUE(registry.register_component(make_component_descriptor<DescriptorTestComponent>(
             "custom", "Custom", {std::move(property)})));
@@ -1620,7 +1621,7 @@ namespace Comet::Tests {
     TEST(SceneSerializerTest, DoesNotMaskComponentCallbackFailuresAsInvalidSceneData) {
         ComponentRegistry registry = create_scene_component_registry();
         auto property =
-            make_property_descriptor("value", "Value", &DescriptorTestComponent::persisted);
+            make_property_descriptor<&DescriptorTestComponent::persisted>("value", "Value");
         property.const_accessor = [](const void*) -> const void* {
             throw std::runtime_error("component accessor failed");
         };
@@ -1637,15 +1638,14 @@ namespace Comet::Tests {
         ComponentRegistry registry = create_scene_component_registry();
         ASSERT_TRUE(registry.register_component(make_component_descriptor<DescriptorTestComponent>(
             "descriptor_component", "Descriptor Component",
-            {make_property_descriptor(
-                 "persisted_value", "Persisted Value", &DescriptorTestComponent::persisted),
-                make_property_descriptor("text", "Text", &DescriptorTestComponent::text),
-                make_property_descriptor("runtime_value", "Runtime Value",
-                    &DescriptorTestComponent::runtime_only,
-                    {.serializable = false, .transient = true})})));
+            {make_property_descriptor<&DescriptorTestComponent::persisted>(
+                 "persisted_value", "Persisted Value"),
+                make_property_descriptor<&DescriptorTestComponent::text>("text", "Text"),
+                make_property_descriptor<&DescriptorTestComponent::runtime_only>("runtime_value",
+                    "Runtime Value", {.serializable = false, .transient = true})})));
         ASSERT_TRUE(registry.register_component(make_component_descriptor<RuntimeOnlyTestComponent>(
             "runtime_component", "Runtime Component",
-            {make_property_descriptor("enabled", "Enabled", &RuntimeOnlyTestComponent::enabled)},
+            {make_property_descriptor<&RuntimeOnlyTestComponent::enabled>("enabled", "Enabled")},
             false)));
 
         Scene scene;

@@ -12,9 +12,7 @@ namespace Comet {
     class RuntimeSession;
     class AudioCommands;
     class PhysicsAccess;
-    namespace Gameplay {
-        class NavigationSystem;
-    }
+    class NavigationAccess;
 
     // 每个行为实例独占 VM；借用权限仅在 invoke 期间有效。
     class COMET_API ScriptInstance final {
@@ -36,7 +34,7 @@ namespace Comet {
             RuntimeSession* session = nullptr;
             AudioCommands* audio = nullptr;
             PhysicsAccess* physics = nullptr;
-            Gameplay::NavigationSystem* navigation = nullptr;
+            NavigationAccess* navigation = nullptr;
             const InputState* input = nullptr;
             const AssetRegistry* assets = nullptr;
             std::shared_ptr<const ComponentRegistry> components;

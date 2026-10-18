@@ -66,6 +66,17 @@ namespace Comet::Tests {
         ASSERT_TRUE(prepare());
         EXPECT_EQ(std::filesystem::last_write_time(path), timestamp);
 
+        auto previous_version = TextureArtifact::load(path, handle, budget);
+        ASSERT_TRUE(previous_version);
+        --previous_version->importer_version;
+        ASSERT_TRUE(previous_version->publish_atomic(path));
+        std::filesystem::last_write_time(path, timestamp);
+        ASSERT_TRUE(prepare());
+        const auto regenerated = TextureArtifact::load(path, handle, budget);
+        ASSERT_TRUE(regenerated);
+        EXPECT_EQ(regenerated->importer_version, TextureImporter::VERSION);
+        EXPECT_NE(std::filesystem::last_write_time(path), timestamp);
+
         const TextureImportSettings settings{
             .color_space = TextureColorSpace::Linear, .flip_y = true, .generate_mipmaps = false};
         auto changed = prepare(settings);

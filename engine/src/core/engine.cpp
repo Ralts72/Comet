@@ -1,14 +1,9 @@
 #include "engine.h"
-#include "asset/data/navigation_data.h"
-#include "gameplay/root_motion.h"
-#include "gameplay/navigation_system.h"
-#include "gameplay/character_animation.h"
-#include "gameplay/foot_placement.h"
-#include "gameplay/pose_constraints.h"
-#include "gameplay/wind_sway.h"
-#include "gameplay/world_effects.h"
+#include "runtime/world.h"
+#include "asset/registry.h"
+#include "render/resource/mesh.h"
 #include "animation/animation_system.h"
-#include "particles/particle_system.h"
+#include "diagnostics/logger.h"
 #include "common/scope_exit.h"
 #include "config/config.h"
 #include "core/window.h"
@@ -19,17 +14,10 @@
 #include "render/render_diagnostics.h"
 #include "render/render_context.h"
 #include "render/resource/render_resources.h"
-#include "render/resource/mesh.h"
-#include "asset/registry.h"
 #include "core/task_scheduler.h"
-#include "diagnostics/logger.h"
 #include "diagnostics/profiler.h"
 #include "render/scene/scene_extractor.h"
 #include "scene/scene.h"
-#include "scene/systems/audio_system.h"
-#include "scene/systems/camera_controller.h"
-#include "scene/systems/physics_system.h"
-#include "scene/systems/script_system.h"
 
 #include <thread>
 
@@ -58,6 +46,7 @@ namespace Comet {
           m_renderer(std::move(renderer)),
           m_render_thread(std::make_unique<RenderThread>(*m_renderer)),
           m_material_parameters(std::make_unique<MaterialProgramValidator>(*m_asset_registry)),
+          m_world(std::make_unique<World>(*m_asset_registry, *m_material_parameters)),
           m_scene_resolver(*m_asset_registry) {
         m_renderer->m_render_thread = m_render_thread.get();
         m_renderer->set_task_scheduler(m_task_scheduler.get());
@@ -66,13 +55,13 @@ namespace Comet {
     Engine::~Engine() {
         LOG_INFO("shutting down engine...");
         prepare_shutdown();
+        m_world.reset();
         m_asset_registry->clear();
         m_material_parameters.reset();
         m_renderer->m_render_thread = nullptr;
         m_render_thread.reset();
         m_renderer.reset();
         m_asset_registry.reset();
-        m_scene.reset();
         m_window.reset();
         m_task_scheduler.reset();
     }
@@ -83,14 +72,7 @@ namespace Comet {
         static_cast<void>(complete_render_frame());
         m_render_thread->stop();
         m_renderer->end_render_loop();
-        if(auto stopped = stop_scene_runtime(); !stopped)
-            LOG_FATAL("Cannot shut down Engine during System execution");
-        if(auto cleared = m_scene_runtime.clear_systems(); !cleared)
-            LOG_FATAL("Cannot release stopped scene systems");
-        if(auto detached = m_scene_runtime.set_services({}); !detached)
-            LOG_FATAL("Cannot detach stopped runtime services");
-        m_audio_service.reset();
-        m_physics_service.reset();
+        m_world->shutdown();
         m_task_scheduler->shutdown();
         m_scene_extractor.reset();
         m_scene_resolver.reset();
@@ -115,9 +97,9 @@ namespace Comet {
     }
 
     Result<void, Error> Engine::prepare_scene_rendering() {
-        if(!m_scene)
+        if(!m_world->scene())
             return Result<void, Error>::failure({"Scene rendering preparation requires a scene"});
-        const auto scene = m_scene_extractor.update(*m_scene);
+        const auto scene = m_scene_extractor.update(*m_world->scene());
         auto world = m_scene_resolver.update(*scene);
         if(auto prepared = m_renderer->warmup_scene(std::move(world)); !prepared)
             return Result<void, Error>::failure(prepared.error().as_error());
@@ -128,118 +110,49 @@ namespace Comet {
         return m_window->get_input_frame();
     }
 
-    Result<void, Error> Engine::add_system(std::unique_ptr<System> system) {
+    Result<void, Error> Engine::add_system(std::unique_ptr<System> system, System::Order order) {
         if(m_shutdown_prepared)
             return Result<void, Error>::failure({"Engine is shutting down"});
-        return m_scene_runtime.add_system(std::move(system));
+        return m_world->runtime().add_system(std::move(system), order);
     }
 
-    Result<void, Error> Engine::apply_audio_settings(const AudioSettings settings) {
+    Result<void, Error> Engine::apply_audio_settings(AudioSettings settings) {
         if(m_shutdown_prepared)
             return Result<void, Error>::failure({"Engine is shutting down"});
-        if(auto valid = settings.validate(); !valid)
-            return Result<void, Error>::failure({valid.error()});
-        if(m_audio_service) {
-            if(auto applied = m_audio_service->apply_settings(settings); !applied)
-                return applied;
-        }
-        m_audio_settings = settings;
-        return Result<void, Error>::success();
+        return m_world->apply_audio_settings(settings);
     }
 
     Result<void, Error> Engine::add_default_scene_systems(PhysicsService::MeshSource meshes) {
         if(m_shutdown_prepared)
             return Result<void, Error>::failure({"Engine is shutting down"});
-        if(!m_audio_service) {
-            m_audio_service = std::make_unique<AudioService>(*m_asset_registry);
-            if(auto applied = m_audio_service->apply_settings(m_audio_settings); !applied)
-                return applied;
-        }
-        if(!m_physics_service)
-            m_physics_service = std::make_unique<PhysicsService>(std::move(meshes));
-        auto navigation = std::make_unique<Gameplay::NavigationSystem>(
-            [this](Math::Vec3 minimum, Math::Vec3 maximum) {
-                return m_physics_service->static_triangles(minimum, maximum);
-            },
-            [this](
-                AssetHandle handle) { return m_asset_registry->resolve<NavigationData>(handle); });
-        auto* navigation_service = navigation.get();
-        if(auto added = add_system(std::move(navigation)); !added)
-            return added;
-        if(auto configured = m_scene_runtime.set_services({.audio = m_audio_service.get(),
-               .physics = m_physics_service.get(),
-               .navigation = navigation_service});
-            !configured)
-            return configured;
-        // 注册顺序也是各更新阶段的执行顺序；SceneRuntime 停止时按逆序清理。
-        if(auto added = add_system(std::make_unique<Gameplay::SplineMotionSystem>()); !added)
-            return added;
-        if(auto added = add_system(std::make_unique<CameraControllerSystem>()); !added)
-            return added;
-        if(auto added = add_system(
-               std::make_unique<ScriptSystem>(*m_asset_registry, m_material_parameters.get()));
-            !added)
-            return added;
-        if(auto added = add_system(std::make_unique<Gameplay::CharacterAnimationSystem>()); !added)
-            return added;
-        if(auto added = add_system(std::make_unique<AnimationSystem>(
-               [this](AssetHandle handle) {
-                   auto mesh = m_asset_registry->resolve<Mesh>(handle);
-                   return mesh ? mesh->animation_data() : nullptr;
-               },
-               [this](AssetHandle handle) {
-                   return m_asset_registry->resolve<AnimationController>(handle);
-               },
-               [this](AssetHandle handle) {
-                   return m_asset_registry->resolve<AnimationLibrary>(handle);
-               },
-               Gameplay::apply_root_motion));
-            !added)
-            return added;
-        if(auto added = add_system(std::make_unique<PhysicsSystem>(*m_physics_service)); !added)
-            return added;
-        if(auto added = add_system(std::make_unique<Gameplay::FootPlacementSystem>()); !added)
-            return added;
-        if(auto added = add_system(std::make_unique<Gameplay::PoseConstraintSystem>()); !added)
-            return added;
-        if(auto added = add_system(std::make_unique<Gameplay::WeatherSystem>()); !added)
-            return added;
-        if(auto added =
-                add_system(std::make_unique<Gameplay::WaterSurfaceSystem>(*m_material_parameters));
-            !added)
-            return added;
-        if(auto added = add_system(std::make_unique<Gameplay::WindSwaySystem>()); !added)
-            return added;
-        if(auto added = add_system(std::make_unique<ParticleSystem>()); !added)
-            return added;
-        return add_system(std::make_unique<AudioSystem>(*m_audio_service));
+        return m_world->install_default_systems(std::move(meshes));
     }
 
     Result<void, Error> Engine::set_runtime_settings(SceneRuntime::Settings settings) {
         if(m_shutdown_prepared)
             return Result<void, Error>::failure({"Engine is shutting down"});
-        return m_scene_runtime.set_settings(settings);
+        return m_world->runtime().set_settings(settings);
     }
 
     Result<void, Error> Engine::start_scene_runtime(
         const SceneRuntime::State state, ParameterMap initial_values, std::string checkpoint) {
         if(m_shutdown_prepared)
             return Result<void, Error>::failure({"Engine is shutting down"});
-        if(!m_scene)
+        if(!m_world->scene())
             return Result<void, Error>::failure({"Cannot start runtime without an active scene"});
         m_material_parameters->accept(m_renderer->get_material_program_feedback());
-        return m_scene_runtime.start(*m_scene, state, SceneRuntime::InputStart::Rebase,
+        return m_world->runtime().start(*m_world->scene(), state, SceneRuntime::InputStart::Rebase,
             std::move(initial_values), std::move(checkpoint));
     }
 
     Result<void, Error> Engine::set_input_actions(InputActions actions) {
         if(m_shutdown_prepared)
             return Result<void, Error>::failure({"Engine is shutting down"});
-        return m_scene_runtime.set_input_actions(std::move(actions));
+        return m_world->runtime().set_input_actions(std::move(actions));
     }
 
     Result<void, Error> Engine::stop_scene_runtime() {
-        auto stopped = m_scene_runtime.stop();
+        auto stopped = m_world->runtime().stop();
         if(stopped)
             m_window->set_cursor_locked(false);
         return stopped;
@@ -248,13 +161,13 @@ namespace Comet {
     Result<void, Error> Engine::rebind_input_actions(InputActions actions) {
         if(m_shutdown_prepared)
             return Result<void, Error>::failure({"Engine is shutting down"});
-        return m_scene_runtime.rebind_input_actions(std::move(actions));
+        return m_world->runtime().rebind_input_actions(std::move(actions));
     }
 
     Result<void, Error> Engine::set_runtime_state(SceneRuntime::State state) {
         if(m_shutdown_prepared)
             return Result<void, Error>::failure({"Engine is shutting down"});
-        auto changed = m_scene_runtime.set_state(state);
+        auto changed = m_world->runtime().set_state(state);
         if(changed && state == SceneRuntime::State::Paused)
             m_window->set_cursor_locked(false);
         return changed;
@@ -263,16 +176,13 @@ namespace Comet {
     Result<void, Error> Engine::request_runtime_step() {
         if(m_shutdown_prepared)
             return Result<void, Error>::failure({"Engine is shutting down"});
-        return m_scene_runtime.request_step();
+        return m_world->runtime().request_step();
     }
 
     std::unique_ptr<Scene> Engine::replace_scene(std::unique_ptr<Scene> scene) noexcept {
-        // System 执行时不得销毁其借用的 Scene；换场景请求须交由宿主下一次更新处理。
-        if(auto stopped = stop_scene_runtime(); !stopped)
-            LOG_FATAL("Cannot replace Scene during System execution");
-        m_scene.swap(scene);
+        auto previous = m_world->replace_scene(std::move(scene));
         m_scene_extractor.reset();
-        return scene;
+        return previous;
     }
 
     Result<void, Error> Engine::run(const Callbacks& callbacks) {
@@ -376,7 +286,7 @@ namespace Comet {
                 return Result<void, Error>::failure(maintained.error().as_error());
             }
             m_window->set_cursor_locked(false);
-            if(auto discarded = m_scene_runtime.discard_input(); !discarded)
+            if(auto discarded = m_world->runtime().discard_input(); !discarded)
                 return discarded;
             m_window->wait_events(0.1);
             m_window->discard_pending_input();
@@ -402,8 +312,8 @@ namespace Comet {
         }
 
         m_frame_diagnostics.mark_prepare();
-        if(m_scene)
-            prepare_bone_attachment_sources(*m_scene, [this](AssetHandle handle) {
+        if(m_world->scene())
+            prepare_bone_attachment_sources(*m_world->scene(), [this](AssetHandle handle) {
                 const auto mesh = m_asset_registry->resolve<Mesh>(handle);
                 return mesh ? mesh->animation_data() : nullptr;
             });
@@ -411,13 +321,13 @@ namespace Comet {
         if(callbacks.runtime_input)
             runtime_input = callbacks.runtime_input(frame);
         const auto advance_runtime = [&] {
-            auto result = m_scene_runtime.advance(
+            auto result = m_world->runtime().advance(
                 frame.update.delta_time, runtime_input ? &*runtime_input : nullptr);
             m_frame_diagnostics.mark_runtime_update();
             return result;
         };
-        const bool pipelined = m_scene_runtime.is_active()
-                               && m_scene_runtime.get_state() == SceneRuntime::State::Running;
+        const bool pipelined = m_world->runtime().is_active()
+                               && m_world->runtime().get_state() == SceneRuntime::State::Running;
         auto runtime_result = Result<void, Error>::success();
         // 暂停单步的结果在本次画面显示；运行态与已交付快照的绘制重叠。
         if(!pipelined)
@@ -426,8 +336,8 @@ namespace Comet {
             if(callbacks.frame_capture)
                 callbacks.frame_capture(frame);
             auto render_frame = m_renderer->capture_frame();
-            if(m_scene) {
-                const auto render_scene = m_scene_extractor.update(*m_scene);
+            if(m_world->scene()) {
+                const auto render_scene = m_scene_extractor.update(*m_world->scene());
                 m_frame_diagnostics.mark_scene_extract();
                 if(render_frame.has_visible_view()) {
                     render_frame.world = RenderDiagnostics::measure_preparation(
@@ -477,7 +387,7 @@ namespace Comet {
             }
             return Result<void, Error>::success();
         }
-        m_window->set_cursor_locked(m_scene_runtime.wants_cursor_capture());
+        m_window->set_cursor_locked(m_world->runtime().wants_cursor_capture());
         if(!frame_ready_to_render) {
             m_window->wait_events(0.016);
             m_frame_diagnostics.mark_deferred_wait();

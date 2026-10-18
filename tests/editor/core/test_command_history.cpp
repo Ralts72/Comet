@@ -1,3 +1,4 @@
+#include "reflection/registration.h"
 #include "scene/command_history.h"
 #include "render/scene/scene_extractor.h"
 #include "scene/scene_serializer.h"
@@ -391,8 +392,8 @@ namespace {
     TEST_F(CommandHistoryTest, AssignmentRejectsReadOnlyAndNormalizesExactlyOnce) {
         CameraComponent camera;
         int notifications = 0;
-        auto property = make_property_descriptor(
-            "fov", "FOV", &CameraComponent::fov, {}, [&notifications](float&) { ++notifications; });
+        auto property = make_property_descriptor<&CameraComponent::fov>(
+            "fov", "FOV", {}, [&notifications](float&) { ++notifications; });
         property.read_only = true;
         EXPECT_FALSE(property.assign_value(&camera, 60.0f));
         EXPECT_EQ(notifications, 0);

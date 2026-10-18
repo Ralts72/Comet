@@ -814,7 +814,7 @@ namespace Comet::Tests {
         EXPECT_EQ(pass.statistics().geometry_upload_bytes, uploaded);
         EXPECT_EQ(pass.statistics().updated_probes, 8u);
         settings.bounce_strength = 2;
-        EXPECT_FALSE(RealtimeIrradiancePass::validate_region(settings));
+        EXPECT_FALSE(settings.realtime_dimensions());
     }
 
     TEST_F(

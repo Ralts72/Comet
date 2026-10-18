@@ -1,6 +1,6 @@
 #pragma once
 
-#include "scene/property.h"
+#include "reflection/type.h"
 #include "asset/script.h"
 
 #include <functional>
@@ -44,18 +44,29 @@ namespace CometEditor {
             return m_editors.emplace(type, std::move(editor)).second;
         }
 
-        [[nodiscard]] PropertyEditResult edit_property(
-            const Comet::PropertyDescriptor& property, void* value) const {
-            if(value == nullptr || !property.editable || property.read_only)
-                return {};
-            const auto editor = m_editors.find(property.type);
-            if(editor == m_editors.end())
-                return {};
-            return editor->second(property, value);
+        using CollectionEditor = std::function<PropertyEditResult(const PropertyEditorRegistry&,
+            const Comet::PropertyDescriptor&, Comet::PropertyCollection&, Comet::Scene*,
+            std::optional<std::uint64_t>)>;
+        void set_collection_editor(CollectionEditor editor) {
+            m_collection_editor = std::move(editor);
         }
 
-        [[nodiscard]] bool contains(const Comet::PropertyType type) const {
-            return m_editors.contains(type);
+        [[nodiscard]] PropertyEditResult edit_property(const Comet::PropertyDescriptor& property,
+            void* value, Comet::Scene* scene = nullptr,
+            std::optional<std::uint64_t> drop_generation = std::nullopt) const {
+            if(!value || !property.editable || property.read_only)
+                return {};
+            if(compound(property.type))
+                return m_collection_editor ? m_collection_editor(*this, property,
+                                                 *static_cast<Comet::PropertyCollection*>(value),
+                                                 scene, drop_generation)
+                                           : PropertyEditResult{};
+            const auto editor = m_editors.find(property.type);
+            return editor != m_editors.end() ? editor->second(property, value)
+                                             : PropertyEditResult{};
+        }
+        [[nodiscard]] bool contains(Comet::PropertyType type) const {
+            return compound(type) ? bool(m_collection_editor) : m_editors.contains(type);
         }
         [[nodiscard]] ParameterEditResult edit_parameters(
             const Comet::Script::PropertyMap& properties, Comet::ParameterMap& overrides,
@@ -63,6 +74,11 @@ namespace CometEditor {
             std::span<const Comet::ParameterMap* const> peers = {}) const;
 
     private:
+        static bool compound(Comet::PropertyType type) {
+            return type == Comet::PropertyType::Object || type == Comet::PropertyType::Sequence
+                   || type == Comet::PropertyType::Optional;
+        }
+        CollectionEditor m_collection_editor;
         std::unordered_map<Comet::PropertyType, PropertyEditor> m_editors;
     };
 

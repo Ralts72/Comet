@@ -21,8 +21,7 @@ namespace Comet::EntityTrees {
             if(!data)
                 continue;
             for(const auto& property : component.properties) {
-                if(property.type != PropertyType::Parameters
-                    && property.type != PropertyType::EntityReference)
+                if(!property.has_entity_references())
                     continue;
                 auto value = property.copy_value(data);
                 if(!value)
@@ -257,8 +256,7 @@ namespace Comet::EntityTrees {
                 if(!data)
                     continue;
                 for(const auto& property : component.properties) {
-                    if(property.type != PropertyType::EntityReference
-                        && property.type != PropertyType::Parameters)
+                    if(!property.has_entity_references())
                         continue;
                     auto value = property.copy_value(data);
                     if(!value)

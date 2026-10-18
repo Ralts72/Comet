@@ -7,7 +7,7 @@
 namespace CometEditor {
     namespace {
         struct ResolvedProperty {
-            const Comet::PropertyDescriptor* descriptor = nullptr;
+            std::optional<Comet::PropertyDescriptor> descriptor;
             const Comet::ComponentDescriptor* component = nullptr;
             Comet::Entity entity;
 
@@ -30,10 +30,10 @@ namespace CometEditor {
             const auto* component = registry.find_component(target.component);
             if(!entity || !component)
                 return {};
-            const auto* property = component->find_property(target.property);
+            auto property = component->resolve_property(target.property);
             if(!property || !property->editable || property->read_only)
                 return {};
-            return {property, component, entity};
+            return {std::move(property), component, entity};
         }
 
         using Targets = std::vector<PropertyEditTransaction::Target>;

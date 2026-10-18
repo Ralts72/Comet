@@ -2,7 +2,7 @@
 #include "scene/scene_serializer.h"
 #include "scene/component_registry.h"
 #include "scene/entity_tree.h"
-#include "common/serialization/parameters_json.h"
+#include "reflection/type_json.h"
 #include <algorithm>
 #include <map>
 
@@ -63,152 +63,13 @@ namespace Comet::SceneFormat {
         writer.end_object();
     }
 
-    void write_entity_reference(Json::Writer& writer, const EntityUuid value) {
-        writer.begin_object();
-        writer.field("entity", value.to_string());
-        writer.end_object();
-    }
-
-    Result<Uuid> read_entity_reference(
-        Json::Node node, const Json::Context& context, const std::string_view location) {
-        if(auto valid = context.validate_keys(node, {"entity"}, location); !valid)
-            return Result<Uuid>::failure(valid.error());
-        auto text = context.read_field<std::string>(node, "entity", "a UUID string", location);
-        if(!text)
-            return Result<Uuid>::failure(text.error());
-        const auto uuid = EntityUuid::parse(text.value());
-        if(!uuid)
-            return Result<Uuid>::failure(
-                context.error(location, "expected a canonical entity UUID"));
-        return Result<Uuid>::success(*uuid);
-    }
-
-    Result<PropertyValue> read_property_value(const PropertyDescriptor& property,
-        const Json::Node& node, const Json::Context& context, const std::string_view location) {
-        switch(property.type) {
-            case PropertyType::Parameters: {
-                auto parameters =
-                    Json::read_parameters(node, context, location, read_entity_reference);
-                if(!parameters)
-                    return Result<PropertyValue>::failure(parameters.error());
-                return Result<PropertyValue>::success(std::move(parameters).value());
-            }
-            case PropertyType::Bool: {
-                auto value = context.read_scalar<bool>(node, location, "a boolean");
-                if(!value)
-                    return Result<PropertyValue>::failure(value.error());
-                return Result<PropertyValue>::success(std::move(value).value());
-            }
-            case PropertyType::Enum:
-            case PropertyType::String: {
-                auto value = context.read_scalar<std::string>(node, location, "a string");
-                if(!value)
-                    return Result<PropertyValue>::failure(value.error());
-                if(property.type == PropertyType::Enum
-                    && std::ranges::none_of(property.enum_options,
-                        [&](const auto& option) { return option.id == value.value(); }))
-                    return Result<PropertyValue>::failure(
-                        context.error(location, "unknown enum name: " + value.value()));
-                return Result<PropertyValue>::success(std::move(value).value());
-            }
-            case PropertyType::UInt32: {
-                auto value =
-                    context.read_scalar<uint32_t>(node, location, "an unsigned 32-bit integer");
-                if(!value)
-                    return Result<PropertyValue>::failure(value.error());
-                return Result<PropertyValue>::success(value.value());
-            }
-            case PropertyType::Float: {
-                auto value = context.read_scalar<float>(node, location, "a finite number");
-                if(!value)
-                    return Result<PropertyValue>::failure(value.error());
-                if(!property.accepts_value(value.value()))
-                    return Result<PropertyValue>::failure(
-                        context.error(location, "value outside allowed bounds"));
-                return Result<PropertyValue>::success(std::move(value).value());
-            }
-            case PropertyType::Vec3: {
-                auto value = Json::read_vector<Math::Vec3>(node, context, location);
-                if(!value)
-                    return Result<PropertyValue>::failure(value.error());
-                if(!property.accepts_value(value.value()))
-                    return Result<PropertyValue>::failure(
-                        context.error(location, "value outside allowed bounds"));
-                return Result<PropertyValue>::success(value.value());
-            }
-            case PropertyType::Vec4: {
-                auto value = Json::read_vector<Math::Vec4>(node, context, location);
-                if(!value)
-                    return Result<PropertyValue>::failure(value.error());
-                if(!property.accepts_value(value.value()))
-                    return Result<PropertyValue>::failure(
-                        context.error(location, "value outside allowed bounds"));
-                return Result<PropertyValue>::success(value.value());
-            }
-            case PropertyType::AssetHandle: {
-                auto value = context.read_scalar<AssetHandle::ValueType>(
-                    node, location, "a non-negative integer");
-                if(!value)
-                    return Result<PropertyValue>::failure(value.error());
-                return Result<PropertyValue>::success(AssetHandle(value.value()));
-            }
-            case PropertyType::EntityReference: {
-                auto reference = read_entity_reference(node, context, location);
-                if(!reference)
-                    return Result<PropertyValue>::failure(reference.error());
-                return Result<PropertyValue>::success(reference.value());
-            }
-        }
-        return Result<PropertyValue>::failure(context.error(location, "unsupported property type"));
-    }
-
     Result<PropertyValue> copy_property_value(const PropertyDescriptor& property,
-        const void* component, const Json::Context& context, const std::string_view location) {
-        auto value = property.copy_value(component);
-        if(!value)
-            return Result<PropertyValue>::failure(
-                context.error(location, "property accessor returned null or unsupported type"));
-        if(!property.accepts_value(*value)) {
-            const char* message = "value violates property constraints";
-            if(property.type == PropertyType::Parameters)
-                message = "Invalid parameters";
-            else if(property.type == PropertyType::Float || property.type == PropertyType::Vec3
-                    || property.type == PropertyType::Vec4)
-                message = "expected a finite value within property constraints";
-            return Result<PropertyValue>::failure(context.error(location, message));
-        }
-        if(const auto* text = std::get_if<std::string>(&*value); text && !Json::valid_utf8(*text))
-            return Result<PropertyValue>::failure(context.error(location, "invalid UTF-8"));
-        if(const auto* parameters = std::get_if<ParameterMap>(&*value)) {
-            for(const auto& [name, parameter] : *parameters) {
-                const auto* text = std::get_if<std::string>(&parameter);
-                if(!Json::valid_utf8(name) || (text && !Json::valid_utf8(*text)))
-                    return Result<PropertyValue>::failure(context.error(location, "invalid UTF-8"));
-            }
-        }
-        return Result<PropertyValue>::success(std::move(*value));
+        const void* component, const Json::Context& context, std::string_view location) {
+        return ReflectionJson::copy_value(property, component, context, location);
     }
-
     Result<void> write_property_value(Json::Writer& writer, const PropertyRecord& property) {
-        return std::visit(
-            [&writer](const auto& value) -> Result<void> {
-                using T = std::remove_cvref_t<decltype(value)>;
-                if constexpr(std::is_same_v<T, Math::Vec3> || std::is_same_v<T, Math::Vec4>)
-                    Json::write_vector(writer, value);
-                else if constexpr(std::is_same_v<T, AssetHandle>)
-                    writer.value(value.value());
-                else if constexpr(std::is_same_v<T, uint32_t>)
-                    writer.value(uint64_t{value});
-                else if constexpr(std::is_same_v<T, EntityUuid>)
-                    write_entity_reference(writer, value);
-                else if constexpr(std::is_same_v<T, ParameterMap>)
-                    return Json::write_parameters(writer, value, Json::Context("scene", "<memory>"),
-                        "parameters", write_entity_reference);
-                else
-                    writer.value(value);
-                return Result<void>::success();
-            },
-            property.value);
+        return ReflectionJson::write_value(writer, *property.descriptor, property.value,
+            Json::Context("scene", "<memory>"), property.descriptor->id);
     }
 
     std::string entity_location(const std::size_t index) {
@@ -460,7 +321,7 @@ namespace Comet::SceneFormat {
                 if(!child)
                     return Result<EntityRecord>::failure(child.error());
                 auto value =
-                    read_property_value(property, child.value(), context, property_location);
+                    ReflectionJson::read_value(property, child.value(), context, property_location);
                 if(!value)
                     return Result<EntityRecord>::failure(value.error());
                 component_record.properties.push_back(

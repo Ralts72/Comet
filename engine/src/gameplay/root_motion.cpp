@@ -1,5 +1,5 @@
 #include "gameplay/root_motion.h"
-#include "gameplay/navigation_system.h"
+#include "gameplay/navigation_access.h"
 #include "animation/animation_data.h"
 #include "physics/physics_access.h"
 #include "scene/scene.h"

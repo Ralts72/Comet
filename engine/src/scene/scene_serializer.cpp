@@ -1,4 +1,6 @@
 #include "scene/scene_serializer.h"
+#include "scene/settings_registration.h"
+#include "reflection/type_json.h"
 #include "scene/prefab.h"
 #include "scene/scene_format.h"
 
@@ -195,60 +197,11 @@ namespace Comet {
                 write_volumetric_fog(writer, environment.volumetric_fog);
             }
             writer.end_object();
-            const auto& post_process = content.post_process;
             writer.key("post_process");
-            writer.begin_object();
-            writer.field("exposure", post_process.exposure);
-            writer.field("bloom_enabled", post_process.bloom_enabled);
-            writer.field("bloom_strength", post_process.bloom_strength);
-            writer.field("bloom_threshold", post_process.bloom_threshold);
-            writer.field("ao_enabled", post_process.ao_enabled);
-            writer.field("weighted_oit", post_process.weighted_oit);
-            writer.field("ao_radius", post_process.ao_radius);
-            writer.field("ao_strength", post_process.ao_strength);
-            if(post_process.reflections != ScreenSpaceReflectionSettings{}) {
-                const auto& reflections = post_process.reflections;
-                writer.key("screen_space_reflections");
-                writer.begin_object();
-                writer.field("enabled", reflections.enabled);
-                writer.field("strength", reflections.strength);
-                writer.field("max_distance", reflections.max_distance);
-                writer.field("thickness", reflections.thickness);
-                writer.field("max_roughness", reflections.max_roughness);
-                writer.end_object();
-            }
-            if(post_process.lens != LensSettings{}) {
-                const auto& lens = post_process.lens;
-                writer.key("lens");
-                writer.begin_object();
-                writer.field("depth_of_field", lens.depth_of_field);
-                writer.field("focus_distance", lens.focus_distance);
-                writer.field("focus_range", lens.focus_range);
-                writer.field("aperture", lens.aperture);
-                writer.field("motion_blur", lens.motion_blur);
-                writer.field("shutter", lens.shutter);
-                writer.field("max_blur", lens.max_blur);
-                writer.end_object();
-            }
-            if(post_process.path_trace != PathTraceSettings{}) {
-                const auto& trace = post_process.path_trace;
-                writer.key("path_trace");
-                writer.begin_object();
-                writer.field("enabled", trace.enabled);
-                writer.field("dynamic", trace.dynamic);
-                writer.field("denoise", trace.denoise);
-                writer.field("samples", uint64_t(trace.samples));
-                writer.field("bounces", uint64_t(trace.bounces));
-                writer.field("seed", uint64_t(trace.seed));
-                writer.field("max_dimension", uint64_t(trace.max_dimension));
-                writer.field("history_weight", trace.history_weight);
-                writer.field("medium_density", trace.medium_density);
-                writer.field("medium_anisotropy", trace.medium_anisotropy);
-                writer.key("medium_color");
-                Json::write_vector(writer, trace.medium_color);
-                writer.end_object();
-            }
-            writer.end_object();
+            if(auto result = ReflectionJson::write_object(writer, post_process_descriptor(),
+                   content.post_process, Json::Context("scene", "<memory>"), "post_process");
+                !result)
+                return Result<std::string>::failure(result.error());
         }
         writer.key("entities");
         writer.begin_array();
@@ -418,161 +371,10 @@ namespace Comet {
             error != Json::MISSING_FIELD) {
             if(error)
                 return LoadResult::failure(context.error("post_process", "invalid object"));
-            if(auto valid = context.validate_keys(post_process_node,
-                   {"exposure", "bloom_enabled", "bloom_strength", "bloom_threshold", "ao_enabled",
-                       "ao_radius", "ao_strength", "screen_space_reflections", "weighted_oit",
-                       "lens", "path_trace"},
-                   "post_process");
-                !valid)
-                return LoadResult::failure(valid.error());
-            const auto exposure = context.read_field<float>(
-                post_process_node, "exposure", "a finite number", "post_process");
-            const auto enabled = context.read_field<bool>(
-                post_process_node, "bloom_enabled", "a boolean", "post_process");
-            const auto strength = context.read_field<float>(
-                post_process_node, "bloom_strength", "a finite number", "post_process");
-            const auto threshold = context.read_field<float>(
-                post_process_node, "bloom_threshold", "a finite number", "post_process");
-            if(!exposure)
-                return LoadResult::failure(exposure.error());
-            if(!enabled)
-                return LoadResult::failure(enabled.error());
-            if(!strength)
-                return LoadResult::failure(strength.error());
-            if(!threshold)
-                return LoadResult::failure(threshold.error());
-            PostProcessSettings settings{
-                exposure.value(), enabled.value(), strength.value(), threshold.value()};
-            const auto weighted = context.read_optional_field<bool>(
-                post_process_node, "weighted_oit", "a boolean", "post_process");
-            if(!weighted)
-                return LoadResult::failure(weighted.error());
-            settings.weighted_oit = weighted.value().value_or(false);
-            const auto ao_enabled = context.read_optional_field<bool>(
-                post_process_node, "ao_enabled", "a boolean", "post_process");
-            const auto ao_radius = context.read_optional_field<float>(
-                post_process_node, "ao_radius", "a finite number", "post_process");
-            const auto ao_strength = context.read_optional_field<float>(
-                post_process_node, "ao_strength", "a finite number", "post_process");
-            if(!ao_enabled)
-                return LoadResult::failure(ao_enabled.error());
-            if(!ao_radius)
-                return LoadResult::failure(ao_radius.error());
-            if(!ao_strength)
-                return LoadResult::failure(ao_strength.error());
-            settings.ao_enabled = ao_enabled.value().value_or(settings.ao_enabled);
-            settings.ao_radius = ao_radius.value().value_or(settings.ao_radius);
-            settings.ao_strength = ao_strength.value().value_or(settings.ao_strength);
-            const auto reflections = context.find(post_process_node, "screen_space_reflections");
-            if(!reflections)
-                return LoadResult::failure(reflections.error());
-            if(reflections.value()) {
-                constexpr std::string_view location = "post_process.screen_space_reflections";
-                const auto node = *reflections.value();
-                if(auto valid = context.validate_keys(node,
-                       {"enabled", "strength", "max_distance", "thickness", "max_roughness"},
-                       location);
-                    !valid)
-                    return LoadResult::failure(valid.error());
-                auto& value = settings.reflections;
-                const auto enabled =
-                    context.read_optional_field<bool>(node, "enabled", "a boolean", location);
-                if(!enabled)
-                    return LoadResult::failure(enabled.error());
-                value.enabled = enabled.value().value_or(value.enabled);
-                for(const auto& [key, target] :
-                    {std::pair{"strength", &value.strength}, {"max_distance", &value.max_distance},
-                        {"thickness", &value.thickness}, {"max_roughness", &value.max_roughness}}) {
-                    const auto number =
-                        context.read_optional_field<float>(node, key, "a finite number", location);
-                    if(!number)
-                        return LoadResult::failure(number.error());
-                    *target = number.value().value_or(*target);
-                }
-            }
-            const auto lens_node = context.find(post_process_node, "lens");
-            if(!lens_node)
-                return LoadResult::failure(lens_node.error());
-            if(lens_node.value()) {
-                constexpr std::string_view location = "post_process.lens";
-                const auto node = *lens_node.value();
-                if(auto valid = context.validate_keys(node,
-                       {"depth_of_field", "focus_distance", "focus_range", "aperture",
-                           "motion_blur", "shutter", "max_blur"},
-                       location);
-                    !valid)
-                    return LoadResult::failure(valid.error());
-                auto& lens = settings.lens;
-                for(const auto& [key, target] : {std::pair{"depth_of_field", &lens.depth_of_field},
-                        {"motion_blur", &lens.motion_blur}}) {
-                    const auto value =
-                        context.read_optional_field<bool>(node, key, "a boolean", location);
-                    if(!value)
-                        return LoadResult::failure(value.error());
-                    *target = value.value().value_or(*target);
-                }
-                for(const auto& [key, target] : {std::pair{"focus_distance", &lens.focus_distance},
-                        {"focus_range", &lens.focus_range}, {"aperture", &lens.aperture},
-                        {"shutter", &lens.shutter}, {"max_blur", &lens.max_blur}}) {
-                    const auto value =
-                        context.read_optional_field<float>(node, key, "a finite number", location);
-                    if(!value)
-                        return LoadResult::failure(value.error());
-                    *target = value.value().value_or(*target);
-                }
-            }
-            const auto trace_node = context.find(post_process_node, "path_trace");
-            if(!trace_node)
-                return LoadResult::failure(trace_node.error());
-            if(trace_node.value()) {
-                constexpr std::string_view location = "post_process.path_trace";
-                const auto node = *trace_node.value();
-                if(auto valid = context.validate_keys(node,
-                       {"enabled", "dynamic", "denoise", "samples", "bounces", "seed",
-                           "max_dimension", "history_weight", "medium_density", "medium_anisotropy",
-                           "medium_color"},
-                       location);
-                    !valid)
-                    return LoadResult::failure(valid.error());
-                auto& trace = settings.path_trace;
-                for(const auto& [key, target] : {std::pair{"enabled", &trace.enabled},
-                        {"dynamic", &trace.dynamic}, {"denoise", &trace.denoise}}) {
-                    const auto value =
-                        context.read_optional_field<bool>(node, key, "a boolean", location);
-                    if(!value)
-                        return LoadResult::failure(value.error());
-                    *target = value.value().value_or(*target);
-                }
-                for(const auto& [key, target] :
-                    {std::pair{"samples", &trace.samples}, {"bounces", &trace.bounces},
-                        {"seed", &trace.seed}, {"max_dimension", &trace.max_dimension}}) {
-                    const auto value = context.read_optional_field<uint32_t>(
-                        node, key, "an unsigned integer", location);
-                    if(!value)
-                        return LoadResult::failure(value.error());
-                    *target = value.value().value_or(*target);
-                }
-                for(const auto& [key, target] : {std::pair{"history_weight", &trace.history_weight},
-                        {"medium_density", &trace.medium_density},
-                        {"medium_anisotropy", &trace.medium_anisotropy}}) {
-                    const auto value =
-                        context.read_optional_field<float>(node, key, "a finite number", location);
-                    if(!value)
-                        return LoadResult::failure(value.error());
-                    *target = value.value().value_or(*target);
-                }
-                const auto color_node = context.find(node, "medium_color");
-                if(!color_node)
-                    return LoadResult::failure(color_node.error());
-                if(color_node.value()) {
-                    const auto color = Json::read_vector<Math::Vec3>(
-                        *color_node.value(), context, "post_process.path_trace.medium_color");
-                    if(!color)
-                        return LoadResult::failure(color.error());
-                    trace.medium_color = color.value();
-                }
-            }
-            content.post_process = settings;
+            if(auto result = ReflectionJson::read_object(post_process_descriptor(),
+                   post_process_node, content.post_process, context, "post_process");
+                !result)
+                return LoadResult::failure(result.error());
         }
         if(auto expanded = expand_instances(content, source); !expanded)
             return LoadResult::failure(expanded.error());

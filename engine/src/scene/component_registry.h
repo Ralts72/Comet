@@ -4,7 +4,7 @@
 
 #include "asset/reference.h"
 #include "common/error.h"
-#include "scene/property.h"
+#include "reflection/type.h"
 #include "common/export.h"
 #include "scene/scene.h"
 
@@ -17,12 +17,11 @@
 #include <vector>
 
 namespace Comet {
-    struct ComponentDescriptor {
-        std::string id;
-        std::string display_name;
+    enum class AssetReferenceScope { All, Runtime, Resident };
+    struct ComponentDescriptor: TypeDescriptor {
         uint64_t type_id = 0; // 进程内类型标识，不写入场景文件。
         bool serializable = true;
-        std::vector<PropertyDescriptor> properties;
+        std::function<bool(const void*, AssetReferenceScope)> include_references;
         std::function<bool(const Entity&)> has_component_callback;
         std::function<void(Entity&)> add_component_callback;
         std::function<void(Entity&)> remove_component_callback;
@@ -67,22 +66,19 @@ namespace Comet {
             }
             return const_component_accessor(entity);
         }
-
-        [[nodiscard]] const PropertyDescriptor* find_property(
-            const std::string_view property_id) const {
-            for(const PropertyDescriptor& property : properties) {
-                if(property.id == property_id) {
-                    return &property;
-                }
-            }
-            return nullptr;
-        }
     };
 
     // 组件类型与属性元信息；组件实例由 Scene 持有。
     class COMET_API ComponentRegistry {
     public:
-        enum class ReferenceScope { All, Runtime, Resident };
+        using ReferenceScope = AssetReferenceScope;
+        using SceneReferences =
+            std::function<void(Scene&, ReferenceScope, std::vector<AssetReference>&)>;
+        void add_scene_references(SceneReferences collect) {
+            m_scene_references.push_back(std::move(collect));
+        }
+        void set_reference_filter(
+            std::string_view id, std::function<bool(const void*, ReferenceScope)> filter);
 
         [[nodiscard]] bool register_component(ComponentDescriptor descriptor);
 
@@ -98,60 +94,8 @@ namespace Comet {
 
     private:
         std::vector<ComponentDescriptor> m_components;
+        std::vector<SceneReferences> m_scene_references;
     };
-
-    template<typename Component>
-    ComponentDescriptor make_component_descriptor(std::string id, std::string display_name,
-        std::vector<PropertyDescriptor> properties, const bool serializable = true) {
-        ComponentDescriptor descriptor{.id = std::move(id),
-            .display_name = std::move(display_name),
-            .type_id = entt::type_hash<Component>::value(),
-            .serializable = serializable,
-            .properties = std::move(properties),
-            .has_component_callback =
-                [](const Entity& entity) { return entity.has_component<Component>(); },
-            .assign_property_callback =
-                [](Entity& entity, const PropertyDescriptor& property, const PropertyValue& value,
-                    PropertyDescriptor::WriteMode mode) {
-                    if constexpr(std::is_same_v<Component, TransformComponent>) {
-                        auto candidate = entity.get_component<Component>();
-                        return property.assign_value(&candidate, value, mode)
-                               && entity.try_set_transform(candidate);
-                    } else if constexpr(is_scene_tracked_component_v<Component>) {
-                        auto candidate = entity.get_component<Component>();
-                        return property.assign_value(&candidate, value, mode)
-                               && entity.try_set_component(candidate);
-                    } else {
-                        return property.assign_value(
-                            &entity.get_component<Component>(), value, mode);
-                    }
-                },
-            .const_component_accessor = [](const Entity& entity) -> const void* {
-                return &entity.get_component<Component>();
-            }};
-        if constexpr(!is_scene_managed_component_v<Component>) {
-            descriptor.add_component_callback = [](Entity& entity) {
-                entity.add_component<Component>();
-            };
-            descriptor.remove_component_callback = [](Entity& entity) {
-                entity.remove_component<Component>();
-            };
-            if constexpr(std::is_copy_constructible_v<Component>) {
-                descriptor.capture_component_callback = [](const Entity& entity) {
-                    return std::any(entity.get_component<Component>());
-                };
-                descriptor.restore_component_callback = [](Entity& entity,
-                                                            const std::any& snapshot) {
-                    const auto* value = std::any_cast<Component>(&snapshot);
-                    if(!value)
-                        return false;
-                    entity.add_component<Component>(*value);
-                    return true;
-                };
-            }
-        }
-        return descriptor;
-    }
 
     [[nodiscard]] COMET_API ComponentRegistry create_scene_component_registry();
 }

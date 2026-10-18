@@ -12,6 +12,17 @@ namespace Comet {
 
     class COMET_API System {
     public:
+        enum class Order {
+            Input,
+            Gameplay,
+            Animation,
+            Physics,
+            Constraints,
+            Camera,
+            Environment,
+            Particles,
+            Audio
+        };
         struct Context {
             double delta_time;
             double total_time;

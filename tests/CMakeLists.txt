@@ -142,6 +142,7 @@ set(UNIT_TEST_SOURCES
         scene/test_camera_controller.cpp
         scene/test_character_controller.cpp
         scene/test_component_registry.cpp
+        scene/test_reflection.cpp
         scene/test_entity_uuid.cpp
         scene/test_physics_system.cpp
         scene/test_physics_joints.cpp
@@ -371,6 +372,7 @@ set_tests_properties(render_graph_sync_validation PROPERTIES
 add_executable(post_process_recovery test.cpp render/test_post_process_recovery.cpp
         "${CMAKE_SOURCE_DIR}/engine/src/render/passes/skinning_pass.cpp"
         "${CMAKE_SOURCE_DIR}/engine/src/render/renderer.cpp"
+        "${CMAKE_SOURCE_DIR}/engine/src/render/scene/render_frontend.cpp"
         "${CMAKE_SOURCE_DIR}/engine/src/render/scene/scene_renderer.cpp"
         "${CMAKE_SOURCE_DIR}/engine/src/graphics/convert.cpp")
 target_link_libraries(post_process_recovery PRIVATE engine gtest)

@@ -6,7 +6,7 @@
 
 | 调用链 | 阅读入口与责任 |
 | --- | --- |
-| 启动与装配 | `app/game_app.cpp`／`editor/editor.cpp` → `Application` → `Engine::run`；宿主选择项目与工作流，Engine 组合服务并安排帧阶段 |
+| 启动与装配 | `app/game_app.cpp`／`editor/editor.cpp` → `Application` → `Engine::run`；宿主选择项目与工作流，Engine 持有 World 组合对象并安排帧阶段 |
 | 模拟 | `Engine::tick` → `SceneRuntime::advance` → System 固定／后置固定／普通更新；Scene 保存内容和有阶段寿命的请求、输出，服务拥有后端对象 |
 | 内容依赖 | `ComponentRegistry::collect_asset_references` 查询直接引用 → `asset/runtime/scene_dependencies` 展开脚本属性、GameData 与 Prefab 闭包 → App／Play 准备或工具导出 |
 | 资产发布 | `AssetManager` → ImportService／任务队列 → RenderResourceFactory 候选 → Main 复核并注册；格式算法不进入发布 owner |
@@ -14,7 +14,7 @@
 | 编辑 | Inspector／Viewport → 属性事务、命令与 SceneDocument → Entity 内容写入；EditorSceneSession 切换 Edit／Play，GameSession 管运行关卡和检查点 |
 | 游戏界面 | 项目 RML／Lua → ProjectUi 服务与命名事件 → 当前运行域脚本；游戏规则留在项目，App／Editor 适配各自窗口和输入授权 |
 
-`ComponentRegistry` 集中声明组件与属性，SceneRuntime 集中维护阶段，Engine／Editor 集中装配模块。它们可以有较长的声明或编排代码；是否拆分取决于领域算法、独立生命周期或依赖是否混入，不按行数决定。Scene 的持久内容、阶段请求、Edit／Play 共用呈现输出也不能为了字段更少而统一塞进 RuntimeSession。
+`ComponentRegistry` 保存通用类型描述；组件声明、引用策略和变更规则由 scene／render／animation／physics／gameplay／audio／particles 各领域提供，在 `runtime/component_registration.cpp` 显式装配。SceneRuntime 维护执行阶段，World 组合场景与运行服务，Engine／Editor 装配进程和宿主能力。它们可以有较长的声明或编排代码；是否拆分取决于领域算法、独立生命周期或依赖是否混入，不按行数决定。Scene 的持久内容、阶段请求、Edit／Play 共用呈现输出也不能为了字段更少而统一塞进 RuntimeSession。
 
 ## 构建模块
 
@@ -93,16 +93,20 @@ CTest 检查直接及传递 include，并在临时副本中验证反向依赖会
 
 | Owner | 拥有 | 借用／交付 |
 | --- | --- | --- |
-| Engine | Window、Scene、Registry、TaskScheduler、Renderer、RenderThread、Runtime、音频与物理服务 | Main 调用宿主钩子；交付一帧并取回绘制结果 |
+| Engine | Window、World、Registry、TaskScheduler、Renderer、RenderThread | Main 调用宿主钩子；交付一帧并取回绘制结果 |
+| World（组合对象） | Scene、SceneRuntime、物理与音频服务 | 借用资产与材质校验能力；换场景先停止 Runtime；关闭先释放 System 再销毁服务 |
 | Scene | 场景内容、实体身份、真实世界变换与临时呈现变换 | Runtime 推进固定步；提取器读取呈现姿态 |
 | SceneRuntime | RuntimeSession 和 System 实例 | 借用当前 Scene 与 RuntimeServices，停止后结束借用 |
 | System | 脚本实例或实体／组件绑定 | 借用资产定义和服务；同步配置，回写输出 |
 | AssetManager | 加载、导入任务、失效和发布编排 | 借用索引与 Registry，移交 CPU 产品创建 GPU 候选，复核后注册版本 |
-| Renderer | 图形上下文、资源服务、帧调度、呈现和场景渲染状态 | 交付离屏帧／诊断快照；在途 slot 保活所用版本 |
+| RenderFrontend | Main 视图请求、拾取／线段请求、路径追踪和实时 GI 的 CPU 场景准备 | 只消费固定版本的 RenderWorld，交付 RenderFrame；不持有图形设备或 GPU 对象 |
+| Renderer | RenderFrontend 及图形上下文、资源服务、帧调度、呈现和场景渲染状态 | 交付离屏帧／诊断快照；在途 slot 保活所用版本 |
 | EditorAssets | 编辑器项目索引、源文件操作、资产管理和引用维护 | Worker 交付候选；主线程复核并提交 |
 | EditorSceneSession／SceneDocument | 保留的 Edit 内容、Play 切换、文档路径和保存点 | 通过 Engine 激活场景；命令历史只编辑 Edit 内容 |
 | 宿主玩家设置／ProjectUi | 玩家选择实例、页面和独立 UI 控制器 | 宿主注入读取、保存、应用及确认服务 |
 
+World 类是 engine 的组合对象，不是 `comet_world` 内容模块；它可以装配各服务，内容模块仍不依赖具体后端。当前 App／Editor 都使用一个活动 World，音频服务连同设备继续属于该 World，不引入多世界音频设备管理。
+Renderer 保留宿主门面；内部 RenderFrontend 在 Main 收集请求与准备 CPU 数据，GPU 状态和反馈由渲染线程操作，交接期间不并发修改。准备类不以 GPU backend 回读活动 Scene。
 后台 CPU Worker 导入／解码／编译并交付自有结果；同步 AssetLoader 仍可在 Main 读取产品及准备 CPU 数据。
 Main 接纳索引和任务结果，RenderThread 创建 GPU 候选并返回，Main 复核后注册到 Registry。渲染域的程序与 Pipeline 发布由 RenderThread 管理；文件监听只提示复核，不直接修改世界或资源。
 候选携带实际输入和版本身份，过期结果拒绝发布；连续保存沿既有任务背压和最新请求合并流程处理。
@@ -233,7 +237,7 @@ ImportInputSnapshot 统一校验源文件首项、规范化相对路径及依赖
 Environment 按纹理读取，发布时将头部和四份纹理存储分块原子写入，避免再复制一份完整像素 payload。
 TextureArtifact 保存导入设置与完整二维 mip 链，ImportService 按源指纹、算法版本和设置复用缓存；预准备工具、加载与重新导入共用该入口。
 TextureImporter 的文件与内存入口共用解码、用途设置和 mip 生成，GLB 内嵌图片无需先写临时文件。
-纹理产物发布不等于运行资源发布，AssetManager 仍在 GPU 候选完成后复核 revision。开发模式的模型／纹理／环境源版本、设置与 metadata 检查归 ImportService，导入准备与 Loader 共用；Loader 保留索引、CPU 缓存和运行发布。只读产品不检查开发源码，当前仍共用一个 engine 的导入编译依赖。
+纹理产物发布不等于运行资源发布，AssetManager 仍在 GPU 候选完成后复核 revision。AssetLoader 通过 `AssetProductReader` 读取 CPU 产品，不包含 ImportService；开发来源适配器负责源版本、设置与 metadata 检查和导入准备，只读来源直接读取产品索引。读取策略在 scan 确定数据库模式之后按当前状态选择；Loader 保留索引、唯一的模型 CPU 缓存与子资源身份校验，网格和纹理共用这份已验证模型，不在来源适配器重复读取整份模型。只读产品不检查开发源码，当前仍共用一个 engine 的导入编译依赖。
 导出项目以根目录 `assets.index.json` 初始化同一 AssetDatabase 的只读模式：稳定身份、运行文件、依赖及纹理采样方式一次读取，不扫描源文件或写 sidecar。
 桌面打包由 `tools/export_app.py` 自动增量构建既有 `app-release`，再组合资源导出；构建失败即停止。Editor 仅收集输出路径／关卡，在后台调用同一工具，并在主线程显示阶段与日志。macOS 随包携带动态库、MoltenVK、配置、字体与图标，运行时通过可执行文件位置解析资源；产品日志／缓存写入项目 UUID 对应的用户目录。
 AssetLoader 直接读索引中的 Mesh／Texture／Environment／ShaderProgram 产品；模型子资源已展开，场景中的 Prefab 来源基线不进入运行产品。Data／Navigation／AnimationLibrary 共用文件型内容装载；内容读取和动画来源绑定完成后，才由现有发布入口复核索引及 Registry 版本并注册资源。
@@ -282,7 +286,7 @@ Prefab 通过 SceneSerializer 的实体格式保存内容，不携带关卡环�
 Editor 的源写回命令组合资产文件更新与同一子树替换，Undo／Redo 一起恢复文件和实例基线；保存失败补偿文件与场景，不移动历史游标。
 后续资产编辑已改变来源时，旧撤销不能覆盖它。恢复覆盖则只替换实例内容，保留放置与已有身份，并拒绝破坏关卡中的外部引用。
 Prefab 来源元数据只由编辑更新消费；运行资源依赖包括展开实体，以及 Lua 的显式 Prefab 参数。
-ComponentRegistry 通过调用方提供的 Script／Prefab 加载器收集递归依赖，AssetManager 与内容导出共用此遍历；World 不持有资源管理器。
+ComponentRegistry 按领域规则收集直接资产引用；scene_dependencies 通过调用方提供的 Script／Prefab 加载器展开闭包，AssetManager 与内容导出共用此遍历；World 内容模块不持有资源管理器。
 Script 的 Prefab 参数沿用参数表，以字符串保存精确资产身份；Inspector 用资产选择器编辑，不向 Lua 暴露文件加载。
 Scene 在阶段末提交拥有 Prefab 与组件描述生命周期的生成请求，复用 EntityTrees 身份重映射；Lua 返回预留根 UUID，提交后可查询。
 运行生成不带编辑器来源基线；物理仍要求刚体在根实体，子树中的渲染及脚本实体可以引用这个根。
@@ -290,6 +294,37 @@ Scene 在阶段末提交拥有 Prefab 与组件描述生命周期的生成请求
 资产层的 `read_prefab_content` 通过索引读入来源，World 的 `Prefab::resolve_nested` 仅接收读取回调并在独立候选中递归合并；循环、缺失与超过 16 层的来源关系明确失败。
 内层新增节点按实例根与源 UUID 派生稳定身份，重复加载不会不断换 UUID；碰撞时拒绝候选。更新未独立改变的内层来源关系，保留已单独更新／解除的关系。
 Prefab 修改或资产删除时释放定义缓存，下次展开读取当前来源；项目场景重新打开时读取当前来源并复用 Prefab 合并规则，已打开的活动场景持有原基线，仍由显式更新命令修改实体。导出 Prefab 和 Scene 都移除编辑基线，仅保留已展开内容及真正的运行资源依赖。
+
+### 类型反射与注册
+
+反射复用现有 EnTT 的 `meta`，不增加独立反射库。`reflection/entt_backend.h` 的注册实现借用 engine 持有的唯一上下文，App、Editor 和自定义类型测试共用它，避免各动态库使用自己的默认类型表。
+
+`reflection/type.h` 提供不暴露 `meta_any`／`meta_type` 的 TypeDescriptor／PropertyDescriptor。类型发现、属性访问、顺序容器视图、构造与方法调用复用 EnTT；稳定字段 ID、枚举名称、编辑／保存策略、有界值快照和引用语义由 Comet 定义。组件描述再增加 ECS 增删、快照和受控写入回调；动态反射不直接修改 Scene 中的实体。描述只在启动装配时建立，稳定帧不进行全量反射扫描。
+
+普通消费者使用 `type.h`／`type_registry.h`；声明新类型时引入 Comet 的 `reflection/registration.h` 或 `scene/component_registration.h`。EnTT 反射接口集中在适配层，模块检查禁止业务代码直接使用它们。成员节点可能因注册扩容移动，访问器只保存类型身份和成员 ID；容器快照按顺序遍历，可选值与布尔代理保留明确的值语义。
+
+显式链式注册用于普通结构与组件；`COMET_FIELD` 展开字段字符串和 Comet 成员标记，成员指针是编译期参数，不生成全局对象或自动注册：
+
+```cpp
+const auto stats = describe_type<Stats>("stats", "角色数值")
+    .field(COMET_FIELD(Stats, health), "生命值")
+    .build();
+auto character = describe_component<Character>("character", "角色")
+    .field(COMET_FIELD(Character, stats), "数值", stats)
+    .build();
+if(!registry.register_component(std::move(character)))
+    LOG_FATAL("Invalid character schema");
+```
+
+宏适合字段 ID 与 C++ 成员同名的情况；需要长期兼容的 ID 可显式使用 `.field("stable_id", ReflectedMember<&Type::renamed>{}, "名称")`，重命名 C++ 成员时保留已有 ID。枚举用 `enum_field` 显式声明稳定枚举名。每个 C++ 类型首次有效的 `build()` 发布其类型描述到 EnTT 上下文，后续宿主装配可复用属性访问器；局部描述可收窄编辑策略，不另造一种运行类型。同一 C++ 类型保持同一稳定类型 ID，枚举保持一致的名称映射。
+
+`Reflection::find_type`／`registered_types` 查询显式装配的类型，`Reflection::create` 默认构造独立值对象；属性读写仍走描述校验。链式 `.method<&PostProcessSettings::uses_bloom>("uses_bloom")` 显式开放方法，`Object::invoke` 校验参数数量和精确类型，返回受支持的 PropertyValue 或 void。反射对象不属于 ECS，不能借此绕过组件写入通知、撤销或物理同步；方法应承担自身业务校验。当前没有自动公开全部方法给 Lua、通用插件发现或代码生成，也未给现有组件增加反射继承层级。
+
+支持既有标量、Vec3／Vec4、枚举、资产／实体引用与参数表；复合字段支持显式描述的结构、`std::vector`、`std::array`、`std::optional`，并限制容器长度。元素默认值来自对应 C++ 值类型。容器元素可以是标量或描述过的结构；枚举直接作为字段注册。无序字典和任意指针不作为持久属性。
+
+`ReflectionJson` 复用描述处理嵌套对象、数组和 null；先验证完整候选，再提交对象，拒绝重复字段、未知字段、数量／数值越界。Scene、Prefab、Undo 和资源引用收集共用深复制的属性值；实体引用会递归重映射，资产引用沿子字段的类型约束收集。后处理配置已经复用该编解码，保持原有 JSON 字段及默认省略规则。跨字段业务校验仍归领域类型。
+
+属性路径使用 `settings.targets[0].weight`；可选值存在时可继续访问内部字段。路径访问通过完整根字段候选写回，不借用会因容器扩容失效的元素地址，失败不留下部分写入。Inspector 为复合字段提供折叠层级、数组增删和可选值开关，事务仍按原手势提交一次；复合属性作为整体快照提交，Prefab 覆盖继续以注册的根字段为单位，属性路径可单独撤销。脚本参数与其他专用工作流继续保留自己的声明和界面。
 
 ### 系统更新与场景边界
 
@@ -302,15 +337,15 @@ RuntimeSession 只收集保存／继续意图，GameSession 在帧边界调用�
 宿主负责项目路径解析、资源准备及活动场景替换。EditorSceneSession 另外保留原 Edit owner，Stop 恢复其身份和历史；App 在候选资产等待期间暂停旧 Runtime，只有就绪后才安装新场景。
 父子关系只由 Scene 修改并保持无环；子树删除直接遍历子节点索引，收集完毕后从后代向祖先清理。
 Runtime 统一控制系统启停、部分启动失败、暂停和单步；System 不重复实现生命周期状态机。
-每个固定步先按注册顺序执行 `fixed_update` 并提交结构请求，再执行 `post_fixed_update` 并提交本阶段的请求；最后才进入每帧 `update`。
-全部 System 的 on_start 与启动结构提交结束后，SceneRuntime 调用 on_runtime_ready。NavigationSystem 此时读取已准备物理世界的静态碰撞三角形；有离线产品时验证几何／参数指纹并初始化 Detour，否则临时执行 Recast。指定产品无效时明确失败，沿既有逆序停止路径处理，尚未推进模拟。
+System 注册时显式指定 `System::Order`：输入意图、Gameplay、动画、物理、约束、相机、环境、粒子、音频。同一顺序保持注册先后；未指定者属于 Gameplay。每个固定步按此表执行 `fixed_update` 并提交结构请求，再按同表执行 `post_fixed_update` 并提交请求；最后执行每帧 `update`／`post_update`。生命周期仍按注册顺序启动、逆序停止，与更新顺序分别维护。
+全部 System 的 on_start 与启动结构提交结束后，SceneRuntime 调用 on_runtime_ready。NavigationSystem 调度 NavigationService，此时服务读取已准备物理世界的静态碰撞三角形；有离线产品时验证几何／参数指纹并初始化 Detour，否则临时执行 Recast。指定产品无效时明确失败，沿既有逆序停止路径处理，尚未推进模拟。
 NavigationData 属于资产数据层，封装有界 tile、版本与校验和；NavigationMesh 在交给 Detour 前核对 native 布局、数组范围与索引，并独立拥有查询数据。Registry、资产准备与导出共用现有 CPU 资源链路。
 离线准备在 `tools/asset/navigation_bake`：Main 克隆内容、准备独立物理世界并捕获静态几何，后台只持有 CPU 三角形与设置。Editor 接纳前复核场景寿命与输入；按区域及指纹复用产物，引用通过既有属性事务提交，撤销保留独立资产。
-NavigationLink 随静态几何参与烘焙指纹；Detour 路径保留连接方向和终点，NavigationSystem 在起点提交一次弹道初速度，后续仅控制水平速度，Jolt 继续处理重力、碰撞与落地。NavigationObstacle 将世界包围盒对齐 Recast 栅格，仅遮挡单元变化时从缓存静态几何重建并推进网格代次；稳定帧只检查有界障碍集。路径失效后仍服从每步查询预算；被拒请求按等待顺序获得后续固定步的预留额度，持续重建不会让固定调用顺序靠后的角色长期失去查询机会。
-固定步重置查询预算、同步动态障碍并回收角色路径；Recast 构建、产品加载、动态重建、整个准备和查询分别计数。NavigationMesh 的公开头不暴露第三方类型；NavigationSystem 持有路径缓存，Lua 只提交目标，Demo 决定巡逻／追逐规则。几何与产品都由 Engine 通过回调提供，Gameplay 不依赖资产数据库、Jolt 或 PhysicsService 实现。Stop 清理网格与缓存，路径不进入场景序列化。
+NavigationLink 随静态几何参与烘焙指纹；Detour 路径保留连接方向和终点，NavigationService 在起点提交一次弹道初速度，后续仅控制水平速度，Jolt 继续处理重力、碰撞与落地。NavigationObstacle 将世界包围盒对齐 Recast 栅格，仅遮挡单元变化时从缓存静态几何重建并推进网格代次；稳定帧只检查有界障碍集。路径失效后仍服从每步查询预算；被拒请求按等待顺序获得后续固定步的预留额度，持续重建不会让固定调用顺序靠后的角色长期失去查询机会。
+固定步重置查询预算、同步动态障碍并回收角色路径；Recast 构建、产品加载、动态重建、整个准备和查询分别计数。NavigationMesh 的公开头不暴露第三方类型；NavigationService 持有导航网格、查询预算与路径缓存，NavigationSystem 只接入 Runtime 生命周期；Lua 和根运动只借用 NavigationAccess 能力。Demo 决定巡逻／追逐规则。几何与产品都由 World 通过回调提供，Gameplay 不依赖资产数据库、Jolt 或 PhysicsService 实现。Stop 清理网格与缓存，路径不进入场景序列化。
 
 默认固定步依次执行脚本意图、角色动画参数、根运动动画提取与 Gameplay 消费、PhysicsSystem 同步／求解／回写，再更新粒子；接触在该步的后置阶段交付脚本，阶段结束即清空。
-导航跨层连接的起跳与飞行由 NavigationSystem 独占运动控制，根运动在穿越期间不提交位移或转向，落地后恢复。根运动或脚部 IK 的实例使用固定步，其他动画仍在帧更新中推进，不同时使用两套时钟。
+导航跨层连接的起跳与飞行由 NavigationService 独占运动控制，根运动在穿越期间不提交位移或转向，落地后恢复。根运动或脚部 IK 的实例使用固定步，其他动画仍在帧更新中推进，不同时使用两套时钟。
 固定更新中删除的实体不再收到接触；接触回调的结构请求在下一固定步前生效。后置阶段复用本步时间和输入，不再次消费边沿。
 普通更新执行相机、脚本玩法／自定义事件和声音源同步，不重复交付接触。暂停不执行更新，单步完整执行一次固定、后置和普通阶段。
 

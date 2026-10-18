@@ -1,4 +1,4 @@
-#include "gameplay/navigation_system.h"
+#include "gameplay/navigation_service.h"
 #include "gameplay/character_controller.h"
 #include "physics/physics_access.h"
 #include "scene/scene.h"
@@ -91,10 +91,9 @@ namespace Comet::Gameplay {
         }
         return Output::success(std::move(links));
     }
-    NavigationSystem::NavigationSystem(GeometrySource geometry, ProductSource products)
+    NavigationService::NavigationService(GeometrySource geometry, ProductSource products)
         : m_geometry(std::move(geometry)), m_products(std::move(products)) {}
-    Result<void, Error> NavigationSystem::on_start(
-        Scene& scene, RuntimeSession&, const RuntimeServices&) {
+    Result<void, Error> NavigationService::begin(Scene& scene) {
         m_scene = &scene;
         m_prepared = false;
         m_agents.clear();
@@ -112,8 +111,7 @@ namespace Comet::Gameplay {
         m_mesh_generation = 0;
         return Result<void, Error>::success();
     }
-    Result<void, Error> NavigationSystem::on_runtime_ready(
-        Scene& scene, RuntimeSession&, const RuntimeServices&) {
+    Result<void, Error> NavigationService::prepare_startup(Scene& scene) {
         if(m_scene != &scene)
             return Result<void, Error>::failure({"Navigation requires its started scene"});
         if(m_prepared)
@@ -132,7 +130,7 @@ namespace Comet::Gameplay {
         m_prepared = true;
         return Result<void, Error>::success();
     }
-    Result<void> NavigationSystem::prepare(Scene& scene) {
+    Result<void> NavigationService::prepare(Scene& scene) {
         if(scene.component_count<NavigationRegionComponent>() == 0)
             return Result<void>::success();
         if(scene.component_count<NavigationRegionComponent>() != 1)
@@ -190,7 +188,7 @@ namespace Comet::Gameplay {
         return synchronize_obstacles(scene);
     }
 
-    Result<void> NavigationSystem::synchronize_obstacles(Scene& scene) {
+    Result<void> NavigationService::synchronize_obstacles(Scene& scene) {
         if(!m_mesh.ready())
             return Result<void>::success();
         std::vector<NavigationMesh::Obstacle> next;
@@ -247,12 +245,13 @@ namespace Comet::Gameplay {
         m_obstacles = std::move(next);
         return Result<void>::success();
     }
-    Result<void, Error> NavigationSystem::fixed_update(Scene& scene, const Context& context) {
+    Result<void, Error> NavigationService::advance(
+        Scene& scene, double total_time, double delta_time) {
         if(m_scene != &scene || !m_prepared)
             return Result<void, Error>::failure(
                 {"Navigation startup preparation has not completed"});
-        m_time = context.total_time;
-        m_delta = float(context.delta_time);
+        m_time = total_time;
+        m_delta = float(delta_time);
         ++m_step;
         m_statistics.step_path_queries = 0;
         if(auto obstacles = synchronize_obstacles(scene); !obstacles)
@@ -276,7 +275,7 @@ namespace Comet::Gameplay {
         }
         return Result<void, Error>::success();
     }
-    void NavigationSystem::on_stop(Scene&, RuntimeSession&, const RuntimeServices&) noexcept {
+    void NavigationService::end() noexcept {
         m_agents.clear();
         m_pending_queries.clear();
         m_reserved_queries = 0;
@@ -289,14 +288,14 @@ namespace Comet::Gameplay {
         m_obstacles.clear();
         m_base_product.reset();
     }
-    bool NavigationSystem::is_traversing_link(const Scene& scene, Entity entity) const {
+    bool NavigationService::is_traversing_link(const Scene& scene, Entity entity) const {
         if(m_scene != &scene || !scene.is_valid(entity))
             return false;
         const auto found = m_agents.find(entity.get_uuid());
         return found != m_agents.end() && found->second.entity == entity.get_id()
                && found->second.last_step == m_step && found->second.jump.has_value();
     }
-    void NavigationSystem::cancel_path_query(EntityUuid uuid, Agent& agent) {
+    void NavigationService::cancel_path_query(EntityUuid uuid, Agent& agent) {
         if(agent.query_reserved)
             --m_reserved_queries;
         if(agent.query_pending)
@@ -304,7 +303,7 @@ namespace Comet::Gameplay {
         agent.query_reserved = false;
         agent.query_pending = false;
     }
-    bool NavigationSystem::acquire_path_query(EntityUuid uuid, Agent& agent) {
+    bool NavigationService::acquire_path_query(EntityUuid uuid, Agent& agent) {
         if(!agent.query_reserved
             && m_statistics.step_path_queries + m_reserved_queries >= PATH_QUERY_BUDGET) {
             if(!agent.query_pending) {
@@ -318,7 +317,7 @@ namespace Comet::Gameplay {
         ++m_statistics.path_queries;
         return true;
     }
-    Result<NavigationSystem::Status> NavigationSystem::move_to(
+    Result<NavigationService::Status> NavigationService::move_to(
         Scene& scene, Entity entity, PhysicsAccess& physics, Math::Vec3 target, bool run) {
         using Output = Result<Status>;
         if(m_scene != &scene || !scene.is_valid(entity) || !physics.is_bound_to(scene)
@@ -458,7 +457,7 @@ namespace Comet::Gameplay {
         agent.status = Status::Moving;
         return Output::success(agent.status);
     }
-    Result<Math::Vec2> NavigationSystem::steer(Entity entity, PhysicsAccess& physics,
+    Result<Math::Vec2> NavigationService::steer(Entity entity, PhysicsAccess& physics,
         Math::Vec3 position, Math::Vec3 destination, float speed, float scale) {
         const auto& character = entity.get_component<CharacterControllerComponent>();
         const auto delta = Math::Vec2(destination.x - position.x, destination.z - position.z);
@@ -505,7 +504,10 @@ namespace Comet::Gameplay {
             direction *= std::min(1.f, distance / (speed * m_delta));
         return Result<Math::Vec2>::success(direction);
     }
-    const char* NavigationSystem::name(Status status) {
+}
+
+namespace Comet {
+    const char* NavigationAccess::name(Status status) {
         switch(status) {
             case Status::Moving:
                 return "moving";

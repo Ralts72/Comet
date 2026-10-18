@@ -175,6 +175,11 @@ namespace Comet::Json {
         quoted(data);
     }
 
+    void Writer::null_value() {
+        if(before_value())
+            m_output += "null";
+    }
+
     void Writer::value(bool data) {
         if(!before_value())
             return;

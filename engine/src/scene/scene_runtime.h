@@ -42,7 +42,8 @@ namespace Comet {
         Result<void, Error> set_input_actions(InputActions actions);
         // 活动运行域的绑定替换在下一次输入准备时生效，不重启系统或修改动作定义。
         Result<void, Error> rebind_input_actions(InputActions actions);
-        Result<void, Error> add_system(std::unique_ptr<System> system);
+        Result<void, Error> add_system(
+            std::unique_ptr<System> system, System::Order order = System::Order::Gameplay);
         Result<void, Error> clear_systems();
         // 按注册顺序查询；只读借用在 clear_systems 或 Runtime 销毁后失效。
         template<std::derived_from<System> T> [[nodiscard]] const T* find_system() const {
@@ -79,6 +80,11 @@ namespace Comet {
         Settings m_settings;
         Timing m_timing;
         std::vector<std::unique_ptr<System>> m_systems;
+        struct ScheduledSystem {
+            System::Order order;
+            System* system;
+        };
+        std::vector<ScheduledSystem> m_execution_order;
         Scene* m_scene = nullptr;
         size_t m_started = 0;
         bool m_executing = false;

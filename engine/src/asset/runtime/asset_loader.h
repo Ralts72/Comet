@@ -22,7 +22,7 @@ namespace Comet {
     class ModelArtifact;
     struct ModelData;
     class AssetRegistry;
-    class ImportService;
+    class AssetProductReader;
     class RenderAssetFactory;
     class ShaderProgramArtifact;
     class AudioClip;
@@ -35,9 +35,8 @@ namespace Comet {
     // CPU reads and dependency loading; uses the same index and Registry as AssetManager.
     class AssetLoader final {
     public:
-        AssetLoader(AssetDatabase& database, AssetRegistry& registry, ImportService& imports,
-            RenderAssetFactory& render_factory, std::size_t mesh_bytes, std::size_t texture_bytes,
-            std::size_t environment_bytes);
+        AssetLoader(AssetDatabase& database, AssetRegistry& registry, AssetProductReader& products,
+            RenderAssetFactory& render_factory, std::size_t mesh_bytes, std::size_t texture_bytes);
 
         [[nodiscard]] Result<std::shared_ptr<GameData>, Error> load_data(AssetHandle handle);
         [[nodiscard]] Result<std::shared_ptr<NavigationData>, Error> load_navigation(
@@ -74,9 +73,7 @@ namespace Comet {
     private:
         Result<MeshData, Error> read_mesh_data(const AssetRecord& record);
         Result<std::shared_ptr<const ModelArtifact>, Error> model_artifact(AssetHandle handle);
-        Result<std::filesystem::path, Error> model_product_path(const AssetRecord& record);
-        Result<std::filesystem::path, Error> product_path(
-            const AssetRecord& record, const std::filesystem::path& imported_path);
+        Result<std::filesystem::path, Error> product_path(const AssetRecord& record);
         Result<EnvironmentData, Error> read_environment_data(const AssetRecord& record);
         struct CachedModel {
             AssetRevision revision;
@@ -86,10 +83,9 @@ namespace Comet {
         std::unordered_map<AssetHandle, CachedModel> m_models;
         AssetDatabase& m_database;
         AssetRegistry& m_registry;
-        ImportService& m_imports;
+        AssetProductReader& m_products;
         RenderAssetFactory& m_render_factory;
         std::size_t m_mesh_bytes;
         std::size_t m_texture_bytes;
-        std::size_t m_environment_bytes;
     };
 }

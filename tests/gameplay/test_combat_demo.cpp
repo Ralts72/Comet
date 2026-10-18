@@ -93,7 +93,7 @@ namespace Comet::Tests {
                 [&](AssetHandle id) { return assets.resolve<NavigationData>(id); });
             ASSERT_TRUE(runtime.set_input_actions(project.value().input_actions()));
             ASSERT_TRUE(runtime.set_services(
-                {.audio = &audio, .physics = &physics, .navigation = navigation.get()}));
+                {.audio = &audio, .physics = &physics, .navigation = &navigation->service()}));
             ASSERT_TRUE(runtime.add_system(std::move(navigation)));
             ASSERT_TRUE(runtime.add_system(std::make_unique<CameraControllerSystem>()));
             ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(assets)));

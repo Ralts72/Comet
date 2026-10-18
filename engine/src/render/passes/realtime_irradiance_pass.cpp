@@ -290,28 +290,6 @@ namespace Comet {
         return Result<void, GraphicsError>::success();
     }
 
-    Result<Math::Vec3u> RealtimeIrradiancePass::validate_region(
-        const RenderIrradianceVolume& volume) {
-        if(!Math::is_finite(volume.center) || !Math::is_finite(volume.half_extents)
-            || Math::any_less_equal(volume.half_extents, Math::Vec3(0))
-            || !std::isfinite(volume.spacing) || volume.spacing < .01f
-            || !std::isfinite(volume.max_distance) || volume.max_distance <= 0
-            || volume.max_distance > 100000 || !volume.update_budget || volume.update_budget > 4096
-            || volume.update_rays < 64 || volume.update_rays > 256
-            || !std::isfinite(volume.history_weight) || volume.history_weight < 0
-            || volume.history_weight > .99f || !std::isfinite(volume.normal_bias)
-            || volume.normal_bias < 0 || !std::isfinite(volume.bounce_strength)
-            || volume.bounce_strength < 0 || volume.bounce_strength > 1)
-            return Result<Math::Vec3u>::failure("实时探针 GI 的区域或更新预算无效");
-        const auto cells =
-            Math::max(Math::ceil(volume.half_extents * 2.0f / volume.spacing), Math::Vec3(2));
-        if(Math::any_greater(cells, Math::Vec3(64))
-            || double(cells.x) * cells.y * cells.z > IrradianceData::MAX_PROBES)
-            return Result<Math::Vec3u>::failure(
-                "实时探针 GI 超过 4096 探针预算，请增大间距或缩小区域");
-        return Result<Math::Vec3u>::success(Math::Vec3u(cells));
-    }
-
     Result<std::shared_ptr<RealtimeIrradiancePass::History>, GraphicsError> RealtimeIrradiancePass::
         create_history(const RenderIrradianceVolume& volume, Math::Vec3u dimensions) {
         using Created = Result<std::shared_ptr<History>, GraphicsError>;
@@ -407,7 +385,7 @@ namespace Comet {
             return Prepared::failure({"实时 GI 需要有效场景及 1～4 个区域"});
         std::array<Math::Vec3u, LightingData::MAX_IRRADIANCE_VOLUMES> dimensions;
         for(std::size_t i = 0; i < volumes.size(); ++i) {
-            const auto valid = validate_region(volumes[i]);
+            const auto valid = volumes[i].realtime_dimensions();
             if(!valid)
                 return Prepared::failure({valid.error()});
             dimensions[i] = valid.value();

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "scene/property.h"
+#include "reflection/type.h"
 
 namespace Comet {
     struct COMET_API ScriptComponent {

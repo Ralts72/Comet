@@ -36,8 +36,6 @@ namespace Comet {
         explicit RealtimeIrradiancePass(Device& device);
         ~RealtimeIrradiancePass();
         [[nodiscard]] static Result<void, GraphicsError> check_support(const Device& device);
-        [[nodiscard]] static Result<Math::Vec3u> validate_region(
-            const RenderIrradianceVolume& volume);
         [[nodiscard]] Result<std::vector<ResolvedIrradianceVolume>, GraphicsError> update(
             FrameScheduler& frames, uint64_t scene_lifetime,
             const std::shared_ptr<const RayScene>& scene,
